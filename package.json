@@ -1,0 +1,78 @@
+{
+  "name": "dockscope",
+  "version": "0.1.0",
+  "description": "Visual, interactive Docker infrastructure debugger — 3D dependency graph with live health, logs, and metrics",
+  "type": "module",
+  "bin": {
+    "dockscope": "./dist/cli.js"
+  },
+  "scripts": {
+    "dev": "concurrently -n server,client -c blue,green \"tsx watch src/cli.ts up --no-open\" \"vite\"",
+    "dev:server": "tsx watch src/cli.ts up --no-open",
+    "dev:client": "vite",
+    "build": "tsc -p tsconfig.server.json && vite build",
+    "start": "node dist/cli.js up",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix",
+    "format": "prettier --write 'src/**/*.{ts,svelte,css}'",
+    "format:check": "prettier --check 'src/**/*.{ts,svelte,css}'",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "docker",
+    "devops",
+    "visualization",
+    "3d",
+    "debugging",
+    "infrastructure",
+    "compose"
+  ],
+  "author": "Manuel Tomé",
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^12.1.0",
+    "cors": "^2.8.5",
+    "dockerode": "^4.0.4",
+    "express": "^4.21.0",
+    "open": "^10.1.0",
+    "ws": "^8.18.0",
+    "yaml": "^2.6.0"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^20.5.0",
+    "@commitlint/config-conventional": "^20.5.0",
+    "@eslint/js": "^10.0.1",
+    "@sveltejs/vite-plugin-svelte": "^5.1.1",
+    "@types/cors": "^2.8.17",
+    "@types/dockerode": "^3.3.31",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.9.0",
+    "@types/three": "^0.183.1",
+    "@types/ws": "^8.5.13",
+    "3d-force-graph": "^1.79.1",
+    "concurrently": "^9.1.0",
+    "eslint": "^10.1.0",
+    "eslint-plugin-svelte": "^3.16.0",
+    "prettier": "^3.8.1",
+    "prettier-plugin-svelte": "^3.5.1",
+    "svelte": "^5.55.0",
+    "svelte-eslint-parser": "^1.6.0",
+    "three": "^0.170.0",
+    "three-spritetext": "^1.9.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.57.2",
+    "vite": "^6.0.0"
+  },
+  "files": [
+    "dist/"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ManuelR-T/dockscope"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

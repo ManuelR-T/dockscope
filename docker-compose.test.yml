@@ -1,0 +1,84 @@
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+      - redis
+    networks:
+      - frontend
+      - backend
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  api:
+    image: node:20-alpine
+    command: sh -c "echo 'API running' && sleep infinity"
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - backend
+    environment:
+      DATABASE_URL: postgres://app:secret@postgres:5432/dockscope
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: production
+      SECRET_KEY: super-secret-token-123
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: dockscope
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  worker:
+    image: node:20-alpine
+    command: sh -c "echo 'Worker running' && sleep infinity"
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - backend
+    environment:
+      REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgres://app:secret@postgres:5432/dockscope
+
+  adminer:
+    image: adminer:latest
+    ports:
+      - "8081:8080"
+    depends_on:
+      - postgres
+    networks:
+      - backend
+
+networks:
+  frontend:
+  backend:
+
+volumes:
+  pgdata:

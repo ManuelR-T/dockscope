@@ -1,0 +1,167 @@
+import express from 'express';
+import { createServer } from 'http';
+import { WebSocketServer, WebSocket } from 'ws';
+import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import {
+  buildGraph,
+  checkConnection,
+  getContainerStats,
+  streamContainerLogs,
+  watchEvents,
+} from '../docker/client.js';
+import { setupRoutes } from './routes.js';
+import type { ServerOptions, GraphData, WSMessage } from '../types.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+export async function startServer(opts: ServerOptions): Promise<void> {
+  const app = express();
+  app.use(cors());
+  app.use(express.json());
+
+  const server = createServer(app);
+  const wss = new WebSocketServer({ server, path: '/ws' });
+
+  const connected = await checkConnection();
+  if (!connected) {
+    console.error('Cannot connect to Docker daemon. Is Docker running?');
+    process.exit(1);
+  }
+
+  // Metric history storage (shared with routes)
+  const metricHistory = new Map<string, { cpu: number; memory: number; time: number }[]>();
+
+  // REST routes
+  setupRoutes(app, opts, metricHistory);
+
+  // Serve built frontend in production
+  const webDir = path.resolve(__dirname, '../web');
+  app.use(express.static(webDir));
+  app.get('*', (_req, res) => {
+    res.sendFile(path.join(webDir, 'index.html'));
+  });
+
+  // --- WebSocket ---
+
+  const broadcast = (msg: WSMessage) => {
+    const data = JSON.stringify(msg);
+    wss.clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) client.send(data);
+    });
+  };
+
+  let cachedGraph: GraphData = { nodes: [], links: [] };
+
+  const refreshGraph = async () => {
+    try {
+      cachedGraph = await buildGraph(opts.composeFile);
+      broadcast({ type: 'graph', data: cachedGraph });
+    } catch {
+      /* Docker may be temporarily unavailable */
+    }
+  };
+
+  const refreshStats = async () => {
+    for (const node of cachedGraph.nodes) {
+      if (node.status !== 'running') continue;
+      try {
+        const stats = await getContainerStats(node.containerId);
+        broadcast({ type: 'stats', data: stats });
+
+        const shortId = node.containerId.substring(0, 12);
+        if (!metricHistory.has(shortId)) metricHistory.set(shortId, []);
+        const history = metricHistory.get(shortId)!;
+        history.push({ cpu: stats.cpu, memory: stats.memory, time: Date.now() });
+        if (history.length > 100) history.splice(0, history.length - 100);
+      } catch {
+        /* Container may have stopped */
+      }
+    }
+  };
+
+  const stopWatching = watchEvents(
+    (event) => {
+      broadcast({ type: 'event', data: event });
+      if (
+        ['start', 'stop', 'die', 'destroy', 'create', 'pause', 'unpause'].includes(event.action)
+      ) {
+        refreshGraph();
+      }
+    },
+    (err) => console.error('Docker event stream error:', err.message),
+  );
+
+  await refreshGraph();
+
+  const statsInterval = setInterval(refreshStats, 3000);
+  const graphInterval = setInterval(refreshGraph, 10000);
+
+  // Per-client log streams
+  const clientLogStreams = new Map<WebSocket, () => void>();
+
+  wss.on('connection', (ws) => {
+    ws.send(JSON.stringify({ type: 'graph', data: cachedGraph }));
+
+    ws.on('message', (raw) => {
+      try {
+        const msg = JSON.parse(raw.toString());
+        if (msg.type === 'subscribe_logs' && msg.data?.containerId) {
+          clientLogStreams.get(ws)?.();
+          const stop = streamContainerLogs(
+            msg.data.containerId,
+            (text) => {
+              if (ws.readyState === WebSocket.OPEN) {
+                ws.send(
+                  JSON.stringify({
+                    type: 'log_chunk',
+                    data: { containerId: msg.data.containerId, text },
+                  }),
+                );
+              }
+            },
+            (err) => {
+              if (ws.readyState === WebSocket.OPEN) {
+                ws.send(
+                  JSON.stringify({
+                    type: 'error',
+                    data: { message: `Log stream error: ${err.message}` },
+                  }),
+                );
+              }
+            },
+          );
+          clientLogStreams.set(ws, stop);
+        }
+        if (msg.type === 'unsubscribe_logs') {
+          clientLogStreams.get(ws)?.();
+          clientLogStreams.delete(ws);
+        }
+      } catch {
+        /* ignore */
+      }
+    });
+
+    ws.on('close', () => {
+      clientLogStreams.get(ws)?.();
+      clientLogStreams.delete(ws);
+    });
+  });
+
+  const shutdown = () => {
+    console.log('\nShutting down DockScope...');
+    clearInterval(statsInterval);
+    clearInterval(graphInterval);
+    stopWatching();
+    wss.close();
+    server.close();
+    process.exit(0);
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+
+  return new Promise((resolve) => {
+    server.listen(opts.port, () => resolve());
+  });
+}

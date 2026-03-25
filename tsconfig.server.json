@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "declaration": true,
+    "lib": ["ESNext"]
+  },
+  "include": ["src/cli.ts", "src/server/**/*", "src/docker/**/*", "src/types.ts"],
+  "exclude": ["node_modules", "dist", "src/web"]
+}

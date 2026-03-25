@@ -1,0 +1,126 @@
+import type { Express } from 'express';
+import {
+  buildGraph,
+  checkConnection,
+  composeAction,
+  containerAction,
+  getContainerLogs,
+  getContainerStats,
+  getSystemInfo,
+  inspectContainer,
+  listComposeProjects,
+} from '../docker/client.js';
+import type { ServerOptions } from '../types.js';
+
+export function setupRoutes(
+  app: Express,
+  opts: ServerOptions,
+  metricHistory: Map<string, { cpu: number; memory: number; time: number }[]>,
+): void {
+  app.get('/api/graph', async (_req, res) => {
+    try {
+      const graph = await buildGraph(opts.composeFile);
+      res.json(graph);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/containers/:id/logs', async (req, res) => {
+    try {
+      const tail = parseInt(req.query.tail as string) || 200;
+      const logs = await getContainerLogs(req.params.id, tail);
+      res.json({ logs });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/containers/:id/stats', async (req, res) => {
+    try {
+      const stats = await getContainerStats(req.params.id);
+      res.json(stats);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/health', async (_req, res) => {
+    const dockerOk = await checkConnection();
+    res.json({ status: dockerOk ? 'ok' : 'docker_unavailable' });
+  });
+
+  app.post('/api/containers/:id/restart', async (req, res) => {
+    try {
+      await containerAction(req.params.id, 'restart');
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/containers/:id/stop', async (req, res) => {
+    try {
+      await containerAction(req.params.id, 'stop');
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/containers/:id/start', async (req, res) => {
+    try {
+      await containerAction(req.params.id, 'start');
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/containers/:id/inspect', async (req, res) => {
+    try {
+      const info = await inspectContainer(req.params.id);
+      res.json(info);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/containers/:id/history', (req, res) => {
+    const history = metricHistory.get(req.params.id.substring(0, 12)) || [];
+    res.json(history);
+  });
+
+  app.get('/api/system', async (_req, res) => {
+    try {
+      const info = await getSystemInfo();
+      res.json(info);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Compose project management
+  app.get('/api/projects', async (_req, res) => {
+    try {
+      const projects = await listComposeProjects();
+      res.json(projects);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/projects/:name/:action', async (req, res) => {
+    const { name, action } = req.params;
+    if (!['up', 'down', 'stop', 'start', 'restart'].includes(action)) {
+      res.status(400).json({ error: `Invalid action: ${action}` });
+      return;
+    }
+    try {
+      const result = await composeAction(name, action as any);
+      res.json({ ok: true, message: result });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+}
