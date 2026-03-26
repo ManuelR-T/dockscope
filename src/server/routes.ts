@@ -6,9 +6,11 @@ import {
   containerAction,
   getContainerLogs,
   getContainerStats,
+  getContainerTop,
   getSystemInfo,
   inspectContainer,
   listComposeProjects,
+  removeContainer,
 } from '../docker/client.js';
 import type { ServerOptions } from '../types.js';
 
@@ -72,6 +74,52 @@ export function setupRoutes(
     try {
       await containerAction(req.params.id, 'start');
       res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/containers/:id/pause', async (req, res) => {
+    try {
+      await containerAction(req.params.id, 'pause');
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/containers/:id/unpause', async (req, res) => {
+    try {
+      await containerAction(req.params.id, 'unpause');
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/containers/:id/kill', async (req, res) => {
+    try {
+      await containerAction(req.params.id, 'kill');
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/containers/:id', async (req, res) => {
+    try {
+      const volumes = req.query.volumes === 'true';
+      await removeContainer(req.params.id, volumes);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/containers/:id/top', async (req, res) => {
+    try {
+      const top = await getContainerTop(req.params.id);
+      res.json(top);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

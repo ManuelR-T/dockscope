@@ -90,7 +90,7 @@ export function ansiToHtml(text: string): string {
 
   // Fast path: no escape codes at all
   if (!text.includes('\x1b') && !text.includes('\u001b')) {
-    return escapeHtml(text);
+    return colorLogLevels(shortenTimestamps(escapeHtml(text)));
   }
 
   const result: string[] = [];

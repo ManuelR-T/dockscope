@@ -433,10 +433,12 @@ body {
 
 /* Sidebar: empty state */
 .sidebar-empty {
-  padding: 32px 24px;
+  padding: 32px 24px 24px;
   flex: 1;
   display: flex;
   flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .sidebar-empty .brand {
@@ -615,6 +617,90 @@ body {
 }
 
 .act-icon:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.act-icon.warning {
+  color: var(--accent-amber);
+  background: var(--accent-amber-dim);
+  border-color: rgba(255, 138, 43, 0.12);
+}
+.act-icon.warning:hover:not(:disabled) {
+  background: rgba(255, 138, 43, 0.14);
+  border-color: rgba(255, 138, 43, 0.3);
+  box-shadow: 0 0 10px rgba(255, 138, 43, 0.12);
+}
+
+/* More actions dropdown (fixed position, outside sidebar stacking context) */
+.more-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 99;
+}
+.more-menu {
+  position: fixed;
+  background: #0c0e1e;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 4px 0;
+  min-width: 160px;
+  z-index: 100;
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.8),
+    0 0 0 1px rgba(0, 0, 0, 0.4);
+}
+.more-item {
+  display: block;
+  width: 100%;
+  padding: 6px 14px;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.more-item:hover {
+  background: #121428;
+}
+.more-item.danger {
+  color: var(--accent-red);
+}
+.more-item.danger:hover {
+  background: #1a0a12;
+}
+
+/* Paused status dot */
+.status-dot.paused {
+  background: var(--accent-purple);
+  box-shadow: 0 0 8px rgba(168, 85, 247, 0.35);
+}
+
+/* Log export button */
+.log-export-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: none;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.2s;
+  padding: 0;
+  flex-shrink: 0;
+}
+.log-export-btn:hover:not(:disabled) {
+  color: var(--accent-cyan);
+  border-color: var(--border-glow);
+}
+.log-export-btn:disabled {
   opacity: 0.3;
   cursor: not-allowed;
 }
