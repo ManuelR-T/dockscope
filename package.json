@@ -7,9 +7,7 @@
     "dockscope": "dist/cli.js"
   },
   "scripts": {
-    "dev": "concurrently -n server,client -c blue,green \"tsx watch src/cli.ts up --no-open\" \"vite\"",
-    "dev:server": "tsx watch src/cli.ts up --no-open",
-    "dev:client": "vite",
+    "dev": "DOCKSCOPE_DEV=1 tsx watch src/cli.ts up --no-port-check",
     "build": "tsc -p tsconfig.server.json && vite build",
     "start": "node dist/cli.js up",
     "typecheck": "tsc --noEmit",

@@ -11,8 +11,9 @@ import { buildGraph, checkConnection } from './docker/client.js';
 function isPortInUse(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const conn = createConnection({ port, host: '127.0.0.1' });
-    conn.on('connect', () => { conn.destroy(); resolve(true); });
-    conn.on('error', () => { resolve(false); });
+    const timeout = setTimeout(() => { conn.destroy(); resolve(false); }, 500);
+    conn.on('connect', () => { clearTimeout(timeout); conn.destroy(); resolve(true); });
+    conn.on('error', () => { clearTimeout(timeout); resolve(false); });
   });
 }
 
@@ -45,9 +46,10 @@ program
   .description('Start the DockScope dashboard')
   .option('-p, --port <port>', 'Server port', '4681')
   .option('--no-open', "Don't open browser automatically")
+  .option('--no-port-check', 'Skip port conflict detection')
   .action(async (opts) => {
     const requestedPort = parseInt(opts.port, 10);
-    const port = await findAvailablePort(requestedPort);
+    const port = opts.portCheck === false ? requestedPort : await findAvailablePort(requestedPort);
 
     console.log(`
   ____             _    ____

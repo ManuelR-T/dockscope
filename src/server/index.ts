@@ -36,12 +36,26 @@ export async function startServer(opts: ServerOptions): Promise<void> {
   // REST routes
   setupRoutes(app, opts, metricHistory);
 
-  // Serve built frontend in production
-  const webDir = path.resolve(__dirname, '../web');
-  app.use(express.static(webDir));
-  app.get('*', (_req, res) => {
-    res.sendFile(path.join(webDir, 'index.html'));
-  });
+  // Frontend: Vite dev server (HMR) or static files (production)
+  if (process.env.DOCKSCOPE_DEV === '1') {
+    try {
+      const { createServer: createVite } = await import('vite');
+      const vite = await createVite({
+        server: { middlewareMode: true, hmr: { server } },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+    } catch {
+      console.error('Vite not found — install devDependencies for dev mode');
+      process.exit(1);
+    }
+  } else {
+    const webDir = path.resolve(__dirname, '../web');
+    app.use(express.static(webDir));
+    app.get('*', (_req, res) => {
+      res.sendFile(path.join(webDir, 'index.html'));
+    });
+  }
 
   // --- WebSocket ---
 
