@@ -4,7 +4,7 @@
   "description": "Visual, interactive Docker infrastructure debugger — 3D dependency graph with live health, logs, and metrics",
   "type": "module",
   "bin": {
-    "dockscope": "./dist/cli.js"
+    "dockscope": "dist/cli.js"
   },
   "scripts": {
     "dev": "concurrently -n server,client -c blue,green \"tsx watch src/cli.ts up --no-open\" \"vite\"",
@@ -70,7 +70,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/ManuelR-T/dockscope"
+    "url": "git+https://github.com/ManuelR-T/dockscope.git"
   },
   "engines": {
     "node": ">=18"
