@@ -104,7 +104,6 @@
       {searchQuery}
       {statusFilter}
       onHelpClick={() => (showHelp = !showHelp)}
-      {statusbarHeight}
     />
     <div class="graph-vignette"></div>
     <div class="graph-scanlines"></div>
