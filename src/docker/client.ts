@@ -6,6 +6,7 @@ import type {
   GraphData,
   ContainerStats,
   ContainerInspect,
+  ContainerTopResult,
   SystemInfo,
   DockerEvent,
 } from '../types.js';
@@ -231,10 +232,24 @@ export async function composeAction(
 
 export async function containerAction(
   containerId: string,
-  action: 'start' | 'stop' | 'restart',
+  action: 'start' | 'stop' | 'restart' | 'pause' | 'unpause' | 'kill',
 ): Promise<void> {
   const container = docker.getContainer(containerId);
   await (container[action] as () => Promise<void>)();
+}
+
+export async function removeContainer(
+  containerId: string,
+  removeVolumes: boolean = false,
+): Promise<void> {
+  const container = docker.getContainer(containerId);
+  await container.remove({ force: true, v: removeVolumes });
+}
+
+export async function getContainerTop(containerId: string): Promise<ContainerTopResult> {
+  const container = docker.getContainer(containerId);
+  const top = await container.top();
+  return { titles: top.Titles || [], processes: top.Processes || [] };
 }
 
 export async function inspectContainer(containerId: string): Promise<ContainerInspect> {

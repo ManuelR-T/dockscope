@@ -1,7 +1,7 @@
 // --- UI layout ---
 export const UI = {
-  sidebar: { min: 260, max: 600, default: 380 },
-  statusbar: { min: 80, max: 400, default: 170 },
+  sidebar: { min: 260, max: 800, default: 480 },
+  statusbar: { min: 80, max: 400, default: 230 },
 } as const;
 
 // --- Docker polling ---

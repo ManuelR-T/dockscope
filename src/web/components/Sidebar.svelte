@@ -1,9 +1,11 @@
 <script lang="ts">
   import { onDestroy, untrack } from 'svelte';
   import { subscribeLogs, unsubscribeLogs, addToast } from '../stores/docker.svelte';
+  import ConfirmDialog from './ConfirmDialog.svelte';
   import SidebarInfo from './sidebar/SidebarInfo.svelte';
   import SidebarEnv from './sidebar/SidebarEnv.svelte';
   import SidebarLogs from './sidebar/SidebarLogs.svelte';
+  import SidebarTop from './sidebar/SidebarTop.svelte';
   import type { ServiceNode, ContainerStats, ContainerInspect, MetricPoint } from '../../types';
 
   interface Props {
@@ -16,10 +18,20 @@
   let stats = $state<ContainerStats | null>(null);
   let inspect = $state<ContainerInspect | null>(null);
   let history = $state<MetricPoint[]>([]);
-  let activeTab = $state<'info' | 'env' | 'logs'>('info');
+  let activeTab = $state<'info' | 'env' | 'logs' | 'top'>('info');
   let actionPending = $state(false);
+  let showMore = $state(false);
+  let moreBtn = $state<HTMLElement | null>(null);
+  let confirmDialog = $state<{
+    title: string;
+    message: string;
+    confirmLabel: string;
+    variant: 'warning' | 'danger';
+    typeToConfirm?: string;
+    action: () => Promise<void>;
+  } | null>(null);
 
-  async function doAction(action: 'start' | 'stop' | 'restart') {
+  async function doAction(action: string) {
     if (!node || actionPending) return;
     actionPending = true;
     try {
@@ -37,12 +49,39 @@
     }
   }
 
+  async function doRemove(withVolumes: boolean) {
+    if (!node || actionPending) return;
+    actionPending = true;
+    try {
+      const res = await fetch(`/api/containers/${node.containerId}?volumes=${withVolumes}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        addToast(`Failed to remove: ${err.error}`, 'error');
+      } else {
+        addToast(`Container removed${withVolumes ? ' with volumes' : ''}`, 'success');
+        onClose();
+      }
+    } catch {
+      addToast('Failed to remove', 'error');
+    } finally {
+      actionPending = false;
+    }
+  }
+
+  function confirm(opts: typeof confirmDialog) {
+    showMore = false;
+    confirmDialog = opts;
+  }
+
   // Fetch stats + inspect + history when node changes
   $effect(() => {
     if (!node) return;
     activeTab = 'info';
     inspect = null;
     history = [];
+    showMore = false;
 
     if (node.status === 'running') {
       fetch(`/api/containers/${node.containerId}/stats`)
@@ -105,12 +144,30 @@
             ? node.health === 'unhealthy'
               ? 'unhealthy'
               : 'running'
-            : 'exited'}"
+            : node.status === 'paused'
+              ? 'paused'
+              : 'exited'}"
         ></span>
         <h3>{node.name}</h3>
       </div>
       <div class="header-right">
         {#if node.status === 'running'}
+          <button
+            class="act-icon warning"
+            title="Pause"
+            onclick={() => doAction('pause')}
+            disabled={actionPending}
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"
+              ><rect x="5" y="4" width="4" height="16" rx="1" /><rect
+                x="15"
+                y="4"
+                width="4"
+                height="16"
+                rx="1"
+              /></svg
+            >
+          </button>
           <button
             class="act-icon"
             class:spinning={actionPending}
@@ -134,12 +191,50 @@
           <button
             class="act-icon danger"
             title="Stop"
-            onclick={() => doAction('stop')}
+            onclick={() =>
+              confirm({
+                title: 'Stop Container',
+                message: `Stop ${node.name}? The container will be gracefully terminated.`,
+                confirmLabel: 'Stop',
+                variant: 'warning',
+                action: () => doAction('stop'),
+              })}
             disabled={actionPending}
           >
             <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"
               ><rect x="4" y="4" width="16" height="16" rx="2" /></svg
             >
+          </button>
+        {:else if node.status === 'paused'}
+          <button
+            class="act-icon success"
+            title="Unpause"
+            onclick={() => doAction('unpause')}
+            disabled={actionPending}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"
+              ><polygon points="6,3 20,12 6,21" /></svg
+            >
+          </button>
+          <button
+            class="act-icon"
+            class:spinning={actionPending}
+            title="Restart"
+            onclick={() => doAction('restart')}
+            disabled={actionPending}
+          >
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" />
+            </svg>
           </button>
         {:else}
           <button
@@ -153,6 +248,26 @@
             >
           </button>
         {/if}
+
+        <!-- More actions trigger -->
+        <button
+          class="act-icon"
+          title="More actions"
+          onclick={(e) => {
+            moreBtn = e.currentTarget as HTMLElement;
+            showMore = !showMore;
+          }}
+          disabled={actionPending}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"
+            ><circle cx="12" cy="5" r="2" /><circle cx="12" cy="12" r="2" /><circle
+              cx="12"
+              cy="19"
+              r="2"
+            /></svg
+          >
+        </button>
+
         <span class="header-sep"></span>
         <button class="close-btn" onclick={onClose}>&times;</button>
       </div>
@@ -170,14 +285,93 @@
         class="tab {activeTab === 'logs' ? 'active' : ''}"
         onclick={() => (activeTab = 'logs')}>Logs</button
       >
+      {#if node.status === 'running' || node.status === 'paused'}
+        <button
+          class="tab {activeTab === 'top' ? 'active' : ''}"
+          onclick={() => (activeTab = 'top')}>Top</button
+        >
+      {/if}
     </div>
 
     {#if activeTab === 'info'}
       <SidebarInfo {node} {stats} {inspect} {history} />
     {:else if activeTab === 'env'}
       <SidebarEnv {inspect} />
-    {:else}
+    {:else if activeTab === 'logs'}
       <SidebarLogs />
+    {:else if activeTab === 'top'}
+      <SidebarTop containerId={node.containerId} />
     {/if}
   {/if}
 </div>
+
+{#if showMore && node && moreBtn}
+  <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
+  <div class="more-backdrop" onclick={() => (showMore = false)} onkeydown={() => {}}></div>
+  <div
+    class="more-menu"
+    style="top: {moreBtn.getBoundingClientRect().bottom + 4}px; right: {window.innerWidth -
+      moreBtn.getBoundingClientRect().right}px;"
+  >
+    {#if node.status === 'running' || node.status === 'paused'}
+      <button
+        class="more-item"
+        onclick={() => {
+          showMore = false;
+          confirm({
+            title: 'Kill Container',
+            message: `Forcefully terminate ${node.name}? This sends SIGKILL — no graceful shutdown.`,
+            confirmLabel: 'Kill',
+            variant: 'warning',
+            action: () => doAction('kill'),
+          });
+        }}>Kill</button
+      >
+    {/if}
+    <button
+      class="more-item danger"
+      onclick={() => {
+        showMore = false;
+        confirm({
+          title: 'Remove Container',
+          message: `Permanently remove ${node.name}? This deletes the container.`,
+          confirmLabel: 'Remove',
+          variant: 'danger',
+          typeToConfirm: node.name,
+          action: () => doRemove(false),
+        });
+      }}>Remove</button
+    >
+    <button
+      class="more-item danger"
+      onclick={() => {
+        showMore = false;
+        confirm({
+          title: 'Remove with Volumes',
+          message: `Remove ${node.name} and ALL its volumes? This is irreversible.`,
+          confirmLabel: 'Remove + Volumes',
+          variant: 'danger',
+          typeToConfirm: node.name,
+          action: () => doRemove(true),
+        });
+      }}>Remove + Volumes</button
+    >
+  </div>
+{/if}
+
+{#if confirmDialog}
+  <ConfirmDialog
+    title={confirmDialog.title}
+    message={confirmDialog.message}
+    confirmLabel={confirmDialog.confirmLabel}
+    variant={confirmDialog.variant}
+    typeToConfirm={confirmDialog.typeToConfirm}
+    onConfirm={() => {
+      confirmDialog?.action();
+      confirmDialog = null;
+    }}
+    onCancel={() => {
+      confirmDialog = null;
+    }}
+  />
+{/if}

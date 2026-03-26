@@ -87,6 +87,11 @@ export interface SystemInfo {
   images: number;
 }
 
+export interface ContainerTopResult {
+  titles: string[];
+  processes: string[][];
+}
+
 export interface MetricPoint {
   cpu: number;
   memory: number;
