@@ -42,7 +42,7 @@ program
   .version(VERSION);
 
 program
-  .command('up')
+  .command('up', { isDefault: true })
   .description('Start the DockScope dashboard')
   .option('-p, --port <port>', 'Server port', '4681')
   .option('--no-open', "Don't open browser automatically")
