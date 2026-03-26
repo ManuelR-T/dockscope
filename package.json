@@ -1,6 +1,6 @@
 {
   "name": "dockscope",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "Visual, interactive Docker infrastructure debugger — 3D dependency graph with live health, logs, and metrics",
   "type": "module",
   "bin": {
