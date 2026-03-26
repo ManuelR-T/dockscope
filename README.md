@@ -139,30 +139,7 @@ Docker daemon
 
 ## Contributing
 
-This project uses [Conventional Commits](https://www.conventionalcommits.org/). All commit messages must follow the format:
-
-```
-type(scope): description
-
-feat: add new feature
-fix: fix a bug
-docs: update documentation
-refactor: code restructuring
-chore: maintenance tasks
-```
-
-### Setup
-
-1. Fork the repo on GitHub
-2. Clone your fork: `git clone https://github.com/<your-username>/dockscope.git`
-3. `npm install`
-4. Create a branch: `git checkout -b feat/my-feature`
-5. `npm run dev` to start development
-6. Make your changes
-7. `npm run lint && npm run format:check && npm run build` to verify
-8. Commit with conventional messages: `git commit -m "feat: add my feature"`
-9. Push to your fork: `git push origin feat/my-feature`
-10. Open a PR against `main` on the upstream repo
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, commit conventions, and CI requirements.
 
 ## License
 
