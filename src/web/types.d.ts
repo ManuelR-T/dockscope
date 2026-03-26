@@ -1,3 +1,5 @@
+declare const __APP_VERSION__: string;
+
 declare module '3d-force-graph' {
   export default function ForceGraph3D(): (element: HTMLElement) => ForceGraph3DInstance;
 
