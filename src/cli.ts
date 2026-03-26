@@ -11,9 +11,19 @@ import { buildGraph, checkConnection } from './docker/client.js';
 function isPortInUse(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const conn = createConnection({ port, host: '127.0.0.1' });
-    const timeout = setTimeout(() => { conn.destroy(); resolve(false); }, 500);
-    conn.on('connect', () => { clearTimeout(timeout); conn.destroy(); resolve(true); });
-    conn.on('error', () => { clearTimeout(timeout); resolve(false); });
+    const timeout = setTimeout(() => {
+      conn.destroy();
+      resolve(false);
+    }, 500);
+    conn.on('connect', () => {
+      clearTimeout(timeout);
+      conn.destroy();
+      resolve(true);
+    });
+    conn.on('error', () => {
+      clearTimeout(timeout);
+      resolve(false);
+    });
   });
 }
 
