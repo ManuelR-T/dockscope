@@ -23,8 +23,10 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             npx commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }} --verbose
-          else
+          elif git rev-parse HEAD~1 >/dev/null 2>&1; then
             npx commitlint --from HEAD~1 --to HEAD --verbose
+          else
+            echo "${{ github.event.head_commit.message }}" | npx commitlint --verbose
           fi
 
   lint-format:
