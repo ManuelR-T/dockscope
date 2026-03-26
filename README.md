@@ -65,7 +65,7 @@ npm install
 npm run dev
 ```
 
-This starts the backend on port `4681` and the Vite dev server on port `4680` with hot reload.
+This starts the server on port `4681` with Vite HMR embedded — single port, same as production.
 
 ### Scripts
 
