@@ -16,18 +16,9 @@
     searchQuery: string;
     statusFilter: Set<string>;
     onHelpClick: () => void;
-    statusbarHeight?: number;
   }
 
-  let {
-    data,
-    onNodeClick,
-    selectedNode,
-    searchQuery,
-    statusFilter,
-    onHelpClick,
-    statusbarHeight = 170,
-  }: Props = $props();
+  let { data, onNodeClick, selectedNode, searchQuery, statusFilter, onHelpClick }: Props = $props();
 
   // --- Derived importance ---
   let importanceMap = $derived(computeImportance(data.nodes, data.links));
@@ -317,7 +308,7 @@
 <div class="graph-wrapper">
   <div bind:this={container} style="width: 100%; height: 100%;"></div>
 
-  <div class="graph-controls" style="bottom: {statusbarHeight + 16}px;">
+  <div class="graph-controls">
     <button class="graph-ctrl-btn" title="Zoom to fit (F)" onclick={zoomToFit}>
       <svg
         width="16"
@@ -378,6 +369,7 @@
   .graph-controls {
     position: absolute;
     left: 16px;
+    bottom: 16px;
     display: flex;
     flex-direction: column;
     gap: 4px;

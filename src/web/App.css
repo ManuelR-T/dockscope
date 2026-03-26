@@ -89,7 +89,10 @@ body {
 /* ---- Graph (full viewport background) ---- */
 .graph-layer {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
+  right: var(--sidebar-w, 380px);
+  bottom: var(--statusbar-h, 170px);
   z-index: 0;
 }
 
@@ -351,8 +354,8 @@ body {
 /* ---- Empty State ---- */
 .empty-state {
   position: absolute;
-  top: 50%;
-  left: calc(50% - var(--sidebar-w, 380px) / 2);
+  top: calc((100% - var(--statusbar-h, 170px)) / 2);
+  left: calc((100% - var(--sidebar-w, 380px)) / 2);
   transform: translate(-50%, -50%);
   text-align: center;
   z-index: 10;
