@@ -115,7 +115,7 @@
     <!-- Brand cluster -->
     <div class="hud-group brand-group">
       <span class="hud-logo">DockScope</span>
-      <span class="hud-version">v0.1</span>
+      <span class="hud-version">v{__APP_VERSION__}</span>
     </div>
 
     <!-- Status + actions cluster -->
