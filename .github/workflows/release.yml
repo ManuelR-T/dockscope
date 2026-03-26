@@ -28,6 +28,7 @@ jobs:
   release:
     name: Version Bump & Publish
     runs-on: ubuntu-latest
+    environment: npm
     # Only run if the commit message doesn't already contain a version bump
     if: "!contains(github.event.head_commit.message, 'chore: release')"
     steps:
@@ -108,5 +109,3 @@ jobs:
 
       - name: Publish to npm
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
