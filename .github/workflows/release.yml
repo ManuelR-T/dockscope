@@ -91,6 +91,12 @@ jobs:
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
           echo "Bumped to $NEW_VERSION (${{ steps.bump.outputs.type }})"
 
+      - name: Rebuild with bumped version
+        run: npm run build
+
+      - name: Publish to npm
+        run: npm publish --ignore-scripts --provenance --access public
+
       - name: Commit version bump
         run: |
           git config user.name "github-actions[bot]"
@@ -106,6 +112,3 @@ jobs:
           tag_name: ${{ steps.version.outputs.version }}
           name: ${{ steps.version.outputs.version }}
           generate_release_notes: true
-
-      - name: Publish to npm
-        run: npm publish --provenance --access public
