@@ -8,6 +8,17 @@ on:
       - '.github/**'
       - '.prettierrc'
       - 'eslint.config.js'
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump type (leave empty for auto-detect)'
+        required: false
+        type: choice
+        options:
+          - auto
+          - patch
+          - minor
+          - major
 
 permissions:
   contents: write
@@ -50,6 +61,13 @@ jobs:
       - name: Determine version bump
         id: bump
         run: |
+          MANUAL="${{ github.event.inputs.bump || 'auto' }}"
+          if [ "$MANUAL" != "auto" ]; then
+            echo "type=$MANUAL" >> $GITHUB_OUTPUT
+            echo "Manual bump: $MANUAL"
+            exit 0
+          fi
+
           if git describe --tags --abbrev=0 >/dev/null 2>&1; then
             LAST_TAG=$(git describe --tags --abbrev=0)
             COMMITS=$(git log ${LAST_TAG}..HEAD --oneline)
