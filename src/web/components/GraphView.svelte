@@ -208,7 +208,15 @@
   // --- Graph data update (structure or status change) ---
   let prevGraphKey = '';
   $effect(() => {
-    if (!graph || data.nodes.length === 0) return;
+    if (!graph) return;
+    if (data.nodes.length === 0) {
+      if (prevGraphKey !== '') {
+        prevGraphKey = '';
+        warningRings.length = 0;
+        graph.graphData({ nodes: [], links: [] });
+      }
+      return;
+    }
     const graphKey = data.nodes
       .map((n) => `${n.id}:${n.status}:${n.health}`)
       .sort()
