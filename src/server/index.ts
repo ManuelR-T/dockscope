@@ -56,7 +56,7 @@ export async function startServer(opts: ServerOptions): Promise<void> {
 
   const refreshGraph = async () => {
     try {
-      cachedGraph = await buildGraph(opts.composeFile);
+      cachedGraph = await buildGraph();
       broadcast({ type: 'graph', data: cachedGraph });
     } catch {
       /* Docker may be temporarily unavailable */

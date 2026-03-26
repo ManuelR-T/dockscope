@@ -19,7 +19,7 @@ export function setupRoutes(
 ): void {
   app.get('/api/graph', async (_req, res) => {
     try {
-      const graph = await buildGraph(opts.composeFile);
+      const graph = await buildGraph();
       res.json(graph);
     } catch (err: any) {
       res.status(500).json({ error: err.message });

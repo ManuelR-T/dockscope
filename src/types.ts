@@ -95,6 +95,5 @@ export interface MetricPoint {
 
 export interface ServerOptions {
   port: number;
-  composeFile: string;
   open: boolean;
 }
