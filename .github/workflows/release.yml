@@ -104,6 +104,7 @@ jobs:
           git add package.json package-lock.json
           git commit -m "chore: release ${{ steps.version.outputs.version }}"
           git tag ${{ steps.version.outputs.version }}
+          git remote set-url origin https://x-access-token:${{ secrets.RELEASE_TOKEN }}@github.com/${{ github.repository }}.git
           git push origin main --tags
 
       - name: Create GitHub Release
