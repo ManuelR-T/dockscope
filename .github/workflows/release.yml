@@ -27,7 +27,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           registry-url: https://registry.npmjs.org
 
@@ -35,7 +35,12 @@ jobs:
 
       # Validate commit messages + lint + build
       - name: Validate last commit
-        run: npx commitlint --from HEAD~1 --to HEAD --verbose
+        run: |
+          if git rev-parse HEAD~1 >/dev/null 2>&1; then
+            npx commitlint --from HEAD~1 --to HEAD --verbose
+          else
+            echo "${{ github.event.head_commit.message }}" | npx commitlint --verbose
+          fi
       - run: npm run format:check
       - run: npm run lint
       - run: npm run build
@@ -45,8 +50,12 @@ jobs:
       - name: Determine version bump
         id: bump
         run: |
-          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-          COMMITS=$(git log ${LAST_TAG}..HEAD --oneline)
+          if git describe --tags --abbrev=0 >/dev/null 2>&1; then
+            LAST_TAG=$(git describe --tags --abbrev=0)
+            COMMITS=$(git log ${LAST_TAG}..HEAD --oneline)
+          else
+            COMMITS=$(git log --oneline)
+          fi
 
           if echo "$COMMITS" | grep -qiE "BREAKING CHANGE|^.+!:"; then
             echo "type=major" >> $GITHUB_OUTPUT
