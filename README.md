@@ -42,10 +42,11 @@ Requires Docker to be running. Opens a browser at `http://localhost:4681`.
 ```
 dockscope up [options]
 
-  -p, --port <port>   Server port (default: 4681)
-  -f, --file <path>   Docker Compose file path (default: auto-detect)
+  -p, --port <port>   Server port (default: 4681, auto-increments if in use)
   --no-open           Don't open browser automatically
 ```
+
+Docker Compose files are auto-detected (`compose.yml`, `docker-compose.yml`, etc.) and dependencies are read from container labels at runtime — no configuration needed.
 
 ### Scan Mode
 
