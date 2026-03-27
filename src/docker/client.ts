@@ -1,11 +1,12 @@
 import Dockerode from 'dockerode';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 import type {
   ServiceNode,
   GraphData,
   ContainerStats,
   ContainerInspect,
+  ContainerDiffEntry,
   ContainerTopResult,
   SystemInfo,
   DockerEvent,
@@ -61,6 +62,7 @@ export async function buildGraph(composeFile?: string): Promise<GraphData> {
     nodes.push({
       id: shortId,
       name: serviceName,
+      fullName: container.Names[0]?.replace(/^\//, '') || serviceName,
       project,
       containerId: container.Id,
       image: container.Image,
@@ -74,6 +76,7 @@ export async function buildGraph(composeFile?: string): Promise<GraphData> {
         ),
       ],
       networks: Object.keys(container.NetworkSettings?.Networks || {}),
+      volumeCount: (container.Mounts || []).length,
       cpu: 0,
       memory: 0,
       memoryLimit: 0,
@@ -111,7 +114,7 @@ export const streamContainerLogs = (
   onError?: (e: Error) => void,
 ) => _streamLogs(docker, id, onData, onError);
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 // --- Project metadata cache (survives docker compose down) ---
 interface ProjectMeta {
@@ -175,7 +178,7 @@ async function getProjectContainers(project: string) {
 function getComposeCommand(
   project: string,
   containers: any[],
-): { cmd: string; cwd: string } | null {
+): { args: string[]; cwd: string } | null {
   // Try live container labels first
   let workDir = containers[0]?.Labels['com.docker.compose.project.working_dir'];
   let configFiles = containers[0]?.Labels['com.docker.compose.project.config_files'];
@@ -190,25 +193,32 @@ function getComposeCommand(
   }
 
   if (!workDir || !configFiles) return null;
-  const fileFlags = configFiles
-    .split(',')
-    .map((f: string) => `-f "${f.trim()}"`)
-    .join(' ');
-  return { cmd: `docker compose ${fileFlags}`, cwd: workDir };
+  const args = configFiles.split(',').flatMap((f: string) => ['-f', f.trim()]);
+  return { args, cwd: workDir };
 }
 
 /** Run a docker compose action on a specific project */
 export async function composeAction(
   project: string,
-  action: 'up' | 'down' | 'stop' | 'start' | 'restart',
+  action: 'up' | 'down' | 'destroy' | 'stop' | 'start' | 'restart',
 ): Promise<string> {
   const containers = await getProjectContainers(project);
 
-  if (action === 'up' || action === 'down') {
+  if (action === 'up' || action === 'down' || action === 'destroy') {
     const compose = getComposeCommand(project, containers);
     if (compose) {
-      const subCmd = action === 'up' ? 'up -d' : 'down';
-      const { stdout, stderr } = await execAsync(`${compose.cmd} ${subCmd}`, { cwd: compose.cwd });
+      const subArgs =
+        action === 'up'
+          ? ['up', '-d']
+          : action === 'destroy'
+            ? ['down', '-v', '--remove-orphans']
+            : ['down'];
+      const { stdout, stderr } = await execFileAsync(
+        'docker',
+        ['compose', ...compose.args, ...subArgs],
+        { cwd: compose.cwd },
+      );
+      if (action === 'destroy') projectCache.delete(project);
       return stdout || stderr || `${action} completed`;
     }
     if (action === 'up') {
@@ -217,7 +227,7 @@ export async function composeAction(
       }
       return `Started containers in project ${project}`;
     }
-    return 'Could not find compose config for down';
+    return 'Could not find compose config';
   }
 
   // stop / start / restart — act on individual containers
@@ -250,6 +260,45 @@ export async function getContainerTop(containerId: string): Promise<ContainerTop
   const container = docker.getContainer(containerId);
   const top = await container.top();
   return { titles: top.Titles || [], processes: top.Processes || [] };
+}
+
+/** Create an interactive exec session, returns a bidirectional stream */
+export async function createExecSession(
+  containerId: string,
+  cmd: string[] = ['/bin/sh'],
+): Promise<{
+  stream: NodeJS.ReadWriteStream;
+  inspect: () => Promise<{ Running: boolean; ExitCode: number }>;
+}> {
+  const container = docker.getContainer(containerId);
+  const exec = await container.exec({
+    Cmd: cmd,
+    AttachStdin: true,
+    AttachStdout: true,
+    AttachStderr: true,
+    Tty: true,
+  });
+  const stream = await exec.start({ hijack: true, stdin: true, Tty: true });
+  return {
+    stream,
+    inspect: () =>
+      exec.inspect().then((info: any) => ({ Running: info.Running, ExitCode: info.ExitCode })),
+  };
+}
+
+const DIFF_KIND_MAP: Record<number, 'A' | 'C' | 'D'> = { 0: 'C', 1: 'A', 2: 'D' };
+
+export async function getContainerDiff(containerId: string): Promise<ContainerDiffEntry[]> {
+  const container = docker.getContainer(containerId);
+  const diff = await Promise.race([
+    container.changes(),
+    new Promise<null>((_, reject) => setTimeout(() => reject(new Error('Diff timed out')), 10000)),
+  ]);
+  if (!diff) return [];
+  return diff.map((d: any) => ({
+    kind: DIFF_KIND_MAP[d.Kind] || 'C',
+    path: d.Path,
+  }));
 }
 
 export async function inspectContainer(containerId: string): Promise<ContainerInspect> {

@@ -1,6 +1,7 @@
 export interface ServiceNode {
   id: string;
   name: string;
+  fullName: string;
   project: string;
   containerId: string;
   image: string;
@@ -8,6 +9,7 @@ export interface ServiceNode {
   health: 'healthy' | 'unhealthy' | 'starting' | 'none';
   ports: string[];
   networks: string[];
+  volumeCount: number;
   cpu: number;
   memory: number;
   memoryLimit: number;
@@ -85,6 +87,11 @@ export interface SystemInfo {
   containersRunning: number;
   containersStopped: number;
   images: number;
+}
+
+export interface ContainerDiffEntry {
+  kind: 'A' | 'C' | 'D'; // Added, Changed, Deleted
+  path: string;
 }
 
 export interface ContainerTopResult {

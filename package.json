@@ -48,6 +48,8 @@
     "@types/node": "^22.9.0",
     "@types/three": "^0.183.1",
     "@types/ws": "^8.5.13",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "3d-force-graph": "^1.79.1",
     "concurrently": "^9.1.0",
     "eslint": "^10.1.0",

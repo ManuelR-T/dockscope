@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import {
   buildGraph,
   checkConnection,
+  createExecSession,
   getContainerStats,
   streamContainerLogs,
   watchEvents,
@@ -72,6 +73,11 @@ export async function startServer(opts: ServerOptions): Promise<void> {
     try {
       cachedGraph = await buildGraph();
       broadcast({ type: 'graph', data: cachedGraph });
+      // Clean stale metric history for removed containers
+      const activeIds = new Set(cachedGraph.nodes.map((n) => n.id));
+      for (const id of metricHistory.keys()) {
+        if (!activeIds.has(id)) metricHistory.delete(id);
+      }
     } catch {
       /* Docker may be temporarily unavailable */
     }
@@ -112,13 +118,14 @@ export async function startServer(opts: ServerOptions): Promise<void> {
   const statsInterval = setInterval(refreshStats, 3000);
   const graphInterval = setInterval(refreshGraph, 10000);
 
-  // Per-client log streams
+  // Per-client log streams and exec sessions
   const clientLogStreams = new Map<WebSocket, () => void>();
+  const clientExecStreams = new Map<WebSocket, NodeJS.ReadWriteStream>();
 
   wss.on('connection', (ws) => {
     ws.send(JSON.stringify({ type: 'graph', data: cachedGraph }));
 
-    ws.on('message', (raw) => {
+    ws.on('message', async (raw) => {
       try {
         const msg = JSON.parse(raw.toString());
         if (msg.type === 'subscribe_logs' && msg.data?.containerId) {
@@ -152,6 +159,58 @@ export async function startServer(opts: ServerOptions): Promise<void> {
           clientLogStreams.get(ws)?.();
           clientLogStreams.delete(ws);
         }
+
+        if (msg.type === 'exec_start' && msg.data?.containerId) {
+          // Clean up previous exec session
+          const prevStream = clientExecStreams.get(ws);
+          if (prevStream) (prevStream as any).destroy?.();
+
+          try {
+            const { stream: execStream } = await createExecSession(
+              msg.data.containerId,
+              msg.data.cmd || ['/bin/sh'],
+            );
+            clientExecStreams.set(ws, execStream);
+
+            // Pipe exec stdout → WS
+            execStream.on('data', (chunk: Buffer) => {
+              if (ws.readyState === WebSocket.OPEN) {
+                ws.send(
+                  JSON.stringify({ type: 'exec_output', data: { text: chunk.toString('utf-8') } }),
+                );
+              }
+            });
+
+            execStream.on('end', () => {
+              if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'exec_exit' }));
+              }
+              clientExecStreams.delete(ws);
+            });
+          } catch (err: any) {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(
+                JSON.stringify({ type: 'error', data: { message: `Exec failed: ${err.message}` } }),
+              );
+            }
+          }
+        }
+
+        if (msg.type === 'exec_input' && msg.data?.text) {
+          const execStream = clientExecStreams.get(ws);
+          if (execStream) execStream.write(msg.data.text);
+        }
+
+        if (msg.type === 'exec_resize' && msg.data) {
+          // Resize is handled at the TTY level — not directly supported via dockerode exec stream
+          // but the terminal will still work, just without dynamic resize
+        }
+
+        if (msg.type === 'exec_stop') {
+          const execStream = clientExecStreams.get(ws);
+          if (execStream) (execStream as any).destroy?.();
+          clientExecStreams.delete(ws);
+        }
       } catch {
         /* ignore */
       }
@@ -160,6 +219,9 @@ export async function startServer(opts: ServerOptions): Promise<void> {
     ws.on('close', () => {
       clientLogStreams.get(ws)?.();
       clientLogStreams.delete(ws);
+      const execStream = clientExecStreams.get(ws);
+      if (execStream) (execStream as any).destroy?.();
+      clientExecStreams.delete(ws);
     });
   });
 

@@ -5,6 +5,7 @@ import { DOCKER } from '../lib/constants';
 export { addToast } from './toast.svelte';
 
 let graph = $state<GraphData>({ nodes: [], links: [] });
+let nodeIndex = new Map<string, any>(); // O(1) lookup for stats updates
 let events = $state<DockerEvent[]>([]);
 let connected = $state(false);
 let streamingLogs = $state('');
@@ -44,6 +45,7 @@ function connect() {
             if (existing) {
               Object.assign(existing, {
                 name: newNode.name,
+                fullName: newNode.fullName,
                 project: newNode.project,
                 containerId: newNode.containerId,
                 image: newNode.image,
@@ -51,6 +53,7 @@ function connect() {
                 health: newNode.health,
                 ports: newNode.ports,
                 networks: newNode.networks,
+                volumeCount: newNode.volumeCount,
               });
               return existing;
             }
@@ -58,6 +61,7 @@ function connect() {
           });
 
           graph = { nodes: mergedNodes, links: incoming.links };
+          nodeIndex = new Map(mergedNodes.map((n: any) => [n.id, n]));
           break;
         }
 
@@ -65,7 +69,7 @@ function connect() {
           // Mutate in-place — no reactivity trigger needed,
           // the force graph reads these on its own render loop
           const stats = msg.data as ContainerStats;
-          const node = graph.nodes.find((n) => n.id === stats.id);
+          const node = nodeIndex.get(stats.id);
           if (node) {
             node.cpu = stats.cpu;
             node.memory = stats.memory;

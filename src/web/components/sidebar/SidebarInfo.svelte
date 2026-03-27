@@ -1,6 +1,8 @@
 <script lang="ts">
   import { formatDate, formatBytes } from '../../lib/formatting';
   import { copyToClipboard } from '../../lib/clipboard';
+  import { buildNetworkColorMap } from '../../lib/networkColors';
+  import { getDockerState } from '../../stores/docker.svelte';
   import Sparkline from '../Sparkline.svelte';
   import type { ServiceNode, ContainerStats, ContainerInspect, MetricPoint } from '../../../types';
 
@@ -9,9 +11,13 @@
     stats: ContainerStats | null;
     inspect: ContainerInspect | null;
     history: MetricPoint[];
+    colorNetworks?: boolean;
   }
 
-  let { node, stats, inspect, history }: Props = $props();
+  let { node, stats, inspect, history, colorNetworks = false }: Props = $props();
+
+  const docker = getDockerState();
+  let netColorMap = $derived(buildNetworkColorMap(docker.graph.links));
 
   let memPercent = $derived(stats ? ((stats.memory / stats.memoryLimit) * 100).toFixed(1) : '0');
   let cpuHistory = $derived(history.map((p) => p.cpu));
@@ -70,7 +76,12 @@
       <span class="field-label">Networks</span>
       <div>
         {#each node.networks as net}
-          <span class="tag">{net}</span>
+          {@const rgb = colorNetworks ? netColorMap.get(net) || '0,228,255' : '0,228,255'}
+          <span
+            class="tag"
+            style="border-color: rgba({rgb},0.25); color: rgba({rgb},0.9); box-shadow: 0 0 6px rgba({rgb},0.1);"
+            >{net}</span
+          >
         {/each}
       </div>
     </div>

@@ -6,19 +6,22 @@
   import SidebarEnv from './sidebar/SidebarEnv.svelte';
   import SidebarLogs from './sidebar/SidebarLogs.svelte';
   import SidebarTop from './sidebar/SidebarTop.svelte';
+  import SidebarDiff from './sidebar/SidebarDiff.svelte';
+  import SidebarExec from './sidebar/SidebarExec.svelte';
   import type { ServiceNode, ContainerStats, ContainerInspect, MetricPoint } from '../../types';
 
   interface Props {
     node: ServiceNode | null;
     onClose: () => void;
+    colorNetworks?: boolean;
   }
 
-  let { node, onClose }: Props = $props();
+  let { node, onClose, colorNetworks = false }: Props = $props();
 
   let stats = $state<ContainerStats | null>(null);
   let inspect = $state<ContainerInspect | null>(null);
   let history = $state<MetricPoint[]>([]);
-  let activeTab = $state<'info' | 'env' | 'logs' | 'top'>('info');
+  let activeTab = $state<'info' | 'env' | 'logs' | 'top' | 'diff' | 'exec'>('info');
   let actionPending = $state(false);
   let showMore = $state(false);
   let moreBtn = $state<HTMLElement | null>(null);
@@ -78,7 +81,11 @@
   // Fetch stats + inspect + history when node changes
   $effect(() => {
     if (!node) return;
-    activeTab = 'info';
+    // Fall back to 'info' only if current tab isn't available for this node
+    const runningTabs = ['top', 'exec'];
+    if (runningTabs.includes(activeTab) && node.status !== 'running' && node.status !== 'paused') {
+      activeTab = 'info';
+    }
     inspect = null;
     history = [];
     showMore = false;
@@ -291,16 +298,30 @@
           onclick={() => (activeTab = 'top')}>Top</button
         >
       {/if}
+      <button
+        class="tab {activeTab === 'diff' ? 'active' : ''}"
+        onclick={() => (activeTab = 'diff')}>Diff</button
+      >
+      {#if node.status === 'running'}
+        <button
+          class="tab {activeTab === 'exec' ? 'active' : ''}"
+          onclick={() => (activeTab = 'exec')}>Exec</button
+        >
+      {/if}
     </div>
 
     {#if activeTab === 'info'}
-      <SidebarInfo {node} {stats} {inspect} {history} />
+      <SidebarInfo {node} {stats} {inspect} {history} {colorNetworks} />
     {:else if activeTab === 'env'}
       <SidebarEnv {inspect} />
     {:else if activeTab === 'logs'}
       <SidebarLogs />
     {:else if activeTab === 'top'}
       <SidebarTop containerId={node.containerId} />
+    {:else if activeTab === 'diff'}
+      <SidebarDiff containerId={node.containerId} />
+    {:else if activeTab === 'exec'}
+      <SidebarExec containerId={node.containerId} />
     {/if}
   {/if}
 </div>
