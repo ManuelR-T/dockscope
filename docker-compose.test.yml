@@ -191,11 +191,80 @@ services:
   # ── Stress Test (generates CPU/network activity) ────
   stress:
     image: alpine:latest
-    command: sh -c "apk add --no-cache curl && while true; do curl -s http://nginx > /dev/null 2>&1; curl -s http://api:3000 > /dev/null 2>&1; sleep 1; done"
+    command: sh -c "apk add --no-cache curl && while true; do curl -s http://nginx > /dev/null 2>&1; sleep 1; done"
     depends_on:
       - nginx
     networks:
       - frontend
+
+  # ── Auth Layer (isolated network + own DB) ──────────
+  keycloak-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: kcpass
+      POSTGRES_DB: keycloak
+    networks:
+      - auth
+
+  keycloak:
+    image: alpine:latest
+    command: sh -c "echo 'Keycloak running' && sleep infinity"
+    depends_on:
+      - keycloak-db
+    networks:
+      - auth
+
+  auth-proxy:
+    image: alpine:latest
+    command: sh -c "echo 'Auth proxy running' && sleep infinity"
+    depends_on:
+      - keycloak
+    networks:
+      - auth
+      - backend
+
+  # ── Queue Layer (isolated network) ─────────────────
+  rabbitmq:
+    image: rabbitmq:3-alpine
+    networks:
+      - queue
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  event-consumer:
+    image: node:20-alpine
+    command: sh -c "echo 'Consumer running' && sleep infinity"
+    depends_on:
+      - rabbitmq
+    networks:
+      - queue
+
+  event-producer:
+    image: node:20-alpine
+    command: sh -c "echo 'Producer running' && sleep infinity"
+    depends_on:
+      - rabbitmq
+    networks:
+      - queue
+      - backend
+
+  # ── Cache Layer (isolated network) ─────────────────
+  memcached:
+    image: memcached:alpine
+    networks:
+      - cache
+
+  cache-proxy:
+    image: alpine:latest
+    command: sh -c "echo 'Cache proxy running' && sleep infinity"
+    depends_on:
+      - memcached
+    networks:
+      - cache
       - backend
 
 networks:
@@ -203,6 +272,9 @@ networks:
   backend:
   frontend:
   monitoring:
+  auth:
+  queue:
+  cache:
 
 volumes:
   pgdata:

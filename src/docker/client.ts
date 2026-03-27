@@ -62,6 +62,7 @@ export async function buildGraph(composeFile?: string): Promise<GraphData> {
     nodes.push({
       id: shortId,
       name: serviceName,
+      fullName: container.Names[0]?.replace(/^\//, '') || serviceName,
       project,
       containerId: container.Id,
       image: container.Image,

@@ -8,6 +8,7 @@
   import { buildNodeObject, highlightNode } from '../lib/nodeRenderer';
   import { createClusteringForce, updateClusters, cleanupAllClusters } from '../lib/clustering';
   import { addDeployAnimation, resetDeployIndex, tickAnimations, pulseWarningRings, orbitVolumeMoons } from '../lib/animations';
+  import { buildNetworkColorMap } from '../lib/networkColors';
 
   interface Props {
     data: GraphData;
@@ -15,10 +16,11 @@
     selectedNode: ServiceNode | null;
     searchQuery: string;
     statusFilter: Set<string>;
+    colorNetworks: boolean;
     onHelpClick: () => void;
   }
 
-  let { data, onNodeClick, selectedNode, searchQuery, statusFilter, onHelpClick }: Props = $props();
+  let { data, onNodeClick, selectedNode, searchQuery, statusFilter, colorNetworks, onHelpClick }: Props = $props();
 
   // --- Derived importance ---
   let importanceMap = $derived(computeImportance(data.nodes, data.links));
@@ -50,7 +52,7 @@
     }
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
-      if (!node.name?.toLowerCase().includes(q) && !node.image?.toLowerCase().includes(q))
+      if (!node.name?.toLowerCase().includes(q) && !node.fullName?.toLowerCase().includes(q) && !node.image?.toLowerCase().includes(q))
         return false;
     }
     return true;
@@ -61,11 +63,17 @@
   let prevSelectedId: string | null = null;
   let selectedId: string | null = null;
 
+  let networkColorMap = $derived(buildNetworkColorMap(data.links));
+
   function getLinkColor(link: any): string {
     const s = typeof link.source === 'object' ? link.source : null;
     const t = typeof link.target === 'object' ? link.target : null;
     const hl = activeNodeId && (s?.id === activeNodeId || t?.id === activeNodeId);
-    if (link.type === 'depends_on') return hl ? 'rgba(255,138,43,0.5)' : 'rgba(255,138,43,0.1)';
+    if (link.type === 'depends_on') return hl ? 'rgba(255,138,43,0.5)' : 'rgba(255,138,43,0.08)';
+    if (colorNetworks) {
+      const rgb = networkColorMap.get(link.label) || '0,228,255';
+      return hl ? `rgba(${rgb},0.6)` : `rgba(${rgb},0.18)`;
+    }
     return hl ? 'rgba(0,228,255,0.6)' : 'rgba(0,228,255,0.15)';
   }
 
@@ -257,6 +265,13 @@
     });
   });
 
+  // --- Re-apply link colors when colorNetworks toggles ---
+  $effect(() => {
+    if (!graph) return;
+    void colorNetworks;
+    graph.linkColor((link: any) => getLinkColor(link));
+  });
+
   // --- Search + status filtering ---
   $effect(() => {
     if (!graph) return;
@@ -274,7 +289,7 @@
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
         const matches = data.nodes.filter(
-          (n) => n.name.toLowerCase().includes(q) || n.image.toLowerCase().includes(q),
+          (n) => n.name.toLowerCase().includes(q) || n.fullName?.toLowerCase().includes(q) || n.image.toLowerCase().includes(q),
         );
         if (matches.length === 1) {
           const node = matches[0] as any;
@@ -341,7 +356,7 @@
     {#if selectedNode}
       <button
         class="graph-ctrl-btn"
-        title="Center on selected"
+        title="Focus selected (C)"
         onclick={() => centerOnNode(selectedNode!)}
       >
         <svg

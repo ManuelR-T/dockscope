@@ -13,9 +13,10 @@
   interface Props {
     node: ServiceNode | null;
     onClose: () => void;
+    colorNetworks?: boolean;
   }
 
-  let { node, onClose }: Props = $props();
+  let { node, onClose, colorNetworks = false }: Props = $props();
 
   let stats = $state<ContainerStats | null>(null);
   let inspect = $state<ContainerInspect | null>(null);
@@ -310,7 +311,7 @@
     </div>
 
     {#if activeTab === 'info'}
-      <SidebarInfo {node} {stats} {inspect} {history} />
+      <SidebarInfo {node} {stats} {inspect} {history} {colorNetworks} />
     {:else if activeTab === 'env'}
       <SidebarEnv {inspect} />
     {:else if activeTab === 'logs'}

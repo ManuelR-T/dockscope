@@ -33,20 +33,9 @@
 
   function selectByActor(actor: string) {
     if (!onSelectContainer) return;
-    // Docker container names are like "project-service-1"
-    // Node names are "service" or "project/service"
-    const node = graph.nodes.find((n) => {
-      if (n.name === actor || n.id === actor) return true;
-      // Extract service name: "project-service-1" → check if node name matches "service"
-      const parts = actor.split('-');
-      if (parts.length >= 2) {
-        // Try removing last part (instance number) and first part (project)
-        const withoutInstance = parts.slice(0, -1).join('-');
-        const serviceOnly = parts.slice(1, -1).join('-');
-        if (n.name === serviceOnly || n.name === withoutInstance || actor.includes(n.name)) return true;
-      }
-      return false;
-    });
+    const node = graph.nodes.find(
+      (n) => n.fullName === actor || n.name === actor || n.id === actor,
+    );
     if (node) onSelectContainer(node);
   }
 

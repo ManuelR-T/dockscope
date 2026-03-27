@@ -1,6 +1,7 @@
 export interface ServiceNode {
   id: string;
   name: string;
+  fullName: string;
   project: string;
   containerId: string;
   image: string;

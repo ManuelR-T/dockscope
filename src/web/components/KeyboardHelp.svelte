@@ -10,6 +10,7 @@
     { key: 'Esc', desc: 'Close panel / Clear search' },
     { key: 'F', desc: 'Zoom to fit' },
     { key: 'R', desc: 'Reset camera' },
+    { key: 'C', desc: 'Focus selected node' },
     { key: '?', desc: 'Toggle this help' },
   ];
 </script>

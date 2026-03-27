@@ -45,6 +45,7 @@ function connect() {
             if (existing) {
               Object.assign(existing, {
                 name: newNode.name,
+                fullName: newNode.fullName,
                 project: newNode.project,
                 containerId: newNode.containerId,
                 image: newNode.image,

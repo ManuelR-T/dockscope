@@ -16,6 +16,7 @@
   let statusFilter = $state<Set<string>>(new Set());
   let showHelp = $state(false);
   let showProjects = $state(false);
+  let colorNetworks = $state(true);
   let searchInput = $state<HTMLInputElement | null>(null);
   let graphView: GraphView;
 
@@ -58,6 +59,8 @@
       graphView?.zoomToFit();
     } else if (e.key === 'r' || e.key === 'R') {
       graphView?.resetCamera();
+    } else if ((e.key === 'c' || e.key === 'C') && selectedNode) {
+      graphView?.centerOnNode(selectedNode);
     } else if (e.key === '?') {
       showHelp = !showHelp;
     }
@@ -103,6 +106,7 @@
       {selectedNode}
       {searchQuery}
       {statusFilter}
+      {colorNetworks}
       onHelpClick={() => (showHelp = !showHelp)}
     />
     <div class="graph-vignette"></div>
@@ -210,6 +214,12 @@
             statusFilter = s;
           }}><span class="dot red"></span></button
         >
+        <button
+          class="filter-chip net-toggle"
+          class:active={colorNetworks}
+          title="Color networks"
+          onclick={() => colorNetworks = !colorNetworks}
+        ><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M4 20h16M4 20V4m16 16V4"/></svg></button>
       </div>
     {/if}
   </div>
@@ -227,7 +237,7 @@
   <div class="sidebar-wrap" style="width: {sidebarWidth}px;">
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="resize-handle-v" onmousedown={() => startDrag('sidebar')}></div>
-    <Sidebar node={selectedNode} onClose={() => (selectedNode = null)} />
+    <Sidebar node={selectedNode} onClose={() => (selectedNode = null)} {colorNetworks} />
   </div>
 
   <div class="statusbar-wrap" style="height: {statusbarHeight}px; right: {sidebarWidth}px;">

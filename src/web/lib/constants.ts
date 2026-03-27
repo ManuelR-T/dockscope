@@ -20,7 +20,7 @@ export const DOCKER = {
 export const GRAPH = {
   node: {
     baseRadius: { running: 2.5, stopped: 1.8 },
-    importanceScale: 0.8,
+    importanceScale: 1.2,
     sphereSegments: { w: 20, h: 16 },
     ringSpriteSegments: 32,
     ringGap: 2.5,
