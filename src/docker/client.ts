@@ -253,6 +253,26 @@ export async function getContainerTop(containerId: string): Promise<ContainerTop
   return { titles: top.Titles || [], processes: top.Processes || [] };
 }
 
+/** Create an interactive exec session, returns a bidirectional stream */
+export async function createExecSession(
+  containerId: string,
+  cmd: string[] = ['/bin/sh'],
+): Promise<{ stream: NodeJS.ReadWriteStream; inspect: () => Promise<{ Running: boolean; ExitCode: number }> }> {
+  const container = docker.getContainer(containerId);
+  const exec = await container.exec({
+    Cmd: cmd,
+    AttachStdin: true,
+    AttachStdout: true,
+    AttachStderr: true,
+    Tty: true,
+  });
+  const stream = await exec.start({ hijack: true, stdin: true, Tty: true });
+  return {
+    stream,
+    inspect: () => exec.inspect().then((info: any) => ({ Running: info.Running, ExitCode: info.ExitCode })),
+  };
+}
+
 const DIFF_KIND_MAP: Record<number, 'A' | 'C' | 'D'> = { 0: 'C', 1: 'A', 2: 'D' };
 
 export async function getContainerDiff(containerId: string): Promise<ContainerDiffEntry[]> {

@@ -7,6 +7,7 @@
   import SidebarLogs from './sidebar/SidebarLogs.svelte';
   import SidebarTop from './sidebar/SidebarTop.svelte';
   import SidebarDiff from './sidebar/SidebarDiff.svelte';
+  import SidebarExec from './sidebar/SidebarExec.svelte';
   import type { ServiceNode, ContainerStats, ContainerInspect, MetricPoint } from '../../types';
 
   interface Props {
@@ -19,7 +20,7 @@
   let stats = $state<ContainerStats | null>(null);
   let inspect = $state<ContainerInspect | null>(null);
   let history = $state<MetricPoint[]>([]);
-  let activeTab = $state<'info' | 'env' | 'logs' | 'top' | 'diff'>('info');
+  let activeTab = $state<'info' | 'env' | 'logs' | 'top' | 'diff' | 'exec'>('info');
   let actionPending = $state(false);
   let showMore = $state(false);
   let moreBtn = $state<HTMLElement | null>(null);
@@ -296,6 +297,12 @@
         class="tab {activeTab === 'diff' ? 'active' : ''}"
         onclick={() => (activeTab = 'diff')}>Diff</button
       >
+      {#if node.status === 'running'}
+        <button
+          class="tab {activeTab === 'exec' ? 'active' : ''}"
+          onclick={() => (activeTab = 'exec')}>Exec</button
+        >
+      {/if}
     </div>
 
     {#if activeTab === 'info'}
@@ -308,6 +315,8 @@
       <SidebarTop containerId={node.containerId} />
     {:else if activeTab === 'diff'}
       <SidebarDiff containerId={node.containerId} />
+    {:else if activeTab === 'exec'}
+      <SidebarExec containerId={node.containerId} />
     {/if}
   {/if}
 </div>
