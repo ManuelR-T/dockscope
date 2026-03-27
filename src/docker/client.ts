@@ -178,7 +178,7 @@ async function getProjectContainers(project: string) {
 function getComposeCommand(
   project: string,
   containers: any[],
-): { cmd: string; cwd: string } | null {
+): { args: string[]; cwd: string } | null {
   // Try live container labels first
   let workDir = containers[0]?.Labels['com.docker.compose.project.working_dir'];
   let configFiles = containers[0]?.Labels['com.docker.compose.project.config_files'];

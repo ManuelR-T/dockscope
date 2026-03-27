@@ -24,7 +24,7 @@ export function setupRoutes(
 ): void {
   // Validate container ID format
   app.param('id', (req, res, next) => {
-    if (!VALID_ID.test(req.params.id)) {
+    if (!VALID_ID.test(req.params.id as string)) {
       res.status(400).json({ error: 'Invalid container ID format' });
       return;
     }
