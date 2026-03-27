@@ -17,6 +17,9 @@
   let showHelp = $state(false);
   let showProjects = $state(false);
   let colorNetworks = $state(true);
+  let showFilters = $state(false);
+  let filterBtn = $state<HTMLElement | null>(null);
+  let hudBar = $state<HTMLElement | null>(null);
   let searchInput = $state<HTMLInputElement | null>(null);
   let graphView: GraphView;
 
@@ -114,52 +117,20 @@
   </div>
 
   <!-- HUD header overlay -->
-  <div class="hud-bar">
-    <!-- Brand cluster -->
+  <div class="hud-bar" bind:this={hudBar}>
+    <!-- Brand + status -->
     <div class="hud-group brand-group">
       <span class="hud-logo">DockScope</span>
       <span class="hud-version">v{__APP_VERSION__}</span>
-    </div>
-
-    <!-- Status + actions cluster -->
-    <div class="hud-group">
       <span class="hud-connection {docker.connected ? 'active' : 'disconnected'}">
         <span class="pulse-dot"></span>
-        {docker.connected ? 'Live' : 'Offline'}
       </span>
-      <button class="hud-icon-btn" onclick={() => (showProjects = true)} title="Compose projects">
-        <svg
-          width="13"
-          height="13"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect
-            x="3"
-            y="14"
-            width="7"
-            height="7"
-          /><rect x="14" y="14" width="7" height="7" />
-        </svg>
-      </button>
     </div>
 
     <!-- Search -->
     <div class="hud-group search-group">
       <div class="search-container">
-        <svg
-          class="search-icon"
-          width="12"
-          height="12"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.5"
-        >
+        <svg class="search-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
           <circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" />
         </svg>
         <input
@@ -170,59 +141,58 @@
           bind:value={searchQuery}
         />
         {#if searchQuery}
-          <button
-            class="search-clear"
-            onclick={() => {
-              searchQuery = '';
-              searchInput?.blur();
-            }}>&times;</button
-          >
+          <button class="search-clear" onclick={() => { searchQuery = ''; searchInput?.blur(); }}>&times;</button>
         {/if}
       </div>
     </div>
 
-    <!-- Filter chips -->
-    {#if docker.graph.nodes.length > 0}
-      <div class="hud-group filter-group">
-        <button
-          class="filter-chip"
-          class:active={statusFilter.has('running')}
-          title="Filter running"
-          onclick={() => {
-            const s = new Set(statusFilter);
-            s.has('running') ? s.delete('running') : s.add('running');
-            statusFilter = s;
-          }}><span class="dot green"></span></button
-        >
-        <button
-          class="filter-chip"
-          class:active={statusFilter.has('stopped')}
-          title="Filter stopped"
-          onclick={() => {
-            const s = new Set(statusFilter);
-            s.has('stopped') ? s.delete('stopped') : s.add('stopped');
-            statusFilter = s;
-          }}><span class="dot gray"></span></button
-        >
-        <button
-          class="filter-chip"
-          class:active={statusFilter.has('unhealthy')}
-          title="Filter unhealthy"
-          onclick={() => {
-            const s = new Set(statusFilter);
-            s.has('unhealthy') ? s.delete('unhealthy') : s.add('unhealthy');
-            statusFilter = s;
-          }}><span class="dot red"></span></button
-        >
-        <button
-          class="filter-chip net-toggle"
-          class:active={colorNetworks}
-          title="Color networks"
-          onclick={() => colorNetworks = !colorNetworks}
-        ><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M4 20h16M4 20V4m16 16V4"/></svg></button>
-      </div>
-    {/if}
+    <!-- Actions: projects + filters (compact) -->
+    <div class="hud-group actions-group">
+      <button class="hud-icon-btn" onclick={() => (showProjects = true)} title="Compose projects">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" />
+        </svg>
+      </button>
+      {#if docker.graph.nodes.length > 0}
+        <button class="hud-icon-btn" class:active={statusFilter.size > 0 || colorNetworks} title="Filters" onclick={(e) => { filterBtn = e.currentTarget as HTMLElement; showFilters = !showFilters; }}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="4" y1="6" x2="20" y2="6"/><line x1="7" y1="12" x2="17" y2="12"/><line x1="10" y1="18" x2="14" y2="18"/>
+          </svg>
+        </button>
+      {/if}
+    </div>
   </div>
+
+  <!-- Filter dropdown (anchored to button) -->
+  {#if showFilters && filterBtn}
+    <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
+    <div class="filter-backdrop" onclick={() => showFilters = false} onkeydown={() => {}}></div>
+    <div class="filter-dropdown" style="top: {(hudBar?.getBoundingClientRect().bottom ?? 0) + 8}px; right: {window.innerWidth - (hudBar?.getBoundingClientRect().right ?? 0)}px;">
+      <div class="filter-section">
+        <span class="filter-heading">Status</span>
+        <div class="filter-row">
+          <button class="filter-pill" class:active={statusFilter.has('running')} onclick={() => { const s = new Set(statusFilter); s.has('running') ? s.delete('running') : s.add('running'); statusFilter = s; }}>
+            <span class="dot green"></span> Running
+          </button>
+          <button class="filter-pill" class:active={statusFilter.has('stopped')} onclick={() => { const s = new Set(statusFilter); s.has('stopped') ? s.delete('stopped') : s.add('stopped'); statusFilter = s; }}>
+            <span class="dot gray"></span> Stopped
+          </button>
+          <button class="filter-pill" class:active={statusFilter.has('unhealthy')} onclick={() => { const s = new Set(statusFilter); s.has('unhealthy') ? s.delete('unhealthy') : s.add('unhealthy'); statusFilter = s; }}>
+            <span class="dot red"></span> Unhealthy
+          </button>
+        </div>
+      </div>
+      <div class="filter-section">
+        <span class="filter-heading">Display</span>
+        <div class="filter-row">
+          <button class="filter-pill" class:active={colorNetworks} onclick={() => colorNetworks = !colorNetworks}>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2v20M2 12h20"/></svg>
+            Color networks
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
 
   <!-- Overlay: empty state -->
   {#if docker.connected && docker.graph.nodes.length === 0}
