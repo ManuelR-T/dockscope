@@ -76,8 +76,12 @@
       <span class="field-label">Networks</span>
       <div>
         {#each node.networks as net}
-          {@const rgb = colorNetworks ? (netColorMap.get(net) || '0,228,255') : '0,228,255'}
-          <span class="tag" style="border-color: rgba({rgb},0.25); color: rgba({rgb},0.9); box-shadow: 0 0 6px rgba({rgb},0.1);">{net}</span>
+          {@const rgb = colorNetworks ? netColorMap.get(net) || '0,228,255' : '0,228,255'}
+          <span
+            class="tag"
+            style="border-color: rgba({rgb},0.25); color: rgba({rgb},0.9); box-shadow: 0 0 6px rgba({rgb},0.1);"
+            >{net}</span
+          >
         {/each}
       </div>
     </div>

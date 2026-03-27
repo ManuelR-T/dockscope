@@ -208,11 +208,14 @@ export async function composeAction(
     const compose = getComposeCommand(project, containers);
     if (compose) {
       const subArgs =
-        action === 'up' ? ['up', '-d'] :
-        action === 'destroy' ? ['down', '-v', '--remove-orphans'] :
-        ['down'];
+        action === 'up'
+          ? ['up', '-d']
+          : action === 'destroy'
+            ? ['down', '-v', '--remove-orphans']
+            : ['down'];
       const { stdout, stderr } = await execFileAsync(
-        'docker', ['compose', ...compose.args, ...subArgs],
+        'docker',
+        ['compose', ...compose.args, ...subArgs],
         { cwd: compose.cwd },
       );
       if (action === 'destroy') projectCache.delete(project);
@@ -263,7 +266,10 @@ export async function getContainerTop(containerId: string): Promise<ContainerTop
 export async function createExecSession(
   containerId: string,
   cmd: string[] = ['/bin/sh'],
-): Promise<{ stream: NodeJS.ReadWriteStream; inspect: () => Promise<{ Running: boolean; ExitCode: number }> }> {
+): Promise<{
+  stream: NodeJS.ReadWriteStream;
+  inspect: () => Promise<{ Running: boolean; ExitCode: number }>;
+}> {
   const container = docker.getContainer(containerId);
   const exec = await container.exec({
     Cmd: cmd,
@@ -275,7 +281,8 @@ export async function createExecSession(
   const stream = await exec.start({ hijack: true, stdin: true, Tty: true });
   return {
     stream,
-    inspect: () => exec.inspect().then((info: any) => ({ Running: info.Running, ExitCode: info.ExitCode })),
+    inspect: () =>
+      exec.inspect().then((info: any) => ({ Running: info.Running, ExitCode: info.ExitCode })),
   };
 }
 

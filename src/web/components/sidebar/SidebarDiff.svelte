@@ -11,7 +11,6 @@
   let loading = $state(true);
   let error = $state('');
 
-  const KIND_LABEL: Record<string, string> = { A: 'Added', C: 'Changed', D: 'Deleted' };
   const KIND_CLASS: Record<string, string> = { A: 'added', C: 'changed', D: 'deleted' };
 
   let safeDiff = $derived(Array.isArray(diff) ? diff : []);
@@ -34,9 +33,10 @@
       error = '';
     } catch (e: any) {
       diff = [];
-      error = e?.name === 'TimeoutError' || e?.message?.includes('timed out')
-        ? 'Diff timed out — container may have too many changes'
-        : 'Could not load filesystem diff';
+      error =
+        e?.name === 'TimeoutError' || e?.message?.includes('timed out')
+          ? 'Diff timed out — container may have too many changes'
+          : 'Could not load filesystem diff';
     } finally {
       loading = false;
     }
@@ -97,9 +97,15 @@
     font-size: 11px;
   }
 
-  .diff-count.added { color: var(--accent-green); }
-  .diff-count.changed { color: var(--accent-amber); }
-  .diff-count.deleted { color: var(--accent-red); }
+  .diff-count.added {
+    color: var(--accent-green);
+  }
+  .diff-count.changed {
+    color: var(--accent-amber);
+  }
+  .diff-count.deleted {
+    color: var(--accent-red);
+  }
 
   .diff-total {
     color: var(--text-dim);
@@ -122,7 +128,9 @@
     transition: background 0.1s;
   }
 
-  .diff-row:hover { background: rgba(255, 255, 255, 0.02); }
+  .diff-row:hover {
+    background: rgba(255, 255, 255, 0.02);
+  }
 
   .diff-kind {
     width: 14px;
@@ -131,9 +139,15 @@
     flex-shrink: 0;
   }
 
-  .diff-row.added .diff-kind { color: var(--accent-green); }
-  .diff-row.changed .diff-kind { color: var(--accent-amber); }
-  .diff-row.deleted .diff-kind { color: var(--accent-red); }
+  .diff-row.added .diff-kind {
+    color: var(--accent-green);
+  }
+  .diff-row.changed .diff-kind {
+    color: var(--accent-amber);
+  }
+  .diff-row.deleted .diff-kind {
+    color: var(--accent-red);
+  }
 
   .diff-path {
     color: var(--text-secondary);

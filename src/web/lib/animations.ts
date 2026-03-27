@@ -70,7 +70,10 @@ export function orbitVolumeMoons(nodes: any[], camera: THREE.Camera): void {
   // Get camera's right and up vectors (view plane)
   camera.getWorldDirection(_up);
   _right.crossVectors(_up, camera.up).normalize();
-  _up.crossVectors(_right, _up.set(0, 0, 0).subVectors(_right, _right)).copy(camera.up).normalize();
+  _up
+    .crossVectors(_right, _up.set(0, 0, 0).subVectors(_right, _right))
+    .copy(camera.up)
+    .normalize();
   // Simpler: extract from camera matrix
   _right.setFromMatrixColumn(camera.matrixWorld, 0);
   _up.setFromMatrixColumn(camera.matrixWorld, 1);

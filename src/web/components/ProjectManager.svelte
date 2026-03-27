@@ -89,31 +89,66 @@
             <div class="pm-actions">
               {#if project.running === 0 && project.stopped === 0}
                 <!-- Cached project (after down) — can only Up or Destroy -->
-                <button class="pm-btn up" disabled={!!pendingAction} onclick={() => doAction(project.name, 'up')} title="Up (start all)">
+                <button
+                  class="pm-btn up"
+                  disabled={!!pendingAction}
+                  onclick={() => doAction(project.name, 'up')}
+                  title="Up (start all)"
+                >
                   {isPending(project.name, 'up') ? '...' : 'Up'}
                 </button>
               {:else if project.running === 0}
                 <!-- All stopped — can Up or Down -->
-                <button class="pm-btn up" disabled={!!pendingAction} onclick={() => doAction(project.name, 'up')} title="Up (start all)">
+                <button
+                  class="pm-btn up"
+                  disabled={!!pendingAction}
+                  onclick={() => doAction(project.name, 'up')}
+                  title="Up (start all)"
+                >
                   {isPending(project.name, 'up') ? '...' : 'Up'}
                 </button>
-                <button class="pm-btn down" disabled={!!pendingAction} onclick={() => doAction(project.name, 'down')} title="Down (remove containers)">
+                <button
+                  class="pm-btn down"
+                  disabled={!!pendingAction}
+                  onclick={() => doAction(project.name, 'down')}
+                  title="Down (remove containers)"
+                >
                   {isPending(project.name, 'down') ? '...' : 'Down'}
                 </button>
               {:else}
                 <!-- Running — full control -->
-                <button class="pm-btn restart" disabled={!!pendingAction} onclick={() => doAction(project.name, 'restart')} title="Restart all">
+                <button
+                  class="pm-btn restart"
+                  disabled={!!pendingAction}
+                  onclick={() => doAction(project.name, 'restart')}
+                  title="Restart all"
+                >
                   {isPending(project.name, 'restart') ? '...' : 'Restart'}
                 </button>
-                <button class="pm-btn stop" disabled={!!pendingAction} onclick={() => doAction(project.name, 'stop')} title="Stop all">
+                <button
+                  class="pm-btn stop"
+                  disabled={!!pendingAction}
+                  onclick={() => doAction(project.name, 'stop')}
+                  title="Stop all"
+                >
                   {isPending(project.name, 'stop') ? '...' : 'Stop'}
                 </button>
-                <button class="pm-btn down" disabled={!!pendingAction} onclick={() => doAction(project.name, 'down')} title="Down (remove containers)">
+                <button
+                  class="pm-btn down"
+                  disabled={!!pendingAction}
+                  onclick={() => doAction(project.name, 'down')}
+                  title="Down (remove containers)"
+                >
                   {isPending(project.name, 'down') ? '...' : 'Down'}
                 </button>
               {/if}
               <!-- Destroy always available — removes containers, volumes, orphans, and cache -->
-              <button class="pm-btn destroy" disabled={!!pendingAction} onclick={() => doAction(project.name, 'destroy')} title="Destroy (remove containers + volumes)">
+              <button
+                class="pm-btn destroy"
+                disabled={!!pendingAction}
+                onclick={() => doAction(project.name, 'destroy')}
+                title="Destroy (remove containers + volumes)"
+              >
                 {isPending(project.name, 'destroy') ? '...' : 'Destroy'}
               </button>
             </div>

@@ -175,7 +175,9 @@ export async function startServer(opts: ServerOptions): Promise<void> {
             // Pipe exec stdout → WS
             execStream.on('data', (chunk: Buffer) => {
               if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'exec_output', data: { text: chunk.toString('utf-8') } }));
+                ws.send(
+                  JSON.stringify({ type: 'exec_output', data: { text: chunk.toString('utf-8') } }),
+                );
               }
             });
 
@@ -187,7 +189,9 @@ export async function startServer(opts: ServerOptions): Promise<void> {
             });
           } catch (err: any) {
             if (ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ type: 'error', data: { message: `Exec failed: ${err.message}` } }));
+              ws.send(
+                JSON.stringify({ type: 'error', data: { message: `Exec failed: ${err.message}` } }),
+              );
             }
           }
         }

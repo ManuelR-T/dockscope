@@ -7,7 +7,13 @@
   import { computeImportance } from '../lib/importance';
   import { buildNodeObject, highlightNode } from '../lib/nodeRenderer';
   import { createClusteringForce, updateClusters, cleanupAllClusters } from '../lib/clustering';
-  import { addDeployAnimation, resetDeployIndex, tickAnimations, pulseWarningRings, orbitVolumeMoons } from '../lib/animations';
+  import {
+    addDeployAnimation,
+    resetDeployIndex,
+    tickAnimations,
+    pulseWarningRings,
+    orbitVolumeMoons,
+  } from '../lib/animations';
   import { buildNetworkColorMap } from '../lib/networkColors';
 
   interface Props {
@@ -20,7 +26,15 @@
     onHelpClick: () => void;
   }
 
-  let { data, onNodeClick, selectedNode, searchQuery, statusFilter, colorNetworks, onHelpClick }: Props = $props();
+  let {
+    data,
+    onNodeClick,
+    selectedNode,
+    searchQuery,
+    statusFilter,
+    colorNetworks,
+    onHelpClick,
+  }: Props = $props();
 
   // --- Derived importance ---
   let importanceMap = $derived(computeImportance(data.nodes, data.links));
@@ -52,7 +66,11 @@
     }
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
-      if (!node.name?.toLowerCase().includes(q) && !node.fullName?.toLowerCase().includes(q) && !node.image?.toLowerCase().includes(q))
+      if (
+        !node.name?.toLowerCase().includes(q) &&
+        !node.fullName?.toLowerCase().includes(q) &&
+        !node.image?.toLowerCase().includes(q)
+      )
         return false;
     }
     return true;
@@ -289,7 +307,10 @@
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
         const matches = data.nodes.filter(
-          (n) => n.name.toLowerCase().includes(q) || n.fullName?.toLowerCase().includes(q) || n.image.toLowerCase().includes(q),
+          (n) =>
+            n.name.toLowerCase().includes(q) ||
+            n.fullName?.toLowerCase().includes(q) ||
+            n.image.toLowerCase().includes(q),
         );
         if (matches.length === 1) {
           const node = matches[0] as any;

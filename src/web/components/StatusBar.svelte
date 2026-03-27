@@ -95,7 +95,9 @@
       <div class="event-row">
         <span class="event-time">{formatTime(event.time)}</span>
         <span class="event-action {event.action}">{event.action}</span>
-        <button class="event-actor-btn" onclick={() => selectByActor(event.actor)}>{event.actor}</button>
+        <button class="event-actor-btn" onclick={() => selectByActor(event.actor)}
+          >{event.actor}</button
+        >
         <span class="event-type">{event.type}</span>
       </div>
     {/each}

@@ -117,11 +117,7 @@ export function buildNodeObject(
     for (let i = 0; i < moonCount; i++) {
       const moon = new THREE.Mesh(moonGeo, moonMat);
       const angle = (2 * Math.PI * i) / moonCount;
-      moon.position.set(
-        Math.cos(angle) * orbitRadius,
-        0,
-        Math.sin(angle) * orbitRadius,
-      );
+      moon.position.set(Math.cos(angle) * orbitRadius, 0, Math.sin(angle) * orbitRadius);
       group.add(moon);
       moons.push(moon);
     }
