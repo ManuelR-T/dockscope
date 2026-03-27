@@ -27,8 +27,16 @@
   let sidebarWidth: number = $state(UI.sidebar.default);
   let statusbarHeight: number = $state(UI.statusbar.default);
   let dragging = $state<'sidebar' | 'statusbar' | null>(null);
+  let latestVersion = $state<string | null>(null);
 
   onMount(() => {
+    // Check for updates
+    fetch('/api/version')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.latest && d.latest !== d.current) latestVersion = d.latest;
+      })
+      .catch(() => {});
     const cleanup = initDocker();
     return cleanup;
   });
@@ -122,6 +130,16 @@
     <div class="hud-group brand-group">
       <span class="hud-logo">DockScope</span>
       <span class="hud-version">v{__APP_VERSION__}</span>
+      {#if latestVersion}
+        <a
+          class="hud-update"
+          href="https://www.npmjs.com/package/dockscope"
+          target="_blank"
+          title="Update available: v{latestVersion}"
+        >
+          <span class="update-dot"></span>
+        </a>
+      {/if}
       <span class="hud-connection {docker.connected ? 'active' : 'disconnected'}">
         <span class="pulse-dot"></span>
       </span>

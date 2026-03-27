@@ -13,7 +13,15 @@ import {
   listComposeProjects,
   removeContainer,
 } from '../docker/client.js';
+import { readFileSync } from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import type { ServerOptions } from '../types.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PKG_VERSION = JSON.parse(
+  readFileSync(path.resolve(__dirname, '../../package.json'), 'utf-8'),
+).version;
 
 const VALID_ID = /^[a-f0-9]{12,64}$/i;
 
@@ -167,6 +175,25 @@ export function setupRoutes(
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
+  });
+
+  // Version check (cached, refreshes every 30 min)
+  let versionCache: { current: string; latest: string | null; checkedAt: number } | null = null;
+  app.get('/api/version', async (_req, res) => {
+    const now = Date.now();
+    if (!versionCache || now - versionCache.checkedAt > 30 * 60 * 1000) {
+      let latest: string | null = null;
+      try {
+        const r = await fetch('https://registry.npmjs.org/dockscope/latest', {
+          signal: AbortSignal.timeout(3000),
+        });
+        if (r.ok) latest = ((await r.json()) as { version?: string }).version || null;
+      } catch {
+        /* ignore */
+      }
+      versionCache = { current: PKG_VERSION, latest, checkedAt: now };
+    }
+    res.json(versionCache);
   });
 
   // Compose project management

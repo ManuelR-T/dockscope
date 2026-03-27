@@ -44,6 +44,21 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(path.resolve(__dirname, '../package.json'), 'utf-8'));
 const VERSION = pkg.version;
 
+async function checkForUpdate(): Promise<string | null> {
+  try {
+    const res = await fetch('https://registry.npmjs.org/dockscope/latest', {
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { version?: string };
+    const latest = data.version;
+    if (latest && latest !== VERSION) return latest;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 const program = new Command();
 
 program
@@ -78,6 +93,14 @@ program
     console.log(`  WebSocket: ws://localhost:${port}/ws\n`);
     console.log('');
     console.log('  Press Ctrl+C to stop\n');
+
+    // Non-blocking update check
+    checkForUpdate().then((latest) => {
+      if (latest) {
+        console.log(`  \x1b[33mUpdate available: v${VERSION} → v${latest}\x1b[0m`);
+        console.log(`  Run \x1b[36mnpm i -g dockscope\x1b[0m to update\n`);
+      }
+    });
 
     if (opts.open !== false) {
       const open = (await import('open')).default;

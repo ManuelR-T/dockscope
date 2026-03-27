@@ -172,6 +172,26 @@ body {
   font-size: 9px;
   color: var(--text-dim);
   letter-spacing: 0.5px;
+}
+
+.hud-update {
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.update-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-amber);
+  box-shadow: 0 0 6px rgba(255, 138, 43, 0.5);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.hud-update:hover .update-dot {
+  box-shadow: 0 0 10px rgba(255, 138, 43, 0.7);
+  background: #ffaa55;
   opacity: 0.6;
 }
 
