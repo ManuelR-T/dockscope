@@ -3,12 +3,15 @@
   import { formatTime, formatGB } from '../lib/formatting';
   import type { DockerEvent, GraphData, SystemInfo } from '../../types';
 
+  import type { ServiceNode } from '../../types';
+
   interface Props {
     events: DockerEvent[];
     graph: GraphData;
+    onSelectContainer?: (node: ServiceNode) => void;
   }
 
-  let { events, graph }: Props = $props();
+  let { events, graph, onSelectContainer }: Props = $props();
 
   let sysInfo = $state<SystemInfo | null>(null);
 
@@ -27,6 +30,25 @@
   let filteredEvents = $derived(
     hideHealthChecks ? events.filter((e) => !isHealthCheckEvent(e.action)) : events,
   );
+
+  function selectByActor(actor: string) {
+    if (!onSelectContainer) return;
+    // Docker container names are like "project-service-1"
+    // Node names are "service" or "project/service"
+    const node = graph.nodes.find((n) => {
+      if (n.name === actor || n.id === actor) return true;
+      // Extract service name: "project-service-1" → check if node name matches "service"
+      const parts = actor.split('-');
+      if (parts.length >= 2) {
+        // Try removing last part (instance number) and first part (project)
+        const withoutInstance = parts.slice(0, -1).join('-');
+        const serviceOnly = parts.slice(1, -1).join('-');
+        if (n.name === serviceOnly || n.name === withoutInstance || actor.includes(n.name)) return true;
+      }
+      return false;
+    });
+    if (node) onSelectContainer(node);
+  }
 
   onMount(() => {
     fetch('/api/system')
@@ -84,7 +106,7 @@
       <div class="event-row">
         <span class="event-time">{formatTime(event.time)}</span>
         <span class="event-action {event.action}">{event.action}</span>
-        <span class="event-actor">{event.actor}</span>
+        <button class="event-actor-btn" onclick={() => selectByActor(event.actor)}>{event.actor}</button>
         <span class="event-type">{event.type}</span>
       </div>
     {/each}
@@ -207,9 +229,18 @@
   .event-action.unpause {
     color: var(--accent-green);
   }
-  .event-actor {
+  .event-actor-btn {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
     color: var(--text-secondary);
-    font-weight: 400;
+    cursor: pointer;
+    transition: color 0.15s;
+  }
+  .event-actor-btn:hover {
+    color: var(--accent-cyan);
+    text-decoration: underline;
   }
   .event-type {
     color: var(--text-dim);

@@ -233,7 +233,7 @@
   <div class="statusbar-wrap" style="height: {statusbarHeight}px; right: {sidebarWidth}px;">
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="resize-handle-h" onmousedown={() => startDrag('statusbar')}></div>
-    <StatusBar events={docker.events} graph={docker.graph} />
+    <StatusBar events={docker.events} graph={docker.graph} onSelectContainer={(node) => (selectedNode = node)} />
   </div>
 
   <!-- Toast notifications -->
