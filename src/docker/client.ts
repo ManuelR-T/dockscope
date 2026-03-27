@@ -1,5 +1,5 @@
 import Dockerode from 'dockerode';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 import type {
   ServiceNode,
@@ -112,7 +112,7 @@ export const streamContainerLogs = (
   onError?: (e: Error) => void,
 ) => _streamLogs(docker, id, onData, onError);
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 // --- Project metadata cache (survives docker compose down) ---
 interface ProjectMeta {
@@ -191,11 +191,8 @@ function getComposeCommand(
   }
 
   if (!workDir || !configFiles) return null;
-  const fileFlags = configFiles
-    .split(',')
-    .map((f: string) => `-f "${f.trim()}"`)
-    .join(' ');
-  return { cmd: `docker compose ${fileFlags}`, cwd: workDir };
+  const args = configFiles.split(',').flatMap((f: string) => ['-f', f.trim()]);
+  return { args, cwd: workDir };
 }
 
 /** Run a docker compose action on a specific project */
@@ -209,7 +206,11 @@ export async function composeAction(
     const compose = getComposeCommand(project, containers);
     if (compose) {
       const subCmd = action === 'up' ? 'up -d' : 'down';
-      const { stdout, stderr } = await execAsync(`${compose.cmd} ${subCmd}`, { cwd: compose.cwd });
+      const subArgs = action === 'up' ? ['up', '-d'] : ['down'];
+      const { stdout, stderr } = await execFileAsync(
+        'docker', ['compose', ...compose.args, ...subArgs],
+        { cwd: compose.cwd },
+      );
       return stdout || stderr || `${action} completed`;
     }
     if (action === 'up') {

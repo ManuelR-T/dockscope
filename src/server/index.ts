@@ -73,6 +73,11 @@ export async function startServer(opts: ServerOptions): Promise<void> {
     try {
       cachedGraph = await buildGraph();
       broadcast({ type: 'graph', data: cachedGraph });
+      // Clean stale metric history for removed containers
+      const activeIds = new Set(cachedGraph.nodes.map((n) => n.id));
+      for (const id of metricHistory.keys()) {
+        if (!activeIds.has(id)) metricHistory.delete(id);
+      }
     } catch {
       /* Docker may be temporarily unavailable */
     }
@@ -120,7 +125,7 @@ export async function startServer(opts: ServerOptions): Promise<void> {
   wss.on('connection', (ws) => {
     ws.send(JSON.stringify({ type: 'graph', data: cachedGraph }));
 
-    ws.on('message', (raw) => {
+    ws.on('message', async (raw) => {
       try {
         const msg = JSON.parse(raw.toString());
         if (msg.type === 'subscribe_logs' && msg.data?.containerId) {

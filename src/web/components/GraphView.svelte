@@ -7,7 +7,7 @@
   import { computeImportance } from '../lib/importance';
   import { buildNodeObject, highlightNode } from '../lib/nodeRenderer';
   import { createClusteringForce, updateClusters, cleanupAllClusters } from '../lib/clustering';
-  import { addDeployAnimation, tickAnimations, pulseWarningRings } from '../lib/animations';
+  import { addDeployAnimation, resetDeployIndex, tickAnimations, pulseWarningRings } from '../lib/animations';
 
   interface Props {
     data: GraphData;
@@ -220,7 +220,10 @@
           .sort()
           .join(',') !== prevGraphKey.replace(/:[^,]*/g, '').replace(/:/g, '');
       prevGraphKey = graphKey;
-      if (isStructural) assignProjectPositions(data.nodes);
+      if (isStructural) {
+        assignProjectPositions(data.nodes);
+        resetDeployIndex();
+      }
       warningRings.length = 0;
       graph.nodeThreeObject((node: any) => {
         const imp = importanceMap.get(node.id) || 0;

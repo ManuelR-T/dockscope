@@ -15,11 +15,22 @@ import {
 } from '../docker/client.js';
 import type { ServerOptions } from '../types.js';
 
+const VALID_ID = /^[a-f0-9]{12,64}$/i;
+
 export function setupRoutes(
   app: Express,
   opts: ServerOptions,
   metricHistory: Map<string, { cpu: number; memory: number; time: number }[]>,
 ): void {
+  // Validate container ID format
+  app.param('id', (req, res, next) => {
+    if (!VALID_ID.test(req.params.id)) {
+      res.status(400).json({ error: 'Invalid container ID format' });
+      return;
+    }
+    next();
+  });
+
   app.get('/api/graph', async (_req, res) => {
     try {
       const graph = await buildGraph();

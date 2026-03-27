@@ -15,6 +15,11 @@ let deployIndex = 0;
  * Schedule a deploy animation for a new node.
  * Only animates the first time a node ID is seen.
  */
+/** Reset deploy stagger counter (call on graph structure change) */
+export function resetDeployIndex(): void {
+  deployIndex = 0;
+}
+
 export function addDeployAnimation(nodeId: string, group: THREE.Group): void {
   if (animatedNodes.has(nodeId)) return;
   animatedNodes.add(nodeId);
