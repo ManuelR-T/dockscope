@@ -6,6 +6,7 @@ import type {
   GraphData,
   ContainerStats,
   ContainerInspect,
+  ContainerDiffEntry,
   ContainerTopResult,
   SystemInfo,
   DockerEvent,
@@ -250,6 +251,17 @@ export async function getContainerTop(containerId: string): Promise<ContainerTop
   const container = docker.getContainer(containerId);
   const top = await container.top();
   return { titles: top.Titles || [], processes: top.Processes || [] };
+}
+
+const DIFF_KIND_MAP: Record<number, 'A' | 'C' | 'D'> = { 0: 'C', 1: 'A', 2: 'D' };
+
+export async function getContainerDiff(containerId: string): Promise<ContainerDiffEntry[]> {
+  const container = docker.getContainer(containerId);
+  const diff = await container.diff();
+  return (diff || []).map((d: any) => ({
+    kind: DIFF_KIND_MAP[d.Kind] || 'C',
+    path: d.Path,
+  }));
 }
 
 export async function inspectContainer(containerId: string): Promise<ContainerInspect> {

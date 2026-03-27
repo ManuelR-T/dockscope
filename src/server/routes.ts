@@ -6,6 +6,7 @@ import {
   containerAction,
   getContainerLogs,
   getContainerStats,
+  getContainerDiff,
   getContainerTop,
   getSystemInfo,
   inspectContainer,
@@ -120,6 +121,15 @@ export function setupRoutes(
     try {
       const top = await getContainerTop(req.params.id);
       res.json(top);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/containers/:id/diff', async (req, res) => {
+    try {
+      const diff = await getContainerDiff(req.params.id);
+      res.json(diff);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

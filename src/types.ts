@@ -87,6 +87,11 @@ export interface SystemInfo {
   images: number;
 }
 
+export interface ContainerDiffEntry {
+  kind: 'A' | 'C' | 'D'; // Added, Changed, Deleted
+  path: string;
+}
+
 export interface ContainerTopResult {
   titles: string[];
   processes: string[][];
