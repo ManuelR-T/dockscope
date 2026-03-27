@@ -80,7 +80,11 @@
   // Fetch stats + inspect + history when node changes
   $effect(() => {
     if (!node) return;
-    activeTab = 'info';
+    // Fall back to 'info' only if current tab isn't available for this node
+    const runningTabs = ['top', 'exec'];
+    if (runningTabs.includes(activeTab) && node.status !== 'running' && node.status !== 'paused') {
+      activeTab = 'info';
+    }
     inspect = null;
     history = [];
     showMore = false;
