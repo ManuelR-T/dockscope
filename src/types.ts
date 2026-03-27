@@ -8,6 +8,7 @@ export interface ServiceNode {
   health: 'healthy' | 'unhealthy' | 'starting' | 'none';
   ports: string[];
   networks: string[];
+  volumeCount: number;
   cpu: number;
   memory: number;
   memoryLimit: number;

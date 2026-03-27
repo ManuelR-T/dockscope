@@ -52,6 +52,7 @@ function connect() {
                 health: newNode.health,
                 ports: newNode.ports,
                 networks: newNode.networks,
+                volumeCount: newNode.volumeCount,
               });
               return existing;
             }

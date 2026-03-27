@@ -181,7 +181,7 @@ export function setupRoutes(
 
   app.post('/api/projects/:name/:action', async (req, res) => {
     const { name, action } = req.params;
-    if (!['up', 'down', 'stop', 'start', 'restart'].includes(action)) {
+    if (!['up', 'down', 'destroy', 'stop', 'start', 'restart'].includes(action)) {
       res.status(400).json({ error: `Invalid action: ${action}` });
       return;
     }

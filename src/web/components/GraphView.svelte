@@ -7,7 +7,7 @@
   import { computeImportance } from '../lib/importance';
   import { buildNodeObject, highlightNode } from '../lib/nodeRenderer';
   import { createClusteringForce, updateClusters, cleanupAllClusters } from '../lib/clustering';
-  import { addDeployAnimation, resetDeployIndex, tickAnimations, pulseWarningRings } from '../lib/animations';
+  import { addDeployAnimation, resetDeployIndex, tickAnimations, pulseWarningRings, orbitVolumeMoons } from '../lib/animations';
 
   interface Props {
     data: GraphData;
@@ -155,6 +155,7 @@
       }
       tickAnimations();
       pulseWarningRings(warningRings);
+      if (graph) orbitVolumeMoons((graph.graphData() as any).nodes || [], graph.camera());
       clusterFrameId = requestAnimationFrame(loop);
     }
     clusterFrameId = requestAnimationFrame(loop);

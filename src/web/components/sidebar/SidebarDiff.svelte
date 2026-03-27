@@ -14,20 +14,29 @@
   const KIND_LABEL: Record<string, string> = { A: 'Added', C: 'Changed', D: 'Deleted' };
   const KIND_CLASS: Record<string, string> = { A: 'added', C: 'changed', D: 'deleted' };
 
-  let added = $derived(diff.filter((d) => d.kind === 'A').length);
-  let changed = $derived(diff.filter((d) => d.kind === 'C').length);
-  let deleted = $derived(diff.filter((d) => d.kind === 'D').length);
+  let safeDiff = $derived(Array.isArray(diff) ? diff : []);
+  let added = $derived(safeDiff.filter((d) => d.kind === 'A').length);
+  let changed = $derived(safeDiff.filter((d) => d.kind === 'C').length);
+  let deleted = $derived(safeDiff.filter((d) => d.kind === 'D').length);
 
   async function fetchDiff() {
     loading = true;
     try {
-      const res = await fetch(`/api/containers/${containerId}/diff`);
-      if (!res.ok) throw new Error('Failed');
-      diff = await res.json();
+      const res = await fetch(`/api/containers/${containerId}/diff`, {
+        signal: AbortSignal.timeout(12000),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || 'Failed');
+      }
+      const data = await res.json();
+      diff = Array.isArray(data) ? data : [];
       error = '';
-    } catch {
+    } catch (e: any) {
       diff = [];
-      error = 'Could not load filesystem diff';
+      error = e?.name === 'TimeoutError' || e?.message?.includes('timed out')
+        ? 'Diff timed out — container may have too many changes'
+        : 'Could not load filesystem diff';
     } finally {
       loading = false;
     }
@@ -44,17 +53,17 @@
     <div class="diff-empty">Loading...</div>
   {:else if error}
     <div class="diff-empty">{error}</div>
-  {:else if diff.length === 0}
+  {:else if safeDiff.length === 0}
     <div class="diff-empty">No filesystem changes</div>
   {:else}
     <div class="diff-summary">
       {#if added > 0}<span class="diff-count added">+{added}</span>{/if}
       {#if changed > 0}<span class="diff-count changed">~{changed}</span>{/if}
       {#if deleted > 0}<span class="diff-count deleted">-{deleted}</span>{/if}
-      <span class="diff-total">{diff.length} changes</span>
+      <span class="diff-total">{safeDiff.length} changes</span>
     </div>
     <div class="diff-list">
-      {#each diff as entry}
+      {#each safeDiff as entry}
         <div class="diff-row {KIND_CLASS[entry.kind]}">
           <span class="diff-kind">{entry.kind}</span>
           <span class="diff-path">{entry.path}</span>

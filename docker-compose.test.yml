@@ -1,11 +1,137 @@
+## DockScope Heavy Test Stack
+## Tests: multi-service dependencies, health checks, networks, volumes, resource limits
+## Run: docker compose -f docker-compose.test.yml up -d
+
 services:
+  # ── Data Layer ──────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: supersecret
+      POSTGRES_DB: dockscope
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru
+    networks:
+      - data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  mongo:
+    image: mongo:7
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: mongosecret
+    volumes:
+      - mongodata:/data/db
+    networks:
+      - data
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+    networks:
+      - data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  # ── Application Layer ───────────────────────────────
+  api:
+    image: node:20-alpine
+    command: sh -c "echo 'API server running' && while true; do wget -q -O /dev/null http://postgres:5432 2>/dev/null; sleep 5; done"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://app:supersecret@postgres:5432/dockscope
+      REDIS_URL: redis://redis:6379
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin123
+      JWT_SECRET: my-jwt-secret-token
+      NODE_ENV: production
+    networks:
+      - data
+      - backend
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  worker:
+    image: node:20-alpine
+    command: sh -c "echo 'Worker running' && while true; do sleep 10; done"
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://app:supersecret@postgres:5432/dockscope
+      REDIS_URL: redis://redis:6379
+      MONGO_URL: mongodb://root:mongosecret@mongo:27017
+      WORKER_CONCURRENCY: "4"
+    networks:
+      - data
+      - backend
+
+  scheduler:
+    image: node:20-alpine
+    command: sh -c "echo 'Scheduler running' && while true; do echo '[cron] tick'; sleep 30; done"
+    depends_on:
+      - redis
+      - api
+    networks:
+      - backend
+
+  # ── Frontend Layer ──────────────────────────────────
   nginx:
     image: nginx:alpine
     ports:
       - "8080:80"
     depends_on:
       - api
-      - redis
+      - docs
     networks:
       - frontend
       - backend
@@ -15,58 +141,36 @@ services:
       timeout: 3s
       retries: 3
 
-  api:
-    image: node:20-alpine
-    command: sh -c "echo 'API running' && sleep infinity"
-    depends_on:
-      - postgres
-      - redis
+  docs:
+    image: nginx:alpine
     networks:
-      - backend
-    environment:
-      DATABASE_URL: postgres://app:secret@postgres:5432/dockscope
-      REDIS_URL: redis://redis:6379
-      NODE_ENV: production
-      SECRET_KEY: super-secret-token-123
+      - frontend
 
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: app
-      POSTGRES_PASSWORD: secret
-      POSTGRES_DB: dockscope
+  # ── Monitoring Layer ────────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    networks:
+      - monitoring
+      - backend
     volumes:
-      - pgdata:/var/lib/postgresql/data
-    networks:
-      - backend
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U app"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
+      - promdata:/prometheus
 
-  redis:
-    image: redis:7-alpine
-    networks:
-      - backend
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 3
-
-  worker:
-    image: node:20-alpine
-    command: sh -c "echo 'Worker running' && sleep infinity"
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
     depends_on:
-      - redis
-      - postgres
-    networks:
-      - backend
+      - prometheus
     environment:
-      REDIS_URL: redis://redis:6379
-      DATABASE_URL: postgres://app:secret@postgres:5432/dockscope
+      GF_SECURITY_ADMIN_PASSWORD: admin123
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+    networks:
+      - monitoring
+      - frontend
 
+  # ── Admin Tools ─────────────────────────────────────
   adminer:
     image: adminer:latest
     ports:
@@ -74,11 +178,34 @@ services:
     depends_on:
       - postgres
     networks:
+      - data
+      - frontend
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports:
+      - "8025:8025"
+    networks:
+      - backend
+
+  # ── Stress Test (generates CPU/network activity) ────
+  stress:
+    image: alpine:latest
+    command: sh -c "apk add --no-cache curl && while true; do curl -s http://nginx > /dev/null 2>&1; curl -s http://api:3000 > /dev/null 2>&1; sleep 1; done"
+    depends_on:
+      - nginx
+    networks:
+      - frontend
       - backend
 
 networks:
-  frontend:
+  data:
   backend:
+  frontend:
+  monitoring:
 
 volumes:
   pgdata:
+  mongodata:
+  miniodata:
+  promdata:

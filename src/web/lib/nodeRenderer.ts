@@ -102,6 +102,35 @@ export function buildNodeObject(
     warningRings.push(warnSprite);
   }
 
+  // Volume moons (small spheres that will orbit the node)
+  const volCount = node.volumeCount || 0;
+  if (volCount > 0) {
+    const moons: THREE.Mesh[] = [];
+    const moonCount = Math.min(volCount, 5); // cap at 5 moons
+    const orbitRadius = radius + 4;
+    const moonGeo = new THREE.SphereGeometry(0.5, 8, 6);
+    const moonMat = new THREE.MeshBasicMaterial({
+      color: '#a855f7',
+      transparent: true,
+      opacity: 0.6,
+    });
+    for (let i = 0; i < moonCount; i++) {
+      const moon = new THREE.Mesh(moonGeo, moonMat);
+      const angle = (2 * Math.PI * i) / moonCount;
+      moon.position.set(
+        Math.cos(angle) * orbitRadius,
+        0,
+        Math.sin(angle) * orbitRadius,
+      );
+      group.add(moon);
+      moons.push(moon);
+    }
+    (group as any).__moons = moons;
+    (group as any).__orbitRadius = orbitRadius;
+    (group as any).__moonCount = moonCount;
+    (group as any).__orbitPhase = Math.random() * Math.PI * 2;
+  }
+
   // Name label
   const label = new SpriteText(node.name);
   label.color = '#c8cede';

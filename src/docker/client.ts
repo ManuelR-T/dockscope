@@ -75,6 +75,7 @@ export async function buildGraph(composeFile?: string): Promise<GraphData> {
         ),
       ],
       networks: Object.keys(container.NetworkSettings?.Networks || {}),
+      volumeCount: (container.Mounts || []).length,
       cpu: 0,
       memory: 0,
       memoryLimit: 0,
@@ -198,19 +199,22 @@ function getComposeCommand(
 /** Run a docker compose action on a specific project */
 export async function composeAction(
   project: string,
-  action: 'up' | 'down' | 'stop' | 'start' | 'restart',
+  action: 'up' | 'down' | 'destroy' | 'stop' | 'start' | 'restart',
 ): Promise<string> {
   const containers = await getProjectContainers(project);
 
-  if (action === 'up' || action === 'down') {
+  if (action === 'up' || action === 'down' || action === 'destroy') {
     const compose = getComposeCommand(project, containers);
     if (compose) {
-      const subCmd = action === 'up' ? 'up -d' : 'down';
-      const subArgs = action === 'up' ? ['up', '-d'] : ['down'];
+      const subArgs =
+        action === 'up' ? ['up', '-d'] :
+        action === 'destroy' ? ['down', '-v', '--remove-orphans'] :
+        ['down'];
       const { stdout, stderr } = await execFileAsync(
         'docker', ['compose', ...compose.args, ...subArgs],
         { cwd: compose.cwd },
       );
+      if (action === 'destroy') projectCache.delete(project);
       return stdout || stderr || `${action} completed`;
     }
     if (action === 'up') {
@@ -219,7 +223,7 @@ export async function composeAction(
       }
       return `Started containers in project ${project}`;
     }
-    return 'Could not find compose config for down';
+    return 'Could not find compose config';
   }
 
   // stop / start / restart — act on individual containers
@@ -278,8 +282,12 @@ const DIFF_KIND_MAP: Record<number, 'A' | 'C' | 'D'> = { 0: 'C', 1: 'A', 2: 'D' 
 
 export async function getContainerDiff(containerId: string): Promise<ContainerDiffEntry[]> {
   const container = docker.getContainer(containerId);
-  const diff = await container.diff();
-  return (diff || []).map((d: any) => ({
+  const diff = await Promise.race([
+    container.changes(),
+    new Promise<null>((_, reject) => setTimeout(() => reject(new Error('Diff timed out')), 10000)),
+  ]);
+  if (!diff) return [];
+  return diff.map((d: any) => ({
     kind: DIFF_KIND_MAP[d.Kind] || 'C',
     path: d.Path,
   }));
