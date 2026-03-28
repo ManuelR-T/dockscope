@@ -4,6 +4,8 @@
 
 A browser-based 3D dependency graph of your Docker services with live health, logs, metrics, and container actions. Mission control for your Docker Compose stacks.
 
+![DockScope demo](assets/demo.gif)
+
 ## Table of Contents
 
 - [Quick Start](#quick-start)
