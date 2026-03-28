@@ -89,6 +89,7 @@ git clone https://github.com/ManuelR-T/dockscope.git
 cd dockscope
 npm install
 npm run dev    # Starts on port 4681 with Vite HMR
+```
 
 | Command | Description |
 | ------- | ----------- |
