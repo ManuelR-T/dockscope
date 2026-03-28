@@ -2,25 +2,17 @@
 
 **Visual, interactive Docker infrastructure debugger.**
 
-A browser-based 3D dependency graph of your Docker services with live health status, log streams, metrics, and container actions. Think of it as a mission control dashboard for your Docker Compose stacks.
+A browser-based 3D dependency graph of your Docker services with live health, logs, metrics, and container actions. Mission control for your Docker Compose stacks.
 
-## Features
+## Table of Contents
 
-- **3D Force Graph** — Containers rendered as interactive nodes with dependency and network links
-- **Live Health Status** — Real-time container state with color-coded nodes (healthy, unhealthy, stopped)
-- **Log Streaming** — Live container logs with ANSI color support, timestamp shortening, and search
-- **Container Actions** — Start, stop, restart containers directly from the UI
-- **Compose Project Management** — Up, down, stop, restart entire compose projects
-- **Environment Inspector** — View env vars (with secret masking), labels, mounts, and config
-- **Metrics & Sparklines** — CPU, memory, and network I/O with 5-minute history charts
-- **Node Importance Heuristic** — Nodes sized by exposed ports, connections, dependency depth, CPU, memory, network I/O, and network count
-- **Project Clustering** — Compose projects grouped with translucent enclosure spheres and labels
-- **Health Propagation** — Pulsing warning rings on containers whose dependencies are broken
-- **Search & Filter** — Search by name/image, filter by status (running/stopped/unhealthy)
-- **Keyboard Shortcuts** — `/` search, `F` zoom-to-fit, `R` reset camera, `Esc` close, `?` help
-- **Resizable Panels** — Drag to resize sidebar and status bar
-- **Event Stream** — Live Docker events with health check toggle
-- **System Info** — Docker version, CPU count, total memory
+- [Quick Start](#quick-start)
+- [Features](#features)
+- [Keyboard Shortcuts](#keyboard-shortcuts)
+- [API](#api)
+- [Development](#development)
+- [Tech Stack](#tech-stack)
+- [Contributing](#contributing)
 
 ## Quick Start
 
@@ -35,26 +27,60 @@ npm install -g dockscope
 dockscope up
 ```
 
-Requires Docker to be running. Opens a browser at `http://localhost:4681`.
+Opens `http://localhost:4681`.
 
-### Options
+| Command | Description |
+| ------- | ----------- |
+| `dockscope up` | Start the dashboard |
+| `dockscope scan` | Output graph data as JSON (no UI) |
+| `dockscope --version` | Show version |
 
-```
-dockscope up [options]
+| Option | Default | Description |
+| ------ | ------- | ----------- |
+| `-p, --port <port>` | `4681` | Server port (auto-increments if in use) |
+| `--no-open` | — | Don't open browser |
+| `dockscope scan` | — | Output graph as JSON (no UI) |
 
-  -p, --port <port>   Server port (default: 4681, auto-increments if in use)
-  --no-open           Don't open browser automatically
-```
+## Features
 
-Docker Compose files are auto-detected (`compose.yml`, `docker-compose.yml`, etc.) and dependencies are read from container labels at runtime — no configuration needed.
+- **3D Force Graph** — Containers as interactive spheres, color-coded by health/status, with `depends_on` arrows and network links. Node size scales by importance (ports, connections, CPU, memory, I/O). Compose projects grouped with enclosure spheres.
+- **Live Monitoring** — CPU, memory, network I/O polled every 3s with 5-minute sparkline history. Real-time Docker event stream.
+- **Container Actions** — Start, stop, restart, pause, unpause, kill, remove — directly from the sidebar with confirmation dialogs for destructive actions.
+- **Log Streaming** — Live logs with ANSI color support, in-log search, and export to `.txt`.
+- **Interactive Terminal** — Shell access (`/bin/sh`) via xterm.js embedded in the sidebar.
+- **Compose Manager** — Up, down, stop, restart, destroy entire projects. Cached metadata survives `docker compose down`.
+- **Container Inspection** — Env vars (secrets auto-masked), labels, mounts, processes, filesystem diff — all in sidebar tabs.
+- **Search & Filters** — Real-time search by name/image, status filters (running/stopped/unhealthy), network color toggle.
 
-### Scan Mode
+## Keyboard Shortcuts
 
-Output the container graph as JSON (no UI):
+| Key | Action |
+| --- | ------ |
+| `/` or `Ctrl+K` | Focus search |
+| `Escape` | Close panel / clear search |
+| `F` | Zoom to fit |
+| `R` | Reset camera |
+| `C` | Center on selected node |
+| `?` | Show shortcut help |
 
-```bash
-dockscope scan
-```
+## API
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| GET | `/api/graph` | Full graph (nodes + links) |
+| GET | `/api/containers/:id/stats` | CPU, memory, network I/O |
+| GET | `/api/containers/:id/logs?tail=N` | Logs (default 200 lines) |
+| GET | `/api/containers/:id/inspect` | Env, labels, mounts, config |
+| GET | `/api/containers/:id/history` | Metric sparkline data |
+| GET | `/api/containers/:id/top` | Running processes |
+| GET | `/api/containers/:id/diff` | Filesystem changes |
+| POST | `/api/containers/:id/{action}` | start, stop, restart, pause, unpause, kill |
+| DELETE | `/api/containers/:id?volumes=true` | Remove container |
+| GET | `/api/projects` | List compose projects |
+| POST | `/api/projects/:name/{action}` | up, down, stop, start, restart, destroy |
+| GET | `/api/system` | Docker version, CPUs, memory |
+| GET | `/api/health` | Docker connectivity check |
+| WS | `/ws` | Real-time graph, stats, events, logs, exec |
 
 ## Development
 
@@ -62,84 +88,30 @@ dockscope scan
 git clone https://github.com/ManuelR-T/dockscope.git
 cd dockscope
 npm install
-npm run dev
-```
-
-This starts the server on port `4681` with Vite HMR embedded — single port, same as production.
-
-### Scripts
+npm run dev    # Starts on port 4681 with Vite HMR
 
 | Command | Description |
-|---------|-------------|
-| `npm run dev` | Start dev server (backend + frontend with HMR) |
+| ------- | ----------- |
+| `npm run dev` | Dev server (backend + frontend with HMR) |
 | `npm run build` | Production build |
 | `npm run start` | Run production build |
 | `npm run lint` | ESLint check |
-| `npm run lint:fix` | ESLint auto-fix |
-| `npm run format` | Prettier format all files |
-| `npm run format:check` | Prettier check |
-| `npm run typecheck` | TypeScript type check |
+| `npm run format` | Prettier format |
+| `npm run typecheck` | TypeScript check |
 
 ## Tech Stack
 
 | Layer | Technology |
-|-------|-----------|
-| **Frontend** | Svelte 5 (runes), Three.js, 3d-force-graph, three-spritetext |
+| ----- | --------- |
+| **Frontend** | Svelte 5, Three.js, 3d-force-graph, xterm.js |
 | **Backend** | Express, WebSocket (ws), dockerode |
-| **Build** | Vite, TypeScript (ESNext) |
+| **Build** | Vite, TypeScript |
 | **CLI** | Commander |
-| **Linting** | ESLint, Prettier, commitlint (conventional commits) |
-| **CI/CD** | GitHub Actions (lint, typecheck, build, auto-release to npm) |
-
-## Architecture
-
-```
-Docker daemon
-  |
-  +--> dockerode (client.ts, metrics.ts, logs.ts, links.ts)
-  |      |
-  |      +--> Express REST API (routes.ts)
-  |      +--> WebSocket broadcasts (server/index.ts)
-  |             |
-  |             +--> Svelte 5 store (docker.svelte.ts)
-  |                    |
-  |                    +--> GraphView.svelte (3d-force-graph + Three.js)
-  |                    +--> Sidebar (Info / Env / Logs tabs)
-  |                    +--> StatusBar (event stream + system info)
-  |
-  +--> Compose parser (compose.ts)
-         |
-         +--> depends_on + network link extraction
-```
-
-### API Endpoints
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/graph` | Full graph data (nodes + links) |
-| GET | `/api/containers/:id/stats` | CPU, memory, network I/O |
-| GET | `/api/containers/:id/logs` | Container logs |
-| GET | `/api/containers/:id/inspect` | Env, labels, mounts, config |
-| GET | `/api/containers/:id/history` | Metric history (sparkline data) |
-| POST | `/api/containers/:id/start\|stop\|restart` | Container actions |
-| GET | `/api/projects` | List compose projects |
-| POST | `/api/projects/:name/up\|down\|stop\|start\|restart` | Project actions |
-| GET | `/api/system` | Docker version, CPUs, memory |
-| WS | `/ws` | Real-time graph, stats, events, log streaming |
-
-### Keyboard Shortcuts
-
-| Key | Action |
-|-----|--------|
-| `/` or `Ctrl+K` | Focus search |
-| `Escape` | Close panel / clear search |
-| `F` | Zoom to fit |
-| `R` | Reset camera |
-| `?` | Toggle shortcut help |
+| **CI/CD** | GitHub Actions, commitlint, ESLint, Prettier |
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, commit conventions, and CI requirements.
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
