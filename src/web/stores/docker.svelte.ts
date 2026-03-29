@@ -1,15 +1,14 @@
 import type { GraphData, DockerEvent, WSMessage, ContainerStats, LogChunk } from '../../types';
 import { DOCKER } from '../lib/constants';
-
-// Re-export toast from its own store for backward compat
 export { addToast } from './toast.svelte';
 
 let graph = $state<GraphData>({ nodes: [], links: [] });
-let nodeIndex = new Map<string, any>(); // O(1) lookup for stats updates
+let nodeIndex = new Map<string, any>();
 let events = $state<DockerEvent[]>([]);
 let connected = $state(false);
 let streamingLogs = $state('');
 let streamingLogContainerId = $state<string | null>(null);
+let composeEnabled = $state(true);
 
 let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout>;
@@ -109,11 +108,17 @@ function connect() {
 }
 
 export function initDocker() {
-  // Fetch initial graph
   fetch('/api/graph')
     .then((r) => r.json())
     .then((data) => {
       graph = data;
+    })
+    .catch(() => {});
+
+  fetch('/api/features')
+    .then((r) => r.json())
+    .then((data) => {
+      composeEnabled = data.compose ?? true;
     })
     .catch(() => {});
 
@@ -157,6 +162,9 @@ export function getDockerState() {
     },
     get streamingLogContainerId() {
       return streamingLogContainerId;
+    },
+    get composeEnabled() {
+      return composeEnabled;
     },
   };
 }

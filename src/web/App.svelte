@@ -180,6 +180,7 @@
 
     <!-- Actions: projects + filters (compact) -->
     <div class="hud-group actions-group">
+      {#if docker.composeEnabled}
       <button class="hud-icon-btn" onclick={() => (showProjects = true)} title="Compose projects">
         <svg
           width="12"
@@ -199,6 +200,7 @@
           /><rect x="14" y="14" width="7" height="7" />
         </svg>
       </button>
+      {/if}
       {#if docker.graph.nodes.length > 0}
         <button
           class="hud-icon-btn"

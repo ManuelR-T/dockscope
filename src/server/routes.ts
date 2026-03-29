@@ -196,8 +196,18 @@ export function setupRoutes(
     res.json(versionCache);
   });
 
+  const composeEnabled = process.env.DOCKSCOPE_NO_COMPOSE !== '1';
+
+  app.get('/api/features', (_req, res) => {
+    res.json({ compose: composeEnabled });
+  });
+
   // Compose project management
   app.get('/api/projects', async (_req, res) => {
+    if (!composeEnabled) {
+      res.json([]);
+      return;
+    }
     try {
       const projects = await listComposeProjects();
       res.json(projects);
@@ -207,6 +217,10 @@ export function setupRoutes(
   });
 
   app.post('/api/projects/:name/:action', async (req, res) => {
+    if (!composeEnabled) {
+      res.status(403).json({ error: 'Compose management is disabled' });
+      return;
+    }
     const { name, action } = req.params;
     if (!['up', 'down', 'destroy', 'stop', 'start', 'restart'].includes(action)) {
       res.status(400).json({ error: `Invalid action: ${action}` });
