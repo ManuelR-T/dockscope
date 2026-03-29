@@ -29,6 +29,12 @@ npm install -g dockscope
 dockscope up
 ```
 
+### Docker (no Node.js needed)
+
+```bash
+docker run --rm -p 4681:4681 -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/manuelrt/dockscope
+```
+
 Opens `http://localhost:4681`.
 
 | Command | Description |
