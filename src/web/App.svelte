@@ -181,25 +181,25 @@
     <!-- Actions: projects + filters (compact) -->
     <div class="hud-group actions-group">
       {#if docker.composeEnabled}
-      <button class="hud-icon-btn" onclick={() => (showProjects = true)} title="Compose projects">
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect
-            x="3"
-            y="14"
-            width="7"
-            height="7"
-          /><rect x="14" y="14" width="7" height="7" />
-        </svg>
-      </button>
+        <button class="hud-icon-btn" onclick={() => (showProjects = true)} title="Compose projects">
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect
+              x="3"
+              y="14"
+              width="7"
+              height="7"
+            /><rect x="14" y="14" width="7" height="7" />
+          </svg>
+        </button>
       {/if}
       {#if docker.graph.nodes.length > 0}
         <button
