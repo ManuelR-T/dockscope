@@ -6,6 +6,7 @@ COPY . .
 RUN npm run build
 
 FROM node:24-alpine
+RUN apk add --no-cache docker-cli docker-cli-compose
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
