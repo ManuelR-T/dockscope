@@ -29,6 +29,14 @@ npm install -g dockscope
 dockscope up
 ```
 
+### Docker (no Node.js needed)
+
+```bash
+docker run --rm -p 4681:4681 -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/manuelr-t/dockscope
+```
+
+> **Note:** The Docker image does not include Compose project management (up/down/destroy) since it cannot access host compose files. All other features work normally.
+
 Opens `http://localhost:4681`.
 
 | Command | Description |
