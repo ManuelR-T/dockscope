@@ -115,6 +115,9 @@ jobs:
           name: ${{ steps.version.outputs.version }}
           generate_release_notes: true
 
+      - name: Lowercase image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -131,5 +134,5 @@ jobs:
           context: .
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}:latest
-            ghcr.io/${{ github.repository }}:${{ steps.version.outputs.version }}
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ steps.version.outputs.version }}
