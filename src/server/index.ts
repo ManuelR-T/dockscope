@@ -8,6 +8,7 @@ import {
   buildGraph,
   checkConnection,
   createExecSession,
+  diagnoseCrash,
   getContainerStats,
   streamContainerLogs,
   watchEvents,
@@ -108,6 +109,11 @@ export async function startServer(opts: ServerOptions): Promise<void> {
         ['start', 'stop', 'die', 'destroy', 'create', 'pause', 'unpause'].includes(event.action)
       ) {
         refreshGraph();
+      }
+      if (event.action === 'die') {
+        diagnoseCrash(event.id).then((diag) => {
+          if (diag) broadcast({ type: 'diagnostic', data: diag });
+        });
       }
     },
     (err) => console.error('Docker event stream error:', err.message),

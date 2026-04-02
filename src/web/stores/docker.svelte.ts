@@ -1,4 +1,4 @@
-import type { GraphData, DockerEvent, WSMessage, ContainerStats, LogChunk } from '../../types';
+import type { GraphData, DockerEvent, WSMessage, ContainerStats, LogChunk, CrashDiagnostic } from '../../types';
 import { DOCKER } from '../lib/constants';
 export { addToast } from './toast.svelte';
 
@@ -9,6 +9,7 @@ let connected = $state(false);
 let streamingLogs = $state('');
 let streamingLogContainerId = $state<string | null>(null);
 let composeEnabled = $state(true);
+let diagnostics = $state<Map<string, CrashDiagnostic>>(new Map());
 
 let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout>;
@@ -97,6 +98,10 @@ function connect() {
           break;
         }
 
+        case 'diagnostic':
+          addDiagnostic(msg.data as CrashDiagnostic);
+          break;
+
         case 'error':
           console.error('DockScope error:', (msg.data as { message: string }).message);
           break;
@@ -146,6 +151,12 @@ export function unsubscribeLogs() {
   streamingLogContainerId = null;
 }
 
+export function addDiagnostic(diag: CrashDiagnostic) {
+  const updated = new Map(diagnostics);
+  updated.set(diag.containerId, diag);
+  diagnostics = updated;
+}
+
 export function getDockerState() {
   return {
     get graph() {
@@ -165,6 +176,9 @@ export function getDockerState() {
     },
     get composeEnabled() {
       return composeEnabled;
+    },
+    get diagnostics() {
+      return diagnostics;
     },
   };
 }

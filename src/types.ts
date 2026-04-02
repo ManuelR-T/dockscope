@@ -69,12 +69,13 @@ export interface LogChunk {
 }
 
 export interface WSMessage {
-  type: 'graph' | 'stats' | 'event' | 'error' | 'log_chunk' | 'subscribe_logs' | 'unsubscribe_logs';
+  type: 'graph' | 'stats' | 'event' | 'error' | 'log_chunk' | 'subscribe_logs' | 'unsubscribe_logs' | 'diagnostic';
   data:
     | GraphData
     | ContainerStats
     | DockerEvent
     | LogChunk
+    | CrashDiagnostic
     | { message: string }
     | { containerId: string };
 }
@@ -102,6 +103,17 @@ export interface ContainerTopResult {
 export interface MetricPoint {
   cpu: number;
   memory: number;
+  time: number;
+}
+
+export interface CrashDiagnostic {
+  containerId: string;
+  containerName: string;
+  exitCode: number;
+  oomKilled: boolean;
+  cause: string;
+  details: string[];
+  logSnippet: string[];
   time: number;
 }
 

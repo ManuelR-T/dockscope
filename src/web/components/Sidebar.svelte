@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, untrack } from 'svelte';
-  import { subscribeLogs, unsubscribeLogs, addToast } from '../stores/docker.svelte';
+  import { subscribeLogs, unsubscribeLogs, addToast, addDiagnostic } from '../stores/docker.svelte';
   import ConfirmDialog from './ConfirmDialog.svelte';
   import SidebarInfo from './sidebar/SidebarInfo.svelte';
   import SidebarEnv from './sidebar/SidebarEnv.svelte';
@@ -8,7 +8,11 @@
   import SidebarTop from './sidebar/SidebarTop.svelte';
   import SidebarDiff from './sidebar/SidebarDiff.svelte';
   import SidebarExec from './sidebar/SidebarExec.svelte';
+  import SidebarDiagnostic from './sidebar/SidebarDiagnostic.svelte';
+  import { getDockerState } from '../stores/docker.svelte';
   import type { ServiceNode, ContainerStats, ContainerInspect, MetricPoint } from '../../types';
+
+  const docker = getDockerState();
 
   interface Props {
     node: ServiceNode | null;
@@ -101,6 +105,13 @@
         .catch(() => (history = []));
     } else {
       stats = null;
+      // Fetch crash diagnostic for non-running containers
+      if (!docker.diagnostics.has(node.id)) {
+        fetch(`/api/containers/${node.containerId}/diagnostic`)
+          .then((r) => r.json())
+          .then((d) => { if (d) addDiagnostic(d); })
+          .catch(() => {});
+      }
     }
 
     fetch(`/api/containers/${node.containerId}/inspect`)
@@ -309,6 +320,10 @@
         >
       {/if}
     </div>
+
+    {#if docker.diagnostics.has(node.id)}
+      <SidebarDiagnostic diagnostic={docker.diagnostics.get(node.id)!} />
+    {/if}
 
     {#if activeTab === 'info'}
       <SidebarInfo {node} {stats} {inspect} {history} {colorNetworks} />
