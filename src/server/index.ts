@@ -161,16 +161,23 @@ export async function startServer(opts: ServerOptions): Promise<void> {
         history.push({ cpu: stats.cpu, memory: stats.memory, time: Date.now() });
         if (history.length > 100) history.splice(0, history.length - 100);
 
-        // Anomaly detection (convert memory to percentage for comparison)
-        const memPct = stats.memoryLimit > 0 ? (stats.memory / stats.memoryLimit) * 100 : 0;
-        const memPctHistory = history.map((h) => ({
-          cpu: h.cpu,
-          memory: stats.memoryLimit > 0 ? (h.memory / stats.memoryLimit) * 100 : 0,
-        }));
-        for (const metric of ['cpu', 'memory'] as const) {
-          const value = metric === 'cpu' ? stats.cpu : memPct;
-          const anomaly = detectAnomaly(shortId, node.name, metric, value, memPctHistory);
-          if (anomaly) broadcast({ type: 'anomaly', data: anomaly });
+        // Anomaly detection — CPU always, memory only with a real limit
+        const cpuAnomaly = detectAnomaly(
+          shortId, node.name, 'cpu', stats.cpu,
+          history.map((h) => ({ cpu: h.cpu, memory: 0 })),
+        );
+        if (cpuAnomaly) broadcast({ type: 'anomaly', data: cpuAnomaly });
+
+        // Memory: convert to percentage (skip if no limit or limit is host RAM > 32GB)
+        const hasMemLimit = stats.memoryLimit > 0 && stats.memoryLimit < 32 * 1024 * 1024 * 1024;
+        if (hasMemLimit) {
+          const memPct = (stats.memory / stats.memoryLimit) * 100;
+          const memPctHistory = history.map((h) => ({
+            cpu: 0,
+            memory: (h.memory / stats.memoryLimit) * 100,
+          }));
+          const memAnomaly = detectAnomaly(shortId, node.name, 'memory', memPct, memPctHistory);
+          if (memAnomaly) broadcast({ type: 'anomaly', data: memAnomaly });
         }
       } catch {
         /* Container may have stopped */
