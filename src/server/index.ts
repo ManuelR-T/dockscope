@@ -109,6 +109,9 @@ export async function startServer(opts: ServerOptions): Promise<void> {
   ): Anomaly | null {
     if (history.length < ANOMALY_MIN_SAMPLES) return null;
 
+    // Sanity: values should be percentages; skip if clearly raw bytes
+    if (value > 1000) return null;
+
     // Must exceed minimum absolute threshold
     if (value < (ANOMALY_MIN_ABS[metric] || 0)) {
       activeAnomalies.get(shortId)?.delete(metric);
