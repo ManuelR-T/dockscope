@@ -42,6 +42,41 @@ export function tickAnimations(): void {
   }
 }
 
+/** State change flash animation — brief emissive + scale pulse. */
+interface FlashAnim {
+  group: THREE.Group;
+  start: number;
+  baseEmissive: number;
+}
+
+const flashAnims: FlashAnim[] = [];
+const FLASH_DURATION = 600;
+
+export function addStatusFlash(group: THREE.Group): void {
+  const meta = getMeta(group);
+  if (!meta) return;
+  // Kick the flash
+  meta.coreMat.emissiveIntensity = 1.0;
+  group.scale.setScalar(1.3);
+  flashAnims.push({ group, start: performance.now(), baseEmissive: meta.baseEmissive });
+}
+
+/** Tick flash animations (call every frame alongside tickAnimations). */
+export function tickFlashAnimations(): void {
+  const now = performance.now();
+  for (let i = flashAnims.length - 1; i >= 0; i--) {
+    const f = flashAnims[i];
+    const t = Math.min((now - f.start) / FLASH_DURATION, 1);
+    const ease = 1 - t * t; // ease-out quadratic (starts fast, slows down)
+    const meta = getMeta(f.group);
+    if (meta) {
+      meta.coreMat.emissiveIntensity = f.baseEmissive + (1.0 - f.baseEmissive) * ease;
+    }
+    f.group.scale.setScalar(1 + 0.3 * ease);
+    if (t >= 1) flashAnims.splice(i, 1);
+  }
+}
+
 /** Pulse warning ring sprite opacities (call every frame). */
 export function pulseWarningRings(rings: THREE.Sprite[]): void {
   const pulse = 0.12 + Math.sin(performance.now() * 0.004) * 0.12;

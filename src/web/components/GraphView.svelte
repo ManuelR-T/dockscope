@@ -9,8 +9,10 @@
   import { createClusteringForce, updateClusters, cleanupAllClusters } from '../lib/clustering';
   import {
     addDeployAnimation,
+    addStatusFlash,
     resetDeployIndex,
     tickAnimations,
+    tickFlashAnimations,
     pulseWarningRings,
     orbitVolumeMoons,
     updateAnomalyIndicators,
@@ -257,6 +259,7 @@
         );
       }
       tickAnimations();
+      tickFlashAnimations();
       pulseWarningRings(warningRings);
       if (graph) {
         const nodes = (graph.graphData() as any).nodes || [];
@@ -308,6 +311,7 @@
 
   // --- Graph data update ---
   let prevGraphKey = '';
+  let prevStatusMap = new Map<string, string>();
   $effect(() => {
     if (!graph) return;
     if (data.nodes.length === 0) {
@@ -319,11 +323,17 @@
       return;
     }
 
-    const graphKey = data.nodes
-      .map((n) => `${n.id}:${n.status}:${n.health}`)
-      .sort()
-      .join(',');
+    const curStatusMap = new Map(data.nodes.map((n) => [n.id, `${n.status}:${n.health}`]));
+    const graphKey = data.nodes.map((n) => `${n.id}:${n.status}:${n.health}`).sort().join(',');
     if (graphKey === prevGraphKey) return;
+
+    // Detect which nodes changed status (for flash animation)
+    const changedIds = new Set<string>();
+    for (const [id, key] of curStatusMap) {
+      const prev = prevStatusMap.get(id);
+      if (prev && prev !== key) changedIds.add(id);
+    }
+    prevStatusMap = curStatusMap;
 
     const prevIds = prevGraphKey
       ? new Set(prevGraphKey.split(',').map((k) => k.split(':')[0]))
@@ -342,6 +352,7 @@
       const imp = importanceMap.get(node.id) || 0;
       const group = buildNodeObject(node, imp, hasBrokenDependency(node.id), warningRings);
       if (isStructural) addDeployAnimation(node.id, group);
+      else if (changedIds.has(node.id)) addStatusFlash(group);
       return group;
     });
     graph.graphData(data);
