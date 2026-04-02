@@ -47,7 +47,9 @@ interface FlashAnim {
   group: THREE.Group;
   start: number;
   baseEmissive: number;
-  startScale: number; // scale at animation start (ratio of prev/cur radius)
+  startScale: number;
+  startColor: THREE.Color;
+  endColor: THREE.Color;
 }
 
 const flashAnims: FlashAnim[] = [];
@@ -56,18 +58,36 @@ const FLASH_DURATION = 600;
 const ACTIVE_STATES = new Set(['running']);
 const BASE_RADIUS = GRAPH.node.baseRadius;
 
-/** Determine if the transition is "coming online" or "going offline" */
-export function addStatusFlash(group: THREE.Group, prevStatus: string, curStatus: string): void {
+/** Animate transition between states with scale + color interpolation. */
+export function addStatusFlash(
+  group: THREE.Group,
+  prevStatus: string,
+  curStatus: string,
+  prevColor: string,
+): void {
   const meta = getMeta(group);
   if (!meta) return;
-  // Compute scale ratio: previous size / current size
+
   const prevRadius = ACTIVE_STATES.has(prevStatus) ? BASE_RADIUS.running : BASE_RADIUS.stopped;
   const curRadius = ACTIVE_STATES.has(curStatus) ? BASE_RADIUS.running : BASE_RADIUS.stopped;
   const startScale = prevRadius / curRadius;
+  const startColor = new THREE.Color(prevColor);
+  const endColor = meta.coreMat.color.clone();
 
+  // Start from previous visual state
   group.scale.setScalar(startScale);
+  meta.coreMat.color.copy(startColor);
+  meta.coreMat.emissive.copy(startColor);
   meta.coreMat.emissiveIntensity = 1.0;
-  flashAnims.push({ group, start: performance.now(), baseEmissive: meta.baseEmissive, startScale });
+
+  flashAnims.push({
+    group,
+    start: performance.now(),
+    baseEmissive: meta.baseEmissive,
+    startScale,
+    startColor,
+    endColor,
+  });
 }
 
 /** Tick flash animations (call every frame alongside tickAnimations). */
@@ -80,6 +100,9 @@ export function tickFlashAnimations(): void {
     const meta = getMeta(f.group);
     if (meta) {
       meta.coreMat.emissiveIntensity = f.baseEmissive + (1.0 - f.baseEmissive) * ease;
+      // Lerp color from previous → current
+      meta.coreMat.color.copy(f.startColor).lerp(f.endColor, t);
+      meta.coreMat.emissive.copy(meta.coreMat.color);
     }
     // Interpolate from startScale → 1.0
     const scaleDelta = f.startScale - 1;

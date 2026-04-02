@@ -5,7 +5,7 @@
   import type { GraphData, ServiceNode } from '../../types';
   import { GRAPH } from '../lib/constants';
   import { computeImportance } from '../lib/importance';
-  import { buildNodeObject, highlightNode, getMeta } from '../lib/nodeRenderer';
+  import { buildNodeObject, highlightNode, getMeta, getNodeColor } from '../lib/nodeRenderer';
   import { createClusteringForce, updateClusters, cleanupAllClusters } from '../lib/clustering';
   import {
     addDeployAnimation,
@@ -354,8 +354,10 @@
       const group = buildNodeObject(node, imp, hasBrokenDependency(node.id), warningRings);
       if (isStructural) addDeployAnimation(node.id, group);
       else if (changedIds.has(node.id)) {
-        const prev = oldStatusMap.get(node.id)?.split(':')[0] || 'exited';
-        addStatusFlash(group, prev, node.status);
+        const prevKey = oldStatusMap.get(node.id) || 'exited:none';
+        const [prevSt, prevHp] = prevKey.split(':');
+        const prevColor = getNodeColor({ status: prevSt, health: prevHp });
+        addStatusFlash(group, prevSt, node.status, prevColor);
       }
       return group;
     });
