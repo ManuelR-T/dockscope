@@ -333,6 +333,7 @@
       const prev = prevStatusMap.get(id);
       if (prev && prev !== key) changedIds.add(id);
     }
+    const oldStatusMap = prevStatusMap;
     prevStatusMap = curStatusMap;
 
     const prevIds = prevGraphKey
@@ -352,7 +353,10 @@
       const imp = importanceMap.get(node.id) || 0;
       const group = buildNodeObject(node, imp, hasBrokenDependency(node.id), warningRings);
       if (isStructural) addDeployAnimation(node.id, group);
-      else if (changedIds.has(node.id)) addStatusFlash(group);
+      else if (changedIds.has(node.id)) {
+        const prev = oldStatusMap.get(node.id)?.split(':')[0] || 'exited';
+        addStatusFlash(group, prev, node.status);
+      }
       return group;
     });
     graph.graphData(data);

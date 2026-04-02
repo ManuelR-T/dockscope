@@ -42,20 +42,35 @@ export function tickAnimations(): void {
   }
 }
 
-/** State change flash animation — brief emissive + scale pulse. */
+/** State change animation — direction-aware scale + emissive pulse. */
 interface FlashAnim {
   group: THREE.Group;
   start: number;
   baseEmissive: number;
+  goingUp: boolean; // true = coming online (grow in), false = going offline (shrink flash)
 }
 
 const flashAnims: FlashAnim[] = [];
 const FLASH_DURATION = 600;
 
-export function addStatusFlash(group: THREE.Group): void {
+const ACTIVE_STATES = new Set(['running']);
+
+/** Determine if the transition is "coming online" or "going offline" */
+export function addStatusFlash(group: THREE.Group, prevStatus: string, curStatus: string): void {
   const meta = getMeta(group);
   if (!meta) return;
-  flashAnims.push({ group, start: performance.now(), baseEmissive: meta.baseEmissive });
+  const goingUp = !ACTIVE_STATES.has(prevStatus) && ACTIVE_STATES.has(curStatus);
+
+  if (goingUp) {
+    // Coming online: start small, grow to normal with bright flash
+    group.scale.setScalar(0.3);
+    meta.coreMat.emissiveIntensity = 1.0;
+  } else {
+    // Going offline: start big, shrink to normal with flash
+    group.scale.setScalar(1.3);
+    meta.coreMat.emissiveIntensity = 1.0;
+  }
+  flashAnims.push({ group, start: performance.now(), baseEmissive: meta.baseEmissive, goingUp });
 }
 
 /** Tick flash animations (call every frame alongside tickAnimations). */
@@ -64,13 +79,18 @@ export function tickFlashAnimations(): void {
   for (let i = flashAnims.length - 1; i >= 0; i--) {
     const f = flashAnims[i];
     const t = Math.min((now - f.start) / FLASH_DURATION, 1);
-    // Sine pulse: 0→1→0 (grows then shrinks back)
-    const pulse = Math.sin(t * Math.PI);
+    const ease = 1 - t * t; // ease-out quadratic
     const meta = getMeta(f.group);
     if (meta) {
-      meta.coreMat.emissiveIntensity = f.baseEmissive + (1.0 - f.baseEmissive) * pulse;
+      meta.coreMat.emissiveIntensity = f.baseEmissive + (1.0 - f.baseEmissive) * ease;
     }
-    f.group.scale.setScalar(1 + 0.3 * pulse);
+    if (f.goingUp) {
+      // Grow from 0.3 → 1.0
+      f.group.scale.setScalar(0.3 + 0.7 * (1 - ease));
+    } else {
+      // Shrink from 1.3 → 1.0
+      f.group.scale.setScalar(1 + 0.3 * ease);
+    }
     if (t >= 1) flashAnims.splice(i, 1);
   }
 }
