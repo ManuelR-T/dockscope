@@ -169,13 +169,23 @@ export async function startServer(opts: ServerOptions): Promise<void> {
     }
   };
 
+  // Debounce graph refresh so rapid events (die+stop, create+start) collapse
+  let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+  function debouncedRefreshGraph() {
+    if (refreshTimer) clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => {
+      refreshTimer = null;
+      refreshGraph();
+    }, 500);
+  }
+
   const stopWatching = watchEvents(
     (event) => {
       broadcast({ type: 'event', data: event });
       if (
         ['start', 'stop', 'die', 'destroy', 'create', 'pause', 'unpause'].includes(event.action)
       ) {
-        refreshGraph();
+        debouncedRefreshGraph();
       }
       if (event.action === 'die') {
         diagnoseCrash(event.id).then((diag) => {
