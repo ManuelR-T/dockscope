@@ -14,7 +14,8 @@ import {
   watchEvents,
 } from '../docker/client.js';
 import { setupRoutes } from './routes.js';
-import type { ServerOptions, GraphData, WSMessage, Anomaly } from '../types.js';
+import type { ServerOptions, GraphData, WSMessage } from '../types.js';
+import { checkAnomaly } from './anomaly.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -88,43 +89,34 @@ export async function startServer(opts: ServerOptions): Promise<void> {
 
   // Track active anomalies to avoid repeated alerts (cleared when value returns to normal)
   const activeAnomalies = new Map<string, Set<string>>();
-  const ANOMALY_STDDEV_FACTOR = 2;
-  const ANOMALY_MIN_SAMPLES = 10;
 
-  function detectAnomaly(
+  function detectAndBroadcastAnomaly(
     shortId: string,
     name: string,
     metric: 'cpu' | 'memory',
     value: number,
-    history: { cpu: number; memory: number }[],
-  ): Anomaly | null {
-    if (history.length < ANOMALY_MIN_SAMPLES) return null;
-    const values = history.map((h) => h[metric]);
-    const mean = values.reduce((a, b) => a + b, 0) / values.length;
-    const variance = values.reduce((a, b) => a + (b - mean) ** 2, 0) / values.length;
-    const stddev = Math.sqrt(variance);
-    if (stddev < 1) return null; // Skip if nearly constant
-
-    const threshold = mean + ANOMALY_STDDEV_FACTOR * stddev;
-
-    if (value > threshold) {
+    history: number[],
+  ) {
+    const result = checkAnomaly(metric, value, history);
+    if (result) {
       if (!activeAnomalies.has(shortId)) activeAnomalies.set(shortId, new Set());
       const active = activeAnomalies.get(shortId)!;
-      if (active.has(metric)) return null; // Already alerted
+      if (active.has(metric)) return; // Already alerted
       active.add(metric);
-      return {
-        containerId: shortId,
-        containerName: name,
-        metric,
-        value,
-        average: mean,
-        threshold,
-        time: Date.now(),
-      };
+      broadcast({
+        type: 'anomaly',
+        data: {
+          containerId: shortId,
+          containerName: name,
+          metric,
+          value,
+          average: result.median,
+          threshold: result.threshold,
+          time: Date.now(),
+        },
+      });
     } else {
-      // Clear anomaly flag when value returns to normal
       activeAnomalies.get(shortId)?.delete(metric);
-      return null;
     }
   }
 
@@ -141,10 +133,26 @@ export async function startServer(opts: ServerOptions): Promise<void> {
         history.push({ cpu: stats.cpu, memory: stats.memory, time: Date.now() });
         if (history.length > 100) history.splice(0, history.length - 100);
 
-        // Anomaly detection (need enough samples)
-        for (const metric of ['cpu', 'memory'] as const) {
-          const anomaly = detectAnomaly(shortId, node.name, metric, stats[metric], history);
-          if (anomaly) broadcast({ type: 'anomaly', data: anomaly });
+        // Anomaly detection — CPU always, memory only with a real limit
+        detectAndBroadcastAnomaly(
+          shortId,
+          node.name,
+          'cpu',
+          stats.cpu,
+          history.map((h) => h.cpu),
+        );
+
+        // Memory: convert to percentage (skip if no limit or limit is host RAM > 32GB)
+        const hasMemLimit = stats.memoryLimit > 0 && stats.memoryLimit < 32 * 1024 * 1024 * 1024;
+        if (hasMemLimit) {
+          const memPct = (stats.memory / stats.memoryLimit) * 100;
+          detectAndBroadcastAnomaly(
+            shortId,
+            node.name,
+            'memory',
+            memPct,
+            history.map((h) => (h.memory / stats.memoryLimit) * 100),
+          );
         }
       } catch {
         /* Container may have stopped */
@@ -152,13 +160,23 @@ export async function startServer(opts: ServerOptions): Promise<void> {
     }
   };
 
+  // Debounce graph refresh so rapid events (die+stop, create+start) collapse
+  let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+  function debouncedRefreshGraph() {
+    if (refreshTimer) clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => {
+      refreshTimer = null;
+      refreshGraph();
+    }, 500);
+  }
+
   const stopWatching = watchEvents(
     (event) => {
       broadcast({ type: 'event', data: event });
       if (
         ['start', 'stop', 'die', 'destroy', 'create', 'pause', 'unpause'].includes(event.action)
       ) {
-        refreshGraph();
+        debouncedRefreshGraph();
       }
       if (event.action === 'die') {
         diagnoseCrash(event.id).then((diag) => {

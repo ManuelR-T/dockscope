@@ -14,5 +14,5 @@
     "lib": ["ESNext"]
   },
   "include": ["src/cli.ts", "src/server/**/*", "src/docker/**/*", "src/types.ts"],
-  "exclude": ["node_modules", "dist", "src/web"]
+  "exclude": ["node_modules", "dist", "src/web", "src/**/__tests__"]
 }
