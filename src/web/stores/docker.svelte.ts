@@ -70,7 +70,7 @@ function connect() {
             return newNode;
           });
 
-          graph = { nodes: mergedNodes, links: incoming.links };
+          graph = { nodes: [...mergedNodes], links: [...incoming.links] };
           nodeIndex = new Map(mergedNodes.map((n: any) => [n.id, n]));
           break;
         }
