@@ -1,6 +1,7 @@
-import type { GraphData, DockerEvent, WSMessage, ContainerStats, LogChunk, CrashDiagnostic } from '../../types';
+import type { GraphData, DockerEvent, WSMessage, ContainerStats, LogChunk, Anomaly, CrashDiagnostic } from '../../types';
 import { DOCKER } from '../lib/constants';
-export { addToast } from './toast.svelte';
+import { addToast } from './toast.svelte';
+export { addToast };
 
 let graph = $state<GraphData>({ nodes: [], links: [] });
 let nodeIndex = new Map<string, any>();
@@ -9,6 +10,7 @@ let connected = $state(false);
 let streamingLogs = $state('');
 let streamingLogContainerId = $state<string | null>(null);
 let composeEnabled = $state(true);
+let anomalies = $state<Map<string, Anomaly>>(new Map());
 let diagnostics = $state<Map<string, CrashDiagnostic>>(new Map());
 
 let ws: WebSocket | null = null;
@@ -98,6 +100,18 @@ function connect() {
           break;
         }
 
+        case 'anomaly': {
+          const a = msg.data as Anomaly;
+          const updated = new Map(anomalies);
+          updated.set(`${a.containerId}:${a.metric}`, a);
+          anomalies = updated;
+          addToast(
+            `${a.containerName}: ${a.metric.toUpperCase()} spike (${Math.round(a.value)}% vs avg ${Math.round(a.average)}%)`,
+            'error',
+          );
+          break;
+        }
+
         case 'diagnostic':
           addDiagnostic(msg.data as CrashDiagnostic);
           break;
@@ -176,6 +190,9 @@ export function getDockerState() {
     },
     get composeEnabled() {
       return composeEnabled;
+    },
+    get anomalies() {
+      return anomalies;
     },
     get diagnostics() {
       return diagnostics;

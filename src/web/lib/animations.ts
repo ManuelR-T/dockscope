@@ -58,6 +58,24 @@ export function pulseWarningRings(rings: THREE.Sprite[]): void {
 }
 
 /**
+ * Update anomaly indicator visibility and pulse on graph nodes.
+ * anomalyIds: set of container short IDs that currently have anomalies.
+ */
+export function updateAnomalyIndicators(nodes: any[], anomalyIds: Set<string>): void {
+  const pulse = 0.6 + Math.sin(performance.now() * 0.006) * 0.4;
+  for (const node of nodes) {
+    const obj = node.__threeObj;
+    if (!obj?.__anomalySprite) continue;
+    const sprite = obj.__anomalySprite as THREE.Sprite;
+    const hasAnomaly = anomalyIds.has(node.id);
+    sprite.visible = hasAnomaly;
+    if (hasAnomaly) {
+      (sprite.material as THREE.SpriteMaterial).opacity = pulse;
+    }
+  }
+}
+
+/**
  * Orbit volume moons around their parent nodes in the camera's view plane
  * so they always appear to orbit on the ring (which is a billboard sprite).
  * Reads __moons, __orbitRadius, __moonCount from node.__threeObj.
