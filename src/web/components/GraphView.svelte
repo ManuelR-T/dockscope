@@ -324,7 +324,10 @@
     }
 
     const curStatusMap = new Map(data.nodes.map((n) => [n.id, `${n.status}:${n.health}`]));
-    const graphKey = data.nodes.map((n) => `${n.id}:${n.status}:${n.health}`).sort().join(',');
+    const graphKey = data.nodes
+      .map((n) => `${n.id}:${n.status}:${n.health}`)
+      .sort()
+      .join(',');
     if (graphKey === prevGraphKey) return;
 
     // Detect which nodes changed status (for flash animation)

@@ -129,7 +129,11 @@ export function buildNodeObject(
   const orbitRadius = radius + 4;
   if (moonCount > 0) {
     const moonGeo = new THREE.SphereGeometry(0.5, 8, 6);
-    const moonMat = new THREE.MeshBasicMaterial({ color: '#a855f7', transparent: true, opacity: 0.6 });
+    const moonMat = new THREE.MeshBasicMaterial({
+      color: '#a855f7',
+      transparent: true,
+      opacity: 0.6,
+    });
     for (let i = 0; i < moonCount; i++) {
       const moon = new THREE.Mesh(moonGeo, moonMat);
       const angle = (2 * Math.PI * i) / moonCount;

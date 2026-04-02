@@ -57,18 +57,27 @@ export function setupRoutes(
     next();
   });
 
-  app.get('/api/graph', asyncRoute(async (_req, res) => {
-    res.json(await buildGraph());
-  }));
+  app.get(
+    '/api/graph',
+    asyncRoute(async (_req, res) => {
+      res.json(await buildGraph());
+    }),
+  );
 
-  app.get('/api/containers/:id/logs', asyncRoute(async (req, res) => {
-    const tail = parseInt(req.query.tail as string) || 200;
-    res.json({ logs: await getContainerLogs(getId(req), tail) });
-  }));
+  app.get(
+    '/api/containers/:id/logs',
+    asyncRoute(async (req, res) => {
+      const tail = parseInt(req.query.tail as string) || 200;
+      res.json({ logs: await getContainerLogs(getId(req), tail) });
+    }),
+  );
 
-  app.get('/api/containers/:id/stats', asyncRoute(async (req, res) => {
-    res.json(await getContainerStats(getId(req)));
-  }));
+  app.get(
+    '/api/containers/:id/stats',
+    asyncRoute(async (req, res) => {
+      res.json(await getContainerStats(getId(req)));
+    }),
+  );
 
   app.get('/api/health', async (_req, res) => {
     const dockerOk = await checkConnection();
@@ -78,40 +87,61 @@ export function setupRoutes(
   // Container actions — single handler for all action types
   const CONTAINER_ACTIONS = ['start', 'stop', 'restart', 'pause', 'unpause', 'kill'] as const;
   for (const action of CONTAINER_ACTIONS) {
-    app.post(`/api/containers/:id/${action}`, asyncRoute(async (req, res) => {
-      await containerAction(getId(req), action);
-      res.json({ ok: true });
-    }));
+    app.post(
+      `/api/containers/:id/${action}`,
+      asyncRoute(async (req, res) => {
+        await containerAction(getId(req), action);
+        res.json({ ok: true });
+      }),
+    );
   }
 
-  app.delete('/api/containers/:id', asyncRoute(async (req, res) => {
-    await removeContainer(getId(req), req.query.volumes === 'true');
-    res.json({ ok: true });
-  }));
+  app.delete(
+    '/api/containers/:id',
+    asyncRoute(async (req, res) => {
+      await removeContainer(getId(req), req.query.volumes === 'true');
+      res.json({ ok: true });
+    }),
+  );
 
-  app.get('/api/containers/:id/top', asyncRoute(async (req, res) => {
-    res.json(await getContainerTop(getId(req)));
-  }));
+  app.get(
+    '/api/containers/:id/top',
+    asyncRoute(async (req, res) => {
+      res.json(await getContainerTop(getId(req)));
+    }),
+  );
 
-  app.get('/api/containers/:id/diff', asyncRoute(async (req, res) => {
-    res.json(await getContainerDiff(getId(req)));
-  }));
+  app.get(
+    '/api/containers/:id/diff',
+    asyncRoute(async (req, res) => {
+      res.json(await getContainerDiff(getId(req)));
+    }),
+  );
 
-  app.get('/api/containers/:id/inspect', asyncRoute(async (req, res) => {
-    res.json(await inspectContainer(getId(req)));
-  }));
+  app.get(
+    '/api/containers/:id/inspect',
+    asyncRoute(async (req, res) => {
+      res.json(await inspectContainer(getId(req)));
+    }),
+  );
 
   app.get('/api/containers/:id/history', (req, res) => {
     res.json(metricHistory.get(shortId(getId(req))) || []);
   });
 
-  app.get('/api/containers/:id/diagnostic', asyncRoute(async (req, res) => {
-    res.json(await diagnoseCrash(getId(req)) || null);
-  }));
+  app.get(
+    '/api/containers/:id/diagnostic',
+    asyncRoute(async (req, res) => {
+      res.json((await diagnoseCrash(getId(req))) || null);
+    }),
+  );
 
-  app.get('/api/system', asyncRoute(async (_req, res) => {
-    res.json(await getSystemInfo());
-  }));
+  app.get(
+    '/api/system',
+    asyncRoute(async (_req, res) => {
+      res.json(await getSystemInfo());
+    }),
+  );
 
   // Version check (cached, refreshes every 30 min)
   let versionCache: { current: string; latest: string | null; checkedAt: number } | null = null;
@@ -138,19 +168,31 @@ export function setupRoutes(
     res.json({ compose: composeEnabled });
   });
 
-  app.get('/api/projects', asyncRoute(async (_req, res) => {
-    if (!composeEnabled) { res.json([]); return; }
-    res.json(await listComposeProjects());
-  }));
+  app.get(
+    '/api/projects',
+    asyncRoute(async (_req, res) => {
+      if (!composeEnabled) {
+        res.json([]);
+        return;
+      }
+      res.json(await listComposeProjects());
+    }),
+  );
 
-  app.post('/api/projects/:name/:action', asyncRoute(async (req, res) => {
-    if (!composeEnabled) { res.status(403).json({ error: 'Compose management is disabled' }); return; }
-    const name = req.params.name as string;
-    const action = req.params.action as string;
-    if (!['up', 'down', 'destroy', 'stop', 'start', 'restart'].includes(action)) {
-      res.status(400).json({ error: `Invalid action: ${action}` });
-      return;
-    }
-    res.json({ ok: true, message: await composeAction(name, action as any) });
-  }));
+  app.post(
+    '/api/projects/:name/:action',
+    asyncRoute(async (req, res) => {
+      if (!composeEnabled) {
+        res.status(403).json({ error: 'Compose management is disabled' });
+        return;
+      }
+      const name = req.params.name as string;
+      const action = req.params.action as string;
+      if (!['up', 'down', 'destroy', 'stop', 'start', 'restart'].includes(action)) {
+        res.status(400).json({ error: `Invalid action: ${action}` });
+        return;
+      }
+      res.json({ ok: true, message: await composeAction(name, action as any) });
+    }),
+  );
 }
