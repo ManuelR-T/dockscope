@@ -305,13 +305,13 @@
 
   // --- Graph data update ---
   let prevNodeIds = '';
-  let prevGraphKey = '';
+  let prevStatusMap = new Map<string, string>();
   $effect(() => {
     if (!graph) return;
     if (data.nodes.length === 0) {
       if (prevNodeIds !== '') {
         prevNodeIds = '';
-        prevGraphKey = '';
+        prevStatusMap = new Map();
         warningRings.length = 0;
         graph.graphData({ nodes: [], links: [] });
       }
@@ -319,34 +319,39 @@
     }
 
     const nodeIds = data.nodes.map((n) => n.id).sort().join(',');
-    const graphKey = data.nodes.map((n) => `${n.id}:${n.status}:${n.health}`).sort().join(',');
-    if (graphKey === prevGraphKey) return;
-
+    const curStatus = new Map(data.nodes.map((n) => [n.id, `${n.status}:${n.health}`]));
     const isStructural = nodeIds !== prevNodeIds;
-    prevNodeIds = nodeIds;
-    prevGraphKey = graphKey;
 
-    if (isStructural) {
-      assignProjectPositions(data.nodes);
-      resetDeployIndex();
+    // Find which nodes changed status
+    const changedIds = new Set<string>();
+    if (!isStructural) {
+      for (const [id, key] of curStatus) {
+        if (prevStatusMap.get(id) !== key) changedIds.add(id);
+      }
+      if (changedIds.size === 0) { prevStatusMap = curStatus; return; }
     }
 
-    // Rebuild Three.js objects
-    warningRings.length = 0;
-    graph.nodeThreeObject((node: any) => {
-      const imp = importanceMap.get(node.id) || 0;
-      const group = buildNodeObject(node, imp, hasBrokenDependency(node.id), warningRings);
-      if (isStructural) addDeployAnimation(node.id, group);
-      return group;
-    });
+    prevNodeIds = nodeIds;
+    prevStatusMap = curStatus;
 
-    // Always push data so the library picks up changes.
-    // For status-only changes, freeze the simulation to prevent node repositioning.
-    if (!isStructural) graph.cooldownTicks(0);
-    graph.graphData(data);
-    if (!isStructural) {
-      // Restore after the library processes the update
-      requestAnimationFrame(() => graph?.cooldownTicks(100));
+    if (isStructural) {
+      // Nodes added or removed — full rebuild + simulation
+      assignProjectPositions(data.nodes);
+      resetDeployIndex();
+      warningRings.length = 0;
+      graph.nodeThreeObject((node: any) => {
+        const imp = importanceMap.get(node.id) || 0;
+        const group = buildNodeObject(node, imp, hasBrokenDependency(node.id), warningRings);
+        addDeployAnimation(node.id, group);
+        return group;
+      });
+      graph.graphData(data);
+    } else {
+      // Status-only — update materials in place for changed nodes, no simulation reheat
+      const graphNodes = (graph.graphData() as any).nodes as any[];
+      for (const n of graphNodes) {
+        if (changedIds.has(n.id)) updateNodeAppearance(n);
+      }
     }
   });
 
