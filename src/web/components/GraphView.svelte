@@ -13,8 +13,10 @@
     tickAnimations,
     pulseWarningRings,
     orbitVolumeMoons,
+    updateAnomalyIndicators,
   } from '../lib/animations';
   import { buildNetworkColorMap } from '../lib/networkColors';
+  import { getDockerState } from '../stores/docker.svelte';
 
   interface Props {
     data: GraphData;
@@ -36,8 +38,20 @@
     onHelpClick,
   }: Props = $props();
 
+  const docker = getDockerState();
+
   // --- Derived importance ---
   let importanceMap = $derived(computeImportance(data.nodes, data.links));
+
+  // Cache anomaly IDs for animation loop (avoid reactive reads in rAF)
+  let anomalyIds = new Set<string>();
+  $effect(() => {
+    const ids = new Set<string>();
+    for (const key of docker.anomalies.keys()) {
+      ids.add(key.split(':')[0]);
+    }
+    anomalyIds = ids;
+  });
 
   // --- Health propagation ---
   function hasBrokenDependency(nodeId: string): boolean {
@@ -181,7 +195,11 @@
       }
       tickAnimations();
       pulseWarningRings(warningRings);
-      if (graph) orbitVolumeMoons((graph.graphData() as any).nodes || [], graph.camera());
+      if (graph) {
+        const nodes = (graph.graphData() as any).nodes || [];
+        orbitVolumeMoons(nodes, graph.camera());
+        updateAnomalyIndicators(nodes, anomalyIds);
+      }
       clusterFrameId = requestAnimationFrame(loop);
     }
     clusterFrameId = requestAnimationFrame(loop);

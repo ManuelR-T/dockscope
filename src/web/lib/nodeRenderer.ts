@@ -127,6 +127,23 @@ export function buildNodeObject(
     (group as any).__orbitPhase = Math.random() * Math.PI * 2;
   }
 
+  // Anomaly indicator (hidden by default, toggled from GraphView)
+  if (isRunning) {
+    const anomalySprite = new SpriteText('!');
+    anomalySprite.color = '#ffcc00';
+    anomalySprite.textHeight = 3.5;
+    anomalySprite.fontFace = "'Fira Code', monospace";
+    anomalySprite.fontWeight = '700';
+    anomalySprite.backgroundColor = 'rgba(255, 204, 0, 0.15)' as any;
+    anomalySprite.padding = 1.5;
+    anomalySprite.borderRadius = 2;
+    anomalySprite.position.set(radius + 3, radius + 3, 0);
+    (anomalySprite.material as THREE.SpriteMaterial).depthWrite = false;
+    anomalySprite.visible = false;
+    group.add(anomalySprite);
+    (group as any).__anomalySprite = anomalySprite;
+  }
+
   // Name label
   const label = new SpriteText(node.name);
   label.color = '#c8cede';
