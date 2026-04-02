@@ -340,12 +340,13 @@
       return group;
     });
 
-    if (isStructural) {
-      // New nodes — full data update (reheats simulation for positioning)
-      graph.graphData(data);
-    } else {
-      // Status-only — refresh visuals without reheating simulation
-      graph.nodeThreeObject(graph.nodeThreeObject()); // force re-render of objects
+    // Always push data so the library picks up changes.
+    // For status-only changes, freeze the simulation to prevent node repositioning.
+    if (!isStructural) graph.cooldownTicks(0);
+    graph.graphData(data);
+    if (!isStructural) {
+      // Restore after the library processes the update
+      requestAnimationFrame(() => graph?.cooldownTicks(100));
     }
   });
 
