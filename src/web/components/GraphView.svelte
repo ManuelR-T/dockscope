@@ -305,52 +305,47 @@
 
   // --- Graph data update ---
   let prevNodeIds = '';
-  let prevStatusKey = '';
+  let prevGraphKey = '';
   $effect(() => {
     if (!graph) return;
     if (data.nodes.length === 0) {
       if (prevNodeIds !== '') {
         prevNodeIds = '';
-        prevStatusKey = '';
+        prevGraphKey = '';
         warningRings.length = 0;
         graph.graphData({ nodes: [], links: [] });
       }
       return;
     }
 
-    const nodeIds = data.nodes
-      .map((n) => n.id)
-      .sort()
-      .join(',');
-    const statusKey = data.nodes
-      .map((n) => `${n.id}:${n.status}:${n.health}`)
-      .sort()
-      .join(',');
+    const nodeIds = data.nodes.map((n) => n.id).sort().join(',');
+    const graphKey = data.nodes.map((n) => `${n.id}:${n.status}:${n.health}`).sort().join(',');
+    if (graphKey === prevGraphKey) return;
 
     const isStructural = nodeIds !== prevNodeIds;
-    const isStatusChange = !isStructural && statusKey !== prevStatusKey;
+    prevNodeIds = nodeIds;
+    prevGraphKey = graphKey;
 
     if (isStructural) {
-      // Nodes added or removed — full rebuild
-      prevNodeIds = nodeIds;
-      prevStatusKey = statusKey;
       assignProjectPositions(data.nodes);
       resetDeployIndex();
-      warningRings.length = 0;
-      graph.nodeThreeObject((node: any) => {
-        const imp = importanceMap.get(node.id) || 0;
-        const group = buildNodeObject(node, imp, hasBrokenDependency(node.id), warningRings);
-        addDeployAnimation(node.id, group);
-        return group;
-      });
+    }
+
+    // Rebuild Three.js objects
+    warningRings.length = 0;
+    graph.nodeThreeObject((node: any) => {
+      const imp = importanceMap.get(node.id) || 0;
+      const group = buildNodeObject(node, imp, hasBrokenDependency(node.id), warningRings);
+      if (isStructural) addDeployAnimation(node.id, group);
+      return group;
+    });
+
+    if (isStructural) {
+      // New nodes — full data update (reheats simulation for positioning)
       graph.graphData(data);
-    } else if (isStatusChange) {
-      // Status/health changed — update materials in place
-      prevStatusKey = statusKey;
-      const nodes = (graph.graphData() as any).nodes as any[];
-      for (const node of nodes) {
-        updateNodeAppearance(node);
-      }
+    } else {
+      // Status-only — refresh visuals without reheating simulation
+      graph.nodeThreeObject(graph.nodeThreeObject()); // force re-render of objects
     }
   });
 
