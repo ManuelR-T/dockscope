@@ -14,7 +14,8 @@ import {
   watchEvents,
 } from '../docker/client.js';
 import { setupRoutes } from './routes.js';
-import type { ServerOptions, GraphData, WSMessage, Anomaly } from '../types.js';
+import type { ServerOptions, GraphData, WSMessage } from '../types.js';
+import { checkAnomaly, ANOMALY_MIN_SAMPLES } from './anomaly.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -88,63 +89,34 @@ export async function startServer(opts: ServerOptions): Promise<void> {
 
   // Track active anomalies to avoid repeated alerts (cleared when value returns to normal)
   const activeAnomalies = new Map<string, Set<string>>();
-  const ANOMALY_IQR_FACTOR = 2.5; // Tukey fence multiplier (1.5 = mild outlier, 3 = extreme)
-  const ANOMALY_MIN_SAMPLES = 20;
-  // Minimum absolute values to trigger — ignores low-usage spikes
-  const ANOMALY_MIN_ABS: Record<string, number> = { cpu: 70, memory: 75 };
 
-  function percentile(sorted: number[], p: number): number {
-    const idx = (sorted.length - 1) * p;
-    const lo = Math.floor(idx);
-    const hi = Math.ceil(idx);
-    return lo === hi ? sorted[lo] : sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
-  }
-
-  function detectAnomaly(
+  function detectAndBroadcastAnomaly(
     shortId: string,
     name: string,
     metric: 'cpu' | 'memory',
     value: number,
-    history: { cpu: number; memory: number }[],
-  ): Anomaly | null {
-    if (history.length < ANOMALY_MIN_SAMPLES) return null;
-
-    // Sanity: values should be percentages; skip if clearly raw bytes
-    if (value > 1000) return null;
-
-    // Must exceed minimum absolute threshold
-    if (value < (ANOMALY_MIN_ABS[metric] || 0)) {
-      activeAnomalies.get(shortId)?.delete(metric);
-      return null;
-    }
-
-    const sorted = history.map((h) => h[metric]).sort((a, b) => a - b);
-    const q1 = percentile(sorted, 0.25);
-    const q3 = percentile(sorted, 0.75);
-    const iqr = q3 - q1;
-
-    // Skip if data is too uniform (IQR near zero) — use a fallback based on median
-    const median = percentile(sorted, 0.5);
-    const threshold = iqr > 1 ? q3 + ANOMALY_IQR_FACTOR * iqr : median * 2;
-
-    if (value > threshold) {
+    history: number[],
+  ) {
+    const result = checkAnomaly(metric, value, history);
+    if (result) {
       if (!activeAnomalies.has(shortId)) activeAnomalies.set(shortId, new Set());
       const active = activeAnomalies.get(shortId)!;
-      if (active.has(metric)) return null; // Already alerted
+      if (active.has(metric)) return; // Already alerted
       active.add(metric);
-      return {
-        containerId: shortId,
-        containerName: name,
-        metric,
-        value,
-        average: median,
-        threshold,
-        time: Date.now(),
-      };
+      broadcast({
+        type: 'anomaly',
+        data: {
+          containerId: shortId,
+          containerName: name,
+          metric,
+          value,
+          average: result.median,
+          threshold: result.threshold,
+          time: Date.now(),
+        },
+      });
     } else {
-      // Clear anomaly flag when value returns to normal
       activeAnomalies.get(shortId)?.delete(metric);
-      return null;
     }
   }
 
@@ -162,22 +134,19 @@ export async function startServer(opts: ServerOptions): Promise<void> {
         if (history.length > 100) history.splice(0, history.length - 100);
 
         // Anomaly detection — CPU always, memory only with a real limit
-        const cpuAnomaly = detectAnomaly(
+        detectAndBroadcastAnomaly(
           shortId, node.name, 'cpu', stats.cpu,
-          history.map((h) => ({ cpu: h.cpu, memory: 0 })),
+          history.map((h) => h.cpu),
         );
-        if (cpuAnomaly) broadcast({ type: 'anomaly', data: cpuAnomaly });
 
         // Memory: convert to percentage (skip if no limit or limit is host RAM > 32GB)
         const hasMemLimit = stats.memoryLimit > 0 && stats.memoryLimit < 32 * 1024 * 1024 * 1024;
         if (hasMemLimit) {
           const memPct = (stats.memory / stats.memoryLimit) * 100;
-          const memPctHistory = history.map((h) => ({
-            cpu: 0,
-            memory: (h.memory / stats.memoryLimit) * 100,
-          }));
-          const memAnomaly = detectAnomaly(shortId, node.name, 'memory', memPct, memPctHistory);
-          if (memAnomaly) broadcast({ type: 'anomaly', data: memAnomaly });
+          detectAndBroadcastAnomaly(
+            shortId, node.name, 'memory', memPct,
+            history.map((h) => (h.memory / stats.memoryLimit) * 100),
+          );
         }
       } catch {
         /* Container may have stopped */
