@@ -16,6 +16,7 @@ import {
 import { setupRoutes } from './routes.js';
 import type { ServerOptions, GraphData, WSMessage } from '../types.js';
 import { checkAnomaly } from './anomaly.js';
+import { shortId } from '../utils.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -127,15 +128,15 @@ export async function startServer(opts: ServerOptions): Promise<void> {
         const stats = await getContainerStats(node.containerId);
         broadcast({ type: 'stats', data: stats });
 
-        const shortId = node.containerId.substring(0, 12);
-        if (!metricHistory.has(shortId)) metricHistory.set(shortId, []);
-        const history = metricHistory.get(shortId)!;
+        const sid = shortId(node.containerId);
+        if (!metricHistory.has(sid)) metricHistory.set(sid, []);
+        const history = metricHistory.get(sid)!;
         history.push({ cpu: stats.cpu, memory: stats.memory, time: Date.now() });
         if (history.length > 100) history.splice(0, history.length - 100);
 
         // Anomaly detection — CPU always, memory only with a real limit
         detectAndBroadcastAnomaly(
-          shortId,
+          sid,
           node.name,
           'cpu',
           stats.cpu,
@@ -147,7 +148,7 @@ export async function startServer(opts: ServerOptions): Promise<void> {
         if (hasMemLimit) {
           const memPct = (stats.memory / stats.memoryLimit) * 100;
           detectAndBroadcastAnomaly(
-            shortId,
+            sid,
             node.name,
             'memory',
             memPct,
