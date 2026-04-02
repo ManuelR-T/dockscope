@@ -69,12 +69,13 @@ export interface LogChunk {
 }
 
 export interface WSMessage {
-  type: 'graph' | 'stats' | 'event' | 'error' | 'log_chunk' | 'subscribe_logs' | 'unsubscribe_logs';
+  type: 'graph' | 'stats' | 'event' | 'error' | 'log_chunk' | 'subscribe_logs' | 'unsubscribe_logs' | 'anomaly';
   data:
     | GraphData
     | ContainerStats
     | DockerEvent
     | LogChunk
+    | Anomaly
     | { message: string }
     | { containerId: string };
 }
@@ -102,6 +103,16 @@ export interface ContainerTopResult {
 export interface MetricPoint {
   cpu: number;
   memory: number;
+  time: number;
+}
+
+export interface Anomaly {
+  containerId: string;
+  containerName: string;
+  metric: 'cpu' | 'memory';
+  value: number;
+  average: number;
+  threshold: number;
   time: number;
 }
 

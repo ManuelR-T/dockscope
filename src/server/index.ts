@@ -13,7 +13,7 @@ import {
   watchEvents,
 } from '../docker/client.js';
 import { setupRoutes } from './routes.js';
-import type { ServerOptions, GraphData, WSMessage } from '../types.js';
+import type { ServerOptions, GraphData, WSMessage, Anomaly } from '../types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -83,6 +83,40 @@ export async function startServer(opts: ServerOptions): Promise<void> {
     }
   };
 
+  // Track active anomalies to avoid repeated alerts (cleared when value returns to normal)
+  const activeAnomalies = new Map<string, Set<string>>();
+  const ANOMALY_STDDEV_FACTOR = 2;
+  const ANOMALY_MIN_SAMPLES = 10;
+
+  function detectAnomaly(
+    shortId: string,
+    name: string,
+    metric: 'cpu' | 'memory',
+    value: number,
+    history: { cpu: number; memory: number }[],
+  ): Anomaly | null {
+    if (history.length < ANOMALY_MIN_SAMPLES) return null;
+    const values = history.map((h) => h[metric]);
+    const mean = values.reduce((a, b) => a + b, 0) / values.length;
+    const variance = values.reduce((a, b) => a + (b - mean) ** 2, 0) / values.length;
+    const stddev = Math.sqrt(variance);
+    if (stddev < 1) return null; // Skip if nearly constant
+
+    const threshold = mean + ANOMALY_STDDEV_FACTOR * stddev;
+
+    if (value > threshold) {
+      if (!activeAnomalies.has(shortId)) activeAnomalies.set(shortId, new Set());
+      const active = activeAnomalies.get(shortId)!;
+      if (active.has(metric)) return null; // Already alerted
+      active.add(metric);
+      return { containerId: shortId, containerName: name, metric, value, average: mean, threshold, time: Date.now() };
+    } else {
+      // Clear anomaly flag when value returns to normal
+      activeAnomalies.get(shortId)?.delete(metric);
+      return null;
+    }
+  }
+
   const refreshStats = async () => {
     for (const node of cachedGraph.nodes) {
       if (node.status !== 'running') continue;
@@ -95,6 +129,12 @@ export async function startServer(opts: ServerOptions): Promise<void> {
         const history = metricHistory.get(shortId)!;
         history.push({ cpu: stats.cpu, memory: stats.memory, time: Date.now() });
         if (history.length > 100) history.splice(0, history.length - 100);
+
+        // Anomaly detection (need enough samples)
+        for (const metric of ['cpu', 'memory'] as const) {
+          const anomaly = detectAnomaly(shortId, node.name, metric, stats[metric], history);
+          if (anomaly) broadcast({ type: 'anomaly', data: anomaly });
+        }
       } catch {
         /* Container may have stopped */
       }
