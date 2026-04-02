@@ -10,6 +10,7 @@ import type {
   ContainerTopResult,
   SystemInfo,
   DockerEvent,
+  CrashDiagnostic,
 } from '../types.js';
 import { getContainerStats as _getStats } from './metrics.js';
 import { getContainerLogs as _getLogs, streamContainerLogs as _streamLogs } from './logs.js';
@@ -18,6 +19,7 @@ import {
   extractDependsOnFromFile,
   extractNetworkLinks,
 } from './links.js';
+import { analyzeCrash as _analyzeCrash } from './diagnostics.js';
 
 const docker = new Dockerode();
 
@@ -113,6 +115,8 @@ export const streamContainerLogs = (
   onData: (t: string) => void,
   onError?: (e: Error) => void,
 ) => _streamLogs(docker, id, onData, onError);
+export const diagnoseCrash = (id: string): Promise<CrashDiagnostic | null> =>
+  _analyzeCrash(docker, id);
 
 const execFileAsync = promisify(execFile);
 
