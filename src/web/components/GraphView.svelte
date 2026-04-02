@@ -193,7 +193,7 @@
     const FC = GRAPH.force;
     const CC = GRAPH.controls;
 
-    graph = ForceGraph3D()(container)
+    const g = ForceGraph3D()(container)
       .backgroundColor('rgba(0,0,0,0)')
       .nodeId('id')
       .nodeThreeObject((node: any) => {
@@ -221,62 +221,55 @@
         if (node) highlightNode(node, true);
       })
       .graphData(data);
+    graph = g;
 
     // Forces
-    graph.d3Force('charge')?.strength(FC.charge.strength).distanceMax(FC.charge.distanceMax);
-    graph.d3Force('link')?.distance(FC.link.distance);
-    graph.d3Force('center')?.strength(FC.center.strength);
-    graph.d3Force('x')?.strength(FC.position.strength);
-    graph.d3Force('y')?.strength(FC.position.strength);
-    graph.d3Force('z')?.strength(FC.position.strength);
-    graph.d3Force('cluster', createClusteringForce(FC.cluster.strength));
+    g.d3Force('charge')?.strength(FC.charge.strength).distanceMax(FC.charge.distanceMax);
+    g.d3Force('link')?.distance(FC.link.distance);
+    g.d3Force('center')?.strength(FC.center.strength);
+    g.d3Force('x')?.strength(FC.position.strength);
+    g.d3Force('y')?.strength(FC.position.strength);
+    g.d3Force('z')?.strength(FC.position.strength);
+    g.d3Force('cluster', createClusteringForce(FC.cluster.strength));
 
     // Controls
-    const controls = graph.controls?.();
+    const controls = g.controls?.();
     if (controls) {
       controls.zoomSpeed = CC.zoomSpeed;
       controls.rotateSpeed = CC.rotateSpeed;
       controls.panSpeed = CC.panSpeed;
     }
 
-    const renderer = graph.renderer?.();
+    const renderer = g.renderer?.();
     if (renderer) renderer.setClearColor(0x04040e, 1);
 
     // Resize
     const observer = new ResizeObserver(([entry]) => {
       const { width, height } = entry.contentRect;
-      graph?.width(width).height(height);
+      g.width(width).height(height);
     });
     observer.observe(container);
 
     // Animation loop (clusters + deploy anims + warning pulse)
     function loop() {
-      if (graph) {
-        updateClusters(
-          graph.scene(),
-          graph.graphData().nodes as any[],
-          isNodeVisible,
-        );
-      }
+      updateClusters(g.scene(), g.graphData().nodes, isNodeVisible);
       tickAnimations();
       tickFlashAnimations();
       pulseWarningRings(warningRings);
-      if (graph) {
-        const nodes = (graph.graphData() as any).nodes || [];
-        const cam = graph.camera();
-        orbitVolumeMoons(nodes, cam);
-        updateBillboardPositions(nodes, cam);
-        updateAnomalyIndicators(nodes, anomalyIds);
-      }
+      const nodes = g.graphData().nodes;
+      const cam = g.camera();
+      orbitVolumeMoons(nodes, cam);
+      updateBillboardPositions(nodes, cam);
+      updateAnomalyIndicators(nodes, anomalyIds);
       clusterFrameId = requestAnimationFrame(loop);
     }
     clusterFrameId = requestAnimationFrame(loop);
 
     return () => {
       if (clusterFrameId !== null) cancelAnimationFrame(clusterFrameId);
-      if (graph) cleanupAllClusters(graph.scene());
+      cleanupAllClusters(g.scene());
       observer.disconnect();
-      graph?._destructor?.();
+      g._destructor?.();
     };
   });
 
