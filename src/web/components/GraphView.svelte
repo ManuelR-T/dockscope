@@ -150,8 +150,8 @@
       if (!inImpact) {
         return link.type === 'depends_on' ? 'rgba(255,138,43,0.03)' : 'rgba(0,228,255,0.03)';
       }
-      if (link.type === 'depends_on') return 'rgba(255,138,43,0.85)';
-      return 'rgba(0,228,255,0.65)';
+      if (link.type === 'depends_on') return '#ff8a2b';
+      return '#00e4ff';
     }
 
     if (link.type === 'depends_on') return hl ? 'rgba(255,138,43,0.5)' : 'rgba(255,138,43,0.08)';
@@ -198,11 +198,9 @@
       .nodeThreeObjectExtend(false)
       .linkColor(getLinkColor)
       .linkWidth(getLinkWidth)
-      .linkDirectionalArrowLength((link: any) => (link.type === 'depends_on' ? 3 : 0))
+      .linkDirectionalArrowLength((link: any) => (link.type === 'depends_on' ? 4 : 0))
       .linkDirectionalArrowRelPos(1)
-      .linkDirectionalArrowColor((link: any) =>
-        link.type === 'depends_on' ? 'rgba(255,138,43,0.25)' : undefined,
-      )
+      .linkDirectionalArrowColor((link: any) => getLinkColor(link))
       .linkOpacity(0.7)
       .linkLabel((link: any) => (link.type === 'depends_on' ? 'depends_on' : link.label || ''))
       .cooldownTicks(100)
