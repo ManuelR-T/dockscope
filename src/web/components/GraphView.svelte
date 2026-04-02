@@ -95,12 +95,64 @@
   let prevSelectedId: string | null = null;
   let selectedId: string | null = null;
 
+  // --- Impact view mode ---
+  let impactMode = $state(false);
+  let impactedIds = $state<Set<string>>(new Set());
+
+  /** Traverse depends_on links upstream: find all nodes that would break if `nodeId` goes down */
+  function computeImpact(nodeId: string): Set<string> {
+    const impacted = new Set<string>([nodeId]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const link of data.links) {
+        if (link.type !== 'depends_on') continue;
+        const srcId = typeof link.source === 'object' ? (link.source as any).id : link.source;
+        const tgtId = typeof link.target === 'object' ? (link.target as any).id : link.target;
+        // src depends_on tgt — if tgt is impacted, src is too
+        if (impacted.has(tgtId) && !impacted.has(srcId)) {
+          impacted.add(srcId);
+          changed = true;
+        }
+      }
+    }
+    return impacted;
+  }
+
+  function applyImpactDimming(nodes: any[], affected: Set<string>) {
+    for (const node of nodes) {
+      const obj = node.__threeObj;
+      if (!obj) continue;
+      const mat = (obj as any).__coreMat;
+      if (!mat) continue;
+      if (affected.size === 0) {
+        // Reset
+        mat.opacity = node.status === 'running' ? 0.88 : 0.4;
+      } else if (affected.has(node.id)) {
+        mat.opacity = node.status === 'running' ? 0.88 : 0.4;
+      } else {
+        mat.opacity = 0.08;
+      }
+    }
+  }
+
   let networkColorMap = $derived(buildNetworkColorMap(data.links));
 
   function getLinkColor(link: any): string {
     const s = typeof link.source === 'object' ? link.source : null;
     const t = typeof link.target === 'object' ? link.target : null;
     const hl = activeNodeId && (s?.id === activeNodeId || t?.id === activeNodeId);
+
+    // Impact mode: dim links not in the impact chain
+    if (impactedIds.size > 0) {
+      const inImpact = s && t && impactedIds.has(s.id) && impactedIds.has(t.id);
+      if (!inImpact) {
+        return link.type === 'depends_on' ? 'rgba(255,138,43,0.03)' : 'rgba(0,228,255,0.03)';
+      }
+      if (link.type === 'depends_on') return 'rgba(255,138,43,0.6)';
+      return 'rgba(0,228,255,0.4)';
+    }
+
     if (link.type === 'depends_on') return hl ? 'rgba(255,138,43,0.5)' : 'rgba(255,138,43,0.08)';
     if (colorNetworks) {
       const rgb = networkColorMap.get(link.label) || '0,228,255';
@@ -113,6 +165,13 @@
     const s = typeof link.source === 'object' ? link.source : null;
     const t = typeof link.target === 'object' ? link.target : null;
     const hl = activeNodeId && (s?.id === activeNodeId || t?.id === activeNodeId);
+
+    // Impact mode: thicken impacted links
+    if (impactedIds.size > 0) {
+      const inImpact = s && t && impactedIds.has(s.id) && impactedIds.has(t.id);
+      return inImpact ? 1.5 : 0.1;
+    }
+
     const base = link.type === 'depends_on' ? 0.3 : 0.5;
     return hl ? base + 1 : base;
   }
@@ -283,6 +342,7 @@
   // --- Selection effect ---
   $effect(() => {
     const sel = selectedNode;
+    const impact = impactMode;
     untrack(() => {
       if (!graph) return;
       const nodes = (graph.graphData() as any).nodes as any[];
@@ -297,6 +357,15 @@
       prevSelectedId = sel?.id || null;
       activeNodeId = sel?.id || null;
       selectedId = sel?.id || null;
+
+      // Impact view dimming
+      if (impact && sel) {
+        impactedIds = computeImpact(sel.id);
+      } else {
+        impactedIds = new Set();
+      }
+      applyImpactDimming(nodes, impactedIds);
+
       graph.linkColor(getLinkColor).linkWidth(getLinkWidth);
     });
   });
@@ -352,6 +421,9 @@
   }
   export function resetCamera() {
     graph?.cameraPosition({ x: 0, y: 0, z: 300 }, { x: 0, y: 0, z: 0 }, 800);
+  }
+  export function toggleImpactMode() {
+    impactMode = !impactMode;
   }
   export function centerOnNode(node: ServiceNode) {
     const n = data.nodes.find((nd: any) => nd.id === node.id) as any;
@@ -410,6 +482,25 @@
           <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
         </svg>
       </button>
+      <button
+        class="graph-ctrl-btn"
+        class:active={impactMode}
+        title="Impact view (I)"
+        onclick={toggleImpactMode}
+      >
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+        </svg>
+      </button>
     {/if}
     <span class="ctrl-divider"></span>
     <button class="graph-ctrl-btn help-btn" title="Keyboard shortcuts (?)" onclick={onHelpClick}>
@@ -451,6 +542,11 @@
     color: #00e4ff;
     border-color: rgba(0, 228, 255, 0.25);
     background: rgba(0, 228, 255, 0.08);
+  }
+  .graph-ctrl-btn.active {
+    color: #ff8a2b;
+    border-color: rgba(255, 138, 43, 0.4);
+    background: rgba(255, 138, 43, 0.12);
   }
   .ctrl-divider {
     width: 18px;

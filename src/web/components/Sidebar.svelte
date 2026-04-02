@@ -109,7 +109,9 @@
       if (!docker.diagnostics.has(node.id)) {
         fetch(`/api/containers/${node.containerId}/diagnostic`)
           .then((r) => r.json())
-          .then((d) => { if (d) addDiagnostic(d); })
+          .then((d) => {
+            if (d) addDiagnostic(d);
+          })
           .catch(() => {});
       }
     }
