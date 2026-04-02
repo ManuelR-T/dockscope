@@ -55,9 +55,6 @@ const FLASH_DURATION = 600;
 export function addStatusFlash(group: THREE.Group): void {
   const meta = getMeta(group);
   if (!meta) return;
-  // Kick the flash
-  meta.coreMat.emissiveIntensity = 1.0;
-  group.scale.setScalar(1.3);
   flashAnims.push({ group, start: performance.now(), baseEmissive: meta.baseEmissive });
 }
 
@@ -67,12 +64,13 @@ export function tickFlashAnimations(): void {
   for (let i = flashAnims.length - 1; i >= 0; i--) {
     const f = flashAnims[i];
     const t = Math.min((now - f.start) / FLASH_DURATION, 1);
-    const ease = 1 - t * t; // ease-out quadratic (starts fast, slows down)
+    // Sine pulse: 0→1→0 (grows then shrinks back)
+    const pulse = Math.sin(t * Math.PI);
     const meta = getMeta(f.group);
     if (meta) {
-      meta.coreMat.emissiveIntensity = f.baseEmissive + (1.0 - f.baseEmissive) * ease;
+      meta.coreMat.emissiveIntensity = f.baseEmissive + (1.0 - f.baseEmissive) * pulse;
     }
-    f.group.scale.setScalar(1 + 0.3 * ease);
+    f.group.scale.setScalar(1 + 0.3 * pulse);
     if (t >= 1) flashAnims.splice(i, 1);
   }
 }
