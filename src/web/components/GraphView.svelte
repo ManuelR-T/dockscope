@@ -150,8 +150,8 @@
       if (!inImpact) {
         return link.type === 'depends_on' ? 'rgba(255,138,43,0.03)' : 'rgba(0,228,255,0.03)';
       }
-      if (link.type === 'depends_on') return 'rgba(255,138,43,0.6)';
-      return 'rgba(0,228,255,0.4)';
+      if (link.type === 'depends_on') return 'rgba(255,138,43,0.85)';
+      return 'rgba(0,228,255,0.65)';
     }
 
     if (link.type === 'depends_on') return hl ? 'rgba(255,138,43,0.5)' : 'rgba(255,138,43,0.08)';
@@ -170,7 +170,7 @@
     // Impact mode: thicken impacted links
     if (impactedIds.size > 0) {
       const inImpact = s && t && impactedIds.has(s.id) && impactedIds.has(t.id);
-      return inImpact ? 1.5 : 0.1;
+      return inImpact ? 1 : 0.1;
     }
 
     const base = link.type === 'depends_on' ? 0.3 : 0.5;
