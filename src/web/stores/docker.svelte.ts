@@ -173,13 +173,17 @@ export function unsubscribeLogs() {
   streamingLogContainerId = null;
 }
 
+const dismissedDiagnostics = new Set<string>();
+
 export function addDiagnostic(diag: CrashDiagnostic) {
+  if (dismissedDiagnostics.has(diag.containerId)) return;
   const updated = new Map(diagnostics);
   updated.set(diag.containerId, diag);
   diagnostics = updated;
 }
 
 export function removeDiagnostic(containerId: string) {
+  dismissedDiagnostics.add(containerId);
   const updated = new Map(diagnostics);
   updated.delete(containerId);
   diagnostics = updated;
