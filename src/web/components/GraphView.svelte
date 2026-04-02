@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
-  import ForceGraph3D from '3d-force-graph';
+  import ForceGraph3D, { type ForceGraph3DInstance } from '3d-force-graph';
   import * as THREE from 'three';
   import type { GraphData, ServiceNode } from '../../types';
   import { GRAPH } from '../lib/constants';
@@ -186,7 +186,7 @@
 
   // --- Graph instance ---
   let container: HTMLDivElement;
-  let graph: ReturnType<typeof ForceGraph3D> | null = null;
+  let graph: ForceGraph3DInstance | null = null;
   let clusterFrameId: number | null = null;
 
   onMount(() => {
@@ -254,7 +254,7 @@
       if (graph) {
         updateClusters(
           graph.scene(),
-          (graph.graphData() as GraphData).nodes as any[],
+          graph.graphData().nodes as any[],
           isNodeVisible,
         );
       }
