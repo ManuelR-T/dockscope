@@ -29,6 +29,8 @@ export async function startServer(opts: ServerOptions): Promise<void> {
   const connected = await checkConnection();
   if (!connected) {
     console.error('Cannot connect to Docker daemon. Is Docker running?');
+    console.error('If running inside a container, mount the Docker socket:');
+    console.error('  docker run -v /var/run/docker.sock:/var/run/docker.sock ...');
     process.exit(1);
   }
 
