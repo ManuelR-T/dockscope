@@ -169,6 +169,29 @@ export function buildNodeObject(
   return group;
 }
 
+/** Update an existing node's visual appearance without rebuilding the Three.js group */
+export function updateNodeAppearance(node: any): void {
+  const obj = node.__threeObj;
+  if (!obj) return;
+  const mat = (obj as any).__coreMat as THREE.MeshPhongMaterial | undefined;
+  if (!mat) return;
+
+  const color = getNodeColor(node);
+  const isRunning = node.status === 'running';
+  const opacity = isRunning ? 0.88 : 0.4;
+  const emissive = isRunning ? (obj as any).__baseEmissive ?? 0.35 : 0.1;
+
+  mat.color.set(color);
+  mat.emissive.set(color);
+  mat.emissiveIntensity = emissive;
+  mat.opacity = opacity;
+  mat.needsUpdate = true;
+
+  // Toggle anomaly sprite visibility based on running state
+  const anomaly = (obj as any).__anomalySprite as THREE.Sprite | undefined;
+  if (anomaly && !isRunning) anomaly.visible = false;
+}
+
 export function highlightNode(node: any, active: boolean): void {
   if (!node?.__threeObj) return;
   const mat = (node.__threeObj as any).__coreMat;

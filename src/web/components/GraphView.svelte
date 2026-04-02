@@ -5,7 +5,7 @@
   import type { GraphData, ServiceNode } from '../../types';
   import { GRAPH } from '../lib/constants';
   import { computeImportance } from '../lib/importance';
-  import { buildNodeObject, highlightNode } from '../lib/nodeRenderer';
+  import { buildNodeObject, highlightNode, updateNodeAppearance } from '../lib/nodeRenderer';
   import { createClusteringForce, updateClusters, cleanupAllClusters } from '../lib/clustering';
   import {
     addDeployAnimation,
@@ -303,34 +303,39 @@
     });
   }
 
-  // --- Graph data update (structure or status change) ---
-  let prevGraphKey = '';
+  // --- Graph data update ---
+  let prevNodeIds = '';
+  let prevStatusKey = '';
   $effect(() => {
     if (!graph) return;
     if (data.nodes.length === 0) {
-      if (prevGraphKey !== '') {
-        prevGraphKey = '';
+      if (prevNodeIds !== '') {
+        prevNodeIds = '';
+        prevStatusKey = '';
         warningRings.length = 0;
         graph.graphData({ nodes: [], links: [] });
       }
       return;
     }
-    const graphKey = data.nodes
+
+    const nodeIds = data.nodes
+      .map((n) => n.id)
+      .sort()
+      .join(',');
+    const statusKey = data.nodes
       .map((n) => `${n.id}:${n.status}:${n.health}`)
       .sort()
       .join(',');
-    if (graphKey !== prevGraphKey) {
-      const isStructural =
-        prevGraphKey === '' ||
-        data.nodes
-          .map((n) => n.id)
-          .sort()
-          .join(',') !== prevGraphKey.replace(/:[^,]*/g, '').replace(/:/g, '');
-      prevGraphKey = graphKey;
-      if (isStructural) {
-        assignProjectPositions(data.nodes);
-        resetDeployIndex();
-      }
+
+    const isStructural = nodeIds !== prevNodeIds;
+    const isStatusChange = !isStructural && statusKey !== prevStatusKey;
+
+    if (isStructural) {
+      // Nodes added or removed — full rebuild
+      prevNodeIds = nodeIds;
+      prevStatusKey = statusKey;
+      assignProjectPositions(data.nodes);
+      resetDeployIndex();
       warningRings.length = 0;
       graph.nodeThreeObject((node: any) => {
         const imp = importanceMap.get(node.id) || 0;
@@ -339,6 +344,13 @@
         return group;
       });
       graph.graphData(data);
+    } else if (isStatusChange) {
+      // Status/health changed — update materials in place
+      prevStatusKey = statusKey;
+      const nodes = (graph.graphData() as any).nodes as any[];
+      for (const node of nodes) {
+        updateNodeAppearance(node);
+      }
     }
   });
 
