@@ -88,8 +88,8 @@ export async function startServer(opts: ServerOptions): Promise<void> {
 
   // Track active anomalies to avoid repeated alerts (cleared when value returns to normal)
   const activeAnomalies = new Map<string, Set<string>>();
-  const ANOMALY_STDDEV_FACTOR = 2;
-  const ANOMALY_MIN_SAMPLES = 10;
+  const ANOMALY_STDDEV_FACTOR = 3;
+  const ANOMALY_MIN_SAMPLES = 20;
 
   function detectAnomaly(
     shortId: string,
