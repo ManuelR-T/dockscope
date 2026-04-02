@@ -69,13 +69,14 @@ export interface LogChunk {
 }
 
 export interface WSMessage {
-  type: 'graph' | 'stats' | 'event' | 'error' | 'log_chunk' | 'subscribe_logs' | 'unsubscribe_logs' | 'anomaly';
+  type: 'graph' | 'stats' | 'event' | 'error' | 'log_chunk' | 'subscribe_logs' | 'unsubscribe_logs' | 'anomaly' | 'diagnostic';
   data:
     | GraphData
     | ContainerStats
     | DockerEvent
     | LogChunk
     | Anomaly
+    | CrashDiagnostic
     | { message: string }
     | { containerId: string };
 }
@@ -113,6 +114,15 @@ export interface Anomaly {
   value: number;
   average: number;
   threshold: number;
+}
+export interface CrashDiagnostic {
+  containerId: string;
+  containerName: string;
+  exitCode: number;
+  oomKilled: boolean;
+  cause: string;
+  details: string[];
+  logSnippet: string[];
   time: number;
 }
 

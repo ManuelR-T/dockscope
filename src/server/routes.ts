@@ -4,6 +4,7 @@ import {
   checkConnection,
   composeAction,
   containerAction,
+  diagnoseCrash,
   getContainerLogs,
   getContainerStats,
   getContainerDiff,
@@ -166,6 +167,15 @@ export function setupRoutes(
   app.get('/api/containers/:id/history', (req, res) => {
     const history = metricHistory.get(req.params.id.substring(0, 12)) || [];
     res.json(history);
+  });
+
+  app.get('/api/containers/:id/diagnostic', async (req, res) => {
+    try {
+      const diag = await diagnoseCrash(req.params.id);
+      res.json(diag || null);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   app.get('/api/system', async (_req, res) => {
