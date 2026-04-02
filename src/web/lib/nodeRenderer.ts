@@ -4,6 +4,26 @@ import { GRAPH } from './constants';
 
 const NC = GRAPH.node;
 
+/** Typed metadata stored on each node's Three.js group */
+export interface NodeMeta {
+  coreMat: THREE.MeshPhongMaterial;
+  baseEmissive: number;
+  radius: number;
+  label: THREE.Sprite;
+  labelOffset: number;
+  anomalySprite: THREE.Sprite | null;
+  warningRing: THREE.Sprite | null;
+  moons: THREE.Mesh[];
+  orbitRadius: number;
+  moonCount: number;
+  orbitPhase: number;
+}
+
+/** Access typed metadata from a node's Three.js group */
+export function getMeta(group: THREE.Group): NodeMeta | null {
+  return (group as any).__meta ?? null;
+}
+
 export const STATUS_COLORS: Record<string, string> = {
   'running:healthy': '#00ff6a',
   'running:none': '#00e4ff',
@@ -24,7 +44,7 @@ export function getNodeColor(node: any): string {
   return STATUS_COLORS[node.status] || '#2a3040';
 }
 
-export function createRingSprite(
+function createRingSprite(
   color: string,
   innerRadius: number,
   outerRadius: number,
@@ -74,50 +94,42 @@ export function buildNodeObject(
 
   // Core sphere
   const geo = new THREE.SphereGeometry(radius, NC.sphereSegments.w, NC.sphereSegments.h);
-  const emissive = isRunning ? 0.25 + importance * 0.3 : 0.1;
-  const mat = new THREE.MeshPhongMaterial({
+  const baseEmissive = isRunning ? 0.25 + importance * 0.3 : 0.1;
+  const coreMat = new THREE.MeshPhongMaterial({
     color,
     emissive: color,
-    emissiveIntensity: emissive,
+    emissiveIntensity: baseEmissive,
     transparent: true,
     opacity: isRunning ? 0.88 : 0.4,
   });
-  const sphere = new THREE.Mesh(geo, mat);
-  group.add(sphere);
-  (group as any).__coreMat = mat;
-  (group as any).__baseEmissive = emissive;
+  group.add(new THREE.Mesh(geo, coreMat));
 
-  // Glow ring sprite
+  // Glow ring
   let ringOuterEdge = radius;
   if (isRunning) {
     const ringInner = radius + NC.ringGap;
     const ringThickness = NC.ringThicknessBase + importance * NC.ringThicknessScale;
-    const ringOpacity = 0.06 + importance * 0.14;
     ringOuterEdge = ringInner + ringThickness;
-    group.add(createRingSprite(color, ringInner, ringOuterEdge, ringOpacity));
+    group.add(createRingSprite(color, ringInner, ringOuterEdge, 0.06 + importance * 0.14));
   }
 
-  // Warning ring sprite (broken dependency)
+  // Warning ring
+  let warningRing: THREE.Sprite | null = null;
   if (isRunning && hasBrokenDep) {
-    const warnSprite = createRingSprite('#ff8a2b', radius + 3.5, radius + 5.5, 0.25);
-    (warnSprite as any).__warningRing = true;
+    warningRing = createRingSprite('#ff8a2b', radius + 3.5, radius + 5.5, 0.25);
     ringOuterEdge = Math.max(ringOuterEdge, radius + 5.5);
-    group.add(warnSprite);
-    warningRings.push(warnSprite);
+    group.add(warningRing);
+    warningRings.push(warningRing);
   }
 
-  // Volume moons (small spheres that will orbit the node)
+  // Volume moons
+  const moons: THREE.Mesh[] = [];
   const volCount = node.volumeCount || 0;
-  if (volCount > 0) {
-    const moons: THREE.Mesh[] = [];
-    const moonCount = Math.min(volCount, 5); // cap at 5 moons
-    const orbitRadius = radius + 4;
+  const moonCount = Math.min(volCount, 5);
+  const orbitRadius = radius + 4;
+  if (moonCount > 0) {
     const moonGeo = new THREE.SphereGeometry(0.5, 8, 6);
-    const moonMat = new THREE.MeshBasicMaterial({
-      color: '#a855f7',
-      transparent: true,
-      opacity: 0.6,
-    });
+    const moonMat = new THREE.MeshBasicMaterial({ color: '#a855f7', transparent: true, opacity: 0.6 });
     for (let i = 0; i < moonCount; i++) {
       const moon = new THREE.Mesh(moonGeo, moonMat);
       const angle = (2 * Math.PI * i) / moonCount;
@@ -125,30 +137,27 @@ export function buildNodeObject(
       group.add(moon);
       moons.push(moon);
     }
-    (group as any).__moons = moons;
-    (group as any).__orbitRadius = orbitRadius;
-    (group as any).__moonCount = moonCount;
-    (group as any).__orbitPhase = Math.random() * Math.PI * 2;
   }
 
-  // Anomaly indicator (hidden by default, toggled from GraphView)
+  // Anomaly indicator
+  let anomalySprite: THREE.Sprite | null = null;
   if (isRunning) {
-    const anomalySprite = new SpriteText('!');
-    anomalySprite.color = '#ffcc00';
-    anomalySprite.textHeight = 3.5;
-    anomalySprite.fontFace = "'Fira Code', monospace";
-    anomalySprite.fontWeight = '700';
-    anomalySprite.backgroundColor = 'rgba(255, 204, 0, 0.15)' as any;
-    anomalySprite.padding = 1.5;
-    anomalySprite.borderRadius = 2;
-    anomalySprite.position.set(radius + 3, radius + 3, 0);
-    (anomalySprite.material as THREE.SpriteMaterial).depthWrite = false;
-    anomalySprite.visible = false;
-    group.add(anomalySprite);
-    (group as any).__anomalySprite = anomalySprite;
+    const sprite = new SpriteText('!');
+    sprite.color = '#ffcc00';
+    sprite.textHeight = 3.5;
+    sprite.fontFace = "'Fira Code', monospace";
+    sprite.fontWeight = '700';
+    sprite.backgroundColor = 'rgba(255, 204, 0, 0.15)' as any;
+    sprite.padding = 1.5;
+    sprite.borderRadius = 2;
+    sprite.position.set(radius + 3, radius + 3, 0);
+    (sprite.material as THREE.SpriteMaterial).depthWrite = false;
+    sprite.visible = false;
+    group.add(sprite);
+    anomalySprite = sprite;
   }
 
-  // Name label
+  // Label
   const label = new SpriteText(node.name);
   label.color = '#c8cede';
   label.textHeight = NC.labelHeight;
@@ -157,51 +166,39 @@ export function buildNodeObject(
   label.backgroundColor = 'rgba(4, 4, 14, 0.65)' as any;
   label.padding = 1;
   label.borderRadius = 1.5;
-  const labelDist = ringOuterEdge + NC.labelOffset;
-  label.position.set(0, labelDist, 0);
+  const labelOffset = ringOuterEdge + NC.labelOffset;
+  label.position.set(0, labelOffset, 0);
   (label.material as THREE.SpriteMaterial).depthWrite = false;
   group.add(label);
 
-  // Store refs for camera-relative positioning
-  (group as any).__label = label;
-  (group as any).__labelOffset = labelDist;
-  (group as any).__radius = radius;
+  // Store typed metadata
+  const meta: NodeMeta = {
+    coreMat,
+    baseEmissive,
+    radius,
+    label,
+    labelOffset,
+    anomalySprite,
+    warningRing,
+    moons,
+    orbitRadius,
+    moonCount,
+    orbitPhase: Math.random() * Math.PI * 2,
+  };
+  (group as any).__meta = meta;
 
   return group;
 }
 
-/** Update an existing node's visual appearance without rebuilding the Three.js group */
-export function updateNodeAppearance(node: any): void {
-  const obj = node.__threeObj;
-  if (!obj) return;
-  const mat = (obj as any).__coreMat as THREE.MeshPhongMaterial | undefined;
-  if (!mat) return;
-
-  const color = getNodeColor(node);
-  const isRunning = node.status === 'running';
-  const opacity = isRunning ? 0.88 : 0.4;
-  const emissive = isRunning ? ((obj as any).__baseEmissive ?? 0.35) : 0.1;
-
-  mat.color.set(color);
-  mat.emissive.set(color);
-  mat.emissiveIntensity = emissive;
-  mat.opacity = opacity;
-  mat.needsUpdate = true;
-
-  // Toggle anomaly sprite visibility based on running state
-  const anomaly = (obj as any).__anomalySprite as THREE.Sprite | undefined;
-  if (anomaly && !isRunning) anomaly.visible = false;
-}
-
 export function highlightNode(node: any, active: boolean): void {
   if (!node?.__threeObj) return;
-  const mat = (node.__threeObj as any).__coreMat;
-  const baseEmissive = (node.__threeObj as any).__baseEmissive ?? 0.35;
+  const meta = getMeta(node.__threeObj);
+  if (!meta) return;
   if (active) {
     node.__threeObj.scale.setScalar(1.25);
-    if (mat) mat.emissiveIntensity = 0.9;
+    meta.coreMat.emissiveIntensity = 0.9;
   } else {
     node.__threeObj.scale.setScalar(1);
-    if (mat) mat.emissiveIntensity = baseEmissive;
+    meta.coreMat.emissiveIntensity = meta.baseEmissive;
   }
 }

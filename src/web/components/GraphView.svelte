@@ -5,7 +5,7 @@
   import type { GraphData, ServiceNode } from '../../types';
   import { GRAPH } from '../lib/constants';
   import { computeImportance } from '../lib/importance';
-  import { buildNodeObject, highlightNode } from '../lib/nodeRenderer';
+  import { buildNodeObject, highlightNode, getMeta } from '../lib/nodeRenderer';
   import { createClusteringForce, updateClusters, cleanupAllClusters } from '../lib/clustering';
   import {
     addDeployAnimation,
@@ -124,16 +124,16 @@
     for (const node of nodes) {
       const obj = node.__threeObj;
       if (!obj) continue;
+      const meta = getMeta(obj);
+      if (!meta) continue;
       const dim = affected.size > 0 && !affected.has(node.id);
 
       // Core sphere
-      const mat = (obj as any).__coreMat;
-      if (mat) {
-        if ((mat as any).__origOpacity === undefined) (mat as any).__origOpacity = mat.opacity;
-        mat.opacity = dim ? 0.08 : (mat as any).__origOpacity;
-      }
+      if ((meta.coreMat as any).__origOpacity === undefined)
+        (meta.coreMat as any).__origOpacity = meta.coreMat.opacity;
+      meta.coreMat.opacity = dim ? 0.08 : (meta.coreMat as any).__origOpacity;
 
-      // Children (rings, labels, moons)
+      // All children (rings, labels, moons)
       for (const child of obj.children) {
         const m = (child as any).material;
         if (!m) continue;
