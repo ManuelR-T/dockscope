@@ -342,10 +342,29 @@
       });
       graph.graphData(data);
     } else {
-      // Status-only — update materials in place for changed nodes, no simulation reheat
+      // Status-only — rebuild Three.js objects for changed nodes without reheating simulation
       const graphNodes = (graph.graphData() as any).nodes as any[];
+      // Rebuild warning rings from scratch (some may appear/disappear)
+      warningRings.length = 0;
       for (const n of graphNodes) {
-        if (changedIds.has(n.id)) updateNodeAppearance(n);
+        const oldObj = n.__threeObj;
+        if (changedIds.has(n.id)) {
+          // Rebuild this node's visual
+          if (oldObj?.parent) oldObj.parent.remove(oldObj);
+          const imp = importanceMap.get(n.id) || 0;
+          const group = buildNodeObject(n, imp, hasBrokenDependency(n.id), warningRings);
+          // Preserve position
+          if (oldObj) {
+            group.position.copy(oldObj.position);
+          }
+          n.__threeObj = group;
+          graph.scene().add(group);
+        } else if (oldObj) {
+          // Re-collect warning rings from unchanged nodes
+          for (const child of oldObj.children) {
+            if ((child as any).__warningRing) warningRings.push(child as THREE.Sprite);
+          }
+        }
       }
     }
   });

@@ -100,6 +100,7 @@ export function buildNodeObject(
   // Warning ring sprite (broken dependency)
   if (isRunning && hasBrokenDep) {
     const warnSprite = createRingSprite('#ff8a2b', radius + 3.5, radius + 5.5, 0.25);
+    (warnSprite as any).__warningRing = true;
     ringOuterEdge = Math.max(ringOuterEdge, radius + 5.5);
     group.add(warnSprite);
     warningRings.push(warnSprite);
