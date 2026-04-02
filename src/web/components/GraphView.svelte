@@ -144,14 +144,11 @@
     const t = typeof link.target === 'object' ? link.target : null;
     const hl = activeNodeId && (s?.id === activeNodeId || t?.id === activeNodeId);
 
-    // Impact mode: dim links not in the impact chain
+    // Impact mode: only show depends_on links in the impact chain
     if (impactedIds.size > 0) {
-      const inImpact = s && t && impactedIds.has(s.id) && impactedIds.has(t.id);
-      if (!inImpact) {
-        return link.type === 'depends_on' ? 'rgba(255,138,43,0.03)' : 'rgba(0,228,255,0.03)';
-      }
-      if (link.type === 'depends_on') return '#ff8a2b';
-      return 'rgba(0,228,255,0.3)';
+      const inImpact = link.type === 'depends_on' && s && t && impactedIds.has(s.id) && impactedIds.has(t.id);
+      if (inImpact) return '#ff8a2b';
+      return 'rgba(255,255,255,0.02)';
     }
 
     if (link.type === 'depends_on') return hl ? 'rgba(255,138,43,0.5)' : 'rgba(255,138,43,0.08)';
@@ -167,10 +164,10 @@
     const t = typeof link.target === 'object' ? link.target : null;
     const hl = activeNodeId && (s?.id === activeNodeId || t?.id === activeNodeId);
 
-    // Impact mode: thicken impacted links
+    // Impact mode: only depends_on in the chain are visible
     if (impactedIds.size > 0) {
-      const inImpact = s && t && impactedIds.has(s.id) && impactedIds.has(t.id);
-      return inImpact ? 1 : 0.1;
+      const inImpact = link.type === 'depends_on' && s && t && impactedIds.has(s.id) && impactedIds.has(t.id);
+      return inImpact ? 1 : 0.05;
     }
 
     const base = link.type === 'depends_on' ? 0.3 : 0.5;
