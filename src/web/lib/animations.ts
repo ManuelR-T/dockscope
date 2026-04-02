@@ -47,30 +47,27 @@ interface FlashAnim {
   group: THREE.Group;
   start: number;
   baseEmissive: number;
-  goingUp: boolean; // true = coming online (grow in), false = going offline (shrink flash)
+  startScale: number; // scale at animation start (ratio of prev/cur radius)
 }
 
 const flashAnims: FlashAnim[] = [];
 const FLASH_DURATION = 600;
 
 const ACTIVE_STATES = new Set(['running']);
+const BASE_RADIUS = GRAPH.node.baseRadius;
 
 /** Determine if the transition is "coming online" or "going offline" */
 export function addStatusFlash(group: THREE.Group, prevStatus: string, curStatus: string): void {
   const meta = getMeta(group);
   if (!meta) return;
-  const goingUp = !ACTIVE_STATES.has(prevStatus) && ACTIVE_STATES.has(curStatus);
+  // Compute scale ratio: previous size / current size
+  const prevRadius = ACTIVE_STATES.has(prevStatus) ? BASE_RADIUS.running : BASE_RADIUS.stopped;
+  const curRadius = ACTIVE_STATES.has(curStatus) ? BASE_RADIUS.running : BASE_RADIUS.stopped;
+  const startScale = prevRadius / curRadius;
 
-  if (goingUp) {
-    // Coming online: start small, grow to normal with bright flash
-    group.scale.setScalar(0.3);
-    meta.coreMat.emissiveIntensity = 1.0;
-  } else {
-    // Going offline: start big, shrink to normal with flash
-    group.scale.setScalar(1.3);
-    meta.coreMat.emissiveIntensity = 1.0;
-  }
-  flashAnims.push({ group, start: performance.now(), baseEmissive: meta.baseEmissive, goingUp });
+  group.scale.setScalar(startScale);
+  meta.coreMat.emissiveIntensity = 1.0;
+  flashAnims.push({ group, start: performance.now(), baseEmissive: meta.baseEmissive, startScale });
 }
 
 /** Tick flash animations (call every frame alongside tickAnimations). */
@@ -84,13 +81,9 @@ export function tickFlashAnimations(): void {
     if (meta) {
       meta.coreMat.emissiveIntensity = f.baseEmissive + (1.0 - f.baseEmissive) * ease;
     }
-    if (f.goingUp) {
-      // Grow from 0.3 → 1.0
-      f.group.scale.setScalar(0.3 + 0.7 * (1 - ease));
-    } else {
-      // Shrink from 1.3 → 1.0
-      f.group.scale.setScalar(1 + 0.3 * ease);
-    }
+    // Interpolate from startScale → 1.0
+    const scaleDelta = f.startScale - 1;
+    f.group.scale.setScalar(1 + scaleDelta * ease);
     if (t >= 1) flashAnims.splice(i, 1);
   }
 }
