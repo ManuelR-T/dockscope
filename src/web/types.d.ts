@@ -16,7 +16,9 @@ declare module '3d-force-graph' {
     linkOpacity(opacity: number): ForceGraph3DInstance;
     linkDirectionalArrowLength(length: number | ((link: any) => number)): ForceGraph3DInstance;
     linkDirectionalArrowRelPos(pos: number): ForceGraph3DInstance;
-    linkDirectionalArrowColor(color: string | ((link: any) => string | undefined)): ForceGraph3DInstance;
+    linkDirectionalArrowColor(
+      color: string | ((link: any) => string | undefined),
+    ): ForceGraph3DInstance;
     linkDirectionalParticles(count: number | ((link: any) => number)): ForceGraph3DInstance;
     linkDirectionalParticleWidth(width: number): ForceGraph3DInstance;
     linkLabel(label: string | ((link: any) => string)): ForceGraph3DInstance;
