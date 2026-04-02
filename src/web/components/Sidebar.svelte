@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, untrack } from 'svelte';
-  import { subscribeLogs, unsubscribeLogs, addToast, addDiagnostic, removeDiagnostic } from '../stores/docker.svelte';
+  import { subscribeLogs, unsubscribeLogs, addToast, addDiagnostic, removeDiagnostic, removeAnomaly, getAnomaliesForContainer } from '../stores/docker.svelte';
   import ConfirmDialog from './ConfirmDialog.svelte';
   import SidebarInfo from './sidebar/SidebarInfo.svelte';
   import SidebarEnv from './sidebar/SidebarEnv.svelte';
@@ -9,6 +9,7 @@
   import SidebarDiff from './sidebar/SidebarDiff.svelte';
   import SidebarExec from './sidebar/SidebarExec.svelte';
   import SidebarDiagnostic from './sidebar/SidebarDiagnostic.svelte';
+  import SidebarAnomaly from './sidebar/SidebarAnomaly.svelte';
   import { getDockerState } from '../stores/docker.svelte';
   import type { ServiceNode, ContainerStats, ContainerInspect, MetricPoint } from '../../types';
 
@@ -325,6 +326,10 @@
 
     {#if docker.diagnostics.has(node.id)}
       <SidebarDiagnostic diagnostic={docker.diagnostics.get(node.id)!} onDismiss={() => removeDiagnostic(node.id)} />
+    {/if}
+
+    {#if getAnomaliesForContainer(node.id).length > 0}
+      <SidebarAnomaly anomalies={getAnomaliesForContainer(node.id)} onDismiss={removeAnomaly} />
     {/if}
 
     {#if activeTab === 'info'}

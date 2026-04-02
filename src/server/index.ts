@@ -158,9 +158,15 @@ export async function startServer(opts: ServerOptions): Promise<void> {
         history.push({ cpu: stats.cpu, memory: stats.memory, time: Date.now() });
         if (history.length > 100) history.splice(0, history.length - 100);
 
-        // Anomaly detection (need enough samples)
+        // Anomaly detection (convert memory to percentage for comparison)
+        const memPct = stats.memoryLimit > 0 ? (stats.memory / stats.memoryLimit) * 100 : 0;
+        const memPctHistory = history.map((h) => ({
+          cpu: h.cpu,
+          memory: stats.memoryLimit > 0 ? (h.memory / stats.memoryLimit) * 100 : 0,
+        }));
         for (const metric of ['cpu', 'memory'] as const) {
-          const anomaly = detectAnomaly(shortId, node.name, metric, stats[metric], history);
+          const value = metric === 'cpu' ? stats.cpu : memPct;
+          const anomaly = detectAnomaly(shortId, node.name, metric, value, memPctHistory);
           if (anomaly) broadcast({ type: 'anomaly', data: anomaly });
         }
       } catch {

@@ -110,8 +110,10 @@ function connect() {
 
         case 'anomaly': {
           const a = msg.data as Anomaly;
+          const key = `${a.containerId}:${a.metric}`;
+          if (dismissedAnomalies.has(key)) break;
           const updated = new Map(anomalies);
-          updated.set(`${a.containerId}:${a.metric}`, a);
+          updated.set(key, a);
           anomalies = updated;
           addToast(
             `${a.containerName}: ${a.metric.toUpperCase()} spike (${Math.round(a.value)}% vs avg ${Math.round(a.average)}%)`,
@@ -187,6 +189,24 @@ export function removeDiagnostic(containerId: string) {
   const updated = new Map(diagnostics);
   updated.delete(containerId);
   diagnostics = updated;
+}
+
+const dismissedAnomalies = new Set<string>();
+
+export function removeAnomaly(key: string) {
+  dismissedAnomalies.add(key);
+  const updated = new Map(anomalies);
+  updated.delete(key);
+  anomalies = updated;
+}
+
+/** Get active anomalies for a specific container */
+export function getAnomaliesForContainer(containerId: string): Anomaly[] {
+  const result: Anomaly[] = [];
+  for (const [key, a] of anomalies) {
+    if (key.startsWith(containerId + ':')) result.push(a);
+  }
+  return result;
 }
 
 export function getDockerState() {
