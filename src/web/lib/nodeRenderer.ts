@@ -88,16 +88,19 @@ export function buildNodeObject(
   (group as any).__baseEmissive = emissive;
 
   // Glow ring sprite
+  let ringOuterEdge = radius;
   if (isRunning) {
     const ringInner = radius + NC.ringGap;
     const ringThickness = NC.ringThicknessBase + importance * NC.ringThicknessScale;
     const ringOpacity = 0.06 + importance * 0.14;
-    group.add(createRingSprite(color, ringInner, ringInner + ringThickness, ringOpacity));
+    ringOuterEdge = ringInner + ringThickness;
+    group.add(createRingSprite(color, ringInner, ringOuterEdge, ringOpacity));
   }
 
   // Warning ring sprite (broken dependency)
   if (isRunning && hasBrokenDep) {
     const warnSprite = createRingSprite('#ff8a2b', radius + 3.5, radius + 5.5, 0.25);
+    ringOuterEdge = Math.max(ringOuterEdge, radius + 5.5);
     group.add(warnSprite);
     warningRings.push(warnSprite);
   }
@@ -153,13 +156,14 @@ export function buildNodeObject(
   label.backgroundColor = 'rgba(4, 4, 14, 0.65)' as any;
   label.padding = 1;
   label.borderRadius = 1.5;
-  label.position.set(0, radius + NC.labelOffset, 0);
+  const labelDist = ringOuterEdge + NC.labelOffset;
+  label.position.set(0, labelDist, 0);
   (label.material as THREE.SpriteMaterial).depthWrite = false;
   group.add(label);
 
   // Store refs for camera-relative positioning
   (group as any).__label = label;
-  (group as any).__labelOffset = radius + NC.labelOffset;
+  (group as any).__labelOffset = labelDist;
   (group as any).__radius = radius;
 
   return group;
