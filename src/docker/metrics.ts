@@ -1,5 +1,6 @@
 import Dockerode from 'dockerode';
 import type { ContainerStats } from '../types.js';
+import { shortId } from '../utils.js';
 
 const prevNetStats = new Map<string, { rx: number; tx: number; time: number }>();
 
@@ -27,9 +28,9 @@ export async function getContainerStats(
     }
   }
 
-  const shortId = containerId.substring(0, 12);
+  const sid = shortId(containerId);
   const now = Date.now();
-  const prev = prevNetStats.get(shortId);
+  const prev = prevNetStats.get(sid);
   let networkRxRate = 0;
   let networkTxRate = 0;
   if (prev) {
@@ -39,10 +40,10 @@ export async function getContainerStats(
       networkTxRate = Math.max(0, (networkTx - prev.tx) / elapsed);
     }
   }
-  prevNetStats.set(shortId, { rx: networkRx, tx: networkTx, time: now });
+  prevNetStats.set(sid, { rx: networkRx, tx: networkTx, time: now });
 
   return {
-    id: shortId,
+    id: sid,
     cpu: Math.round(cpu * 100) / 100,
     memory: memUsage,
     memoryLimit: memLimit,

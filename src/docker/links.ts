@@ -1,5 +1,6 @@
 import { existsSync } from 'fs';
 import type { ServiceNode, ServiceLink } from '../types.js';
+import { shortId } from '../utils.js';
 import { parseComposeFile } from './compose.js';
 
 const COMPOSE_FILES = ['docker-compose.yml', 'docker-compose.yaml', 'compose.yml', 'compose.yaml'];
@@ -17,7 +18,7 @@ export function extractDependsOnFromLabels(
     const depsLabel = container.Labels['com.docker.compose.depends_on'];
     if (!depsLabel) continue;
     const project = container.Labels['com.docker.compose.project'] || '';
-    const sourceId = container.Id.substring(0, 12);
+    const sourceId = shortId(container.Id);
     const sourceNode = nodes.find((n) => n.id === sourceId);
     if (!sourceNode) continue;
 

@@ -3,8 +3,9 @@ declare const __APP_VERSION__: string;
 declare module '3d-force-graph' {
   export default function ForceGraph3D(): (element: HTMLElement) => ForceGraph3DInstance;
 
-  interface ForceGraph3DInstance {
-    graphData(data?: any): ForceGraph3DInstance;
+  export interface ForceGraph3DInstance {
+    graphData(): { nodes: any[]; links: any[] };
+    graphData(data: any): ForceGraph3DInstance;
     nodeId(id: string): ForceGraph3DInstance;
     nodeLabel(label: string | ((node: any) => string)): ForceGraph3DInstance;
     nodeColor(color: string | ((node: any) => string)): ForceGraph3DInstance;
@@ -15,12 +16,19 @@ declare module '3d-force-graph' {
     linkOpacity(opacity: number): ForceGraph3DInstance;
     linkDirectionalArrowLength(length: number | ((link: any) => number)): ForceGraph3DInstance;
     linkDirectionalArrowRelPos(pos: number): ForceGraph3DInstance;
+    linkDirectionalArrowColor(
+      color: string | ((link: any) => string | undefined),
+    ): ForceGraph3DInstance;
     linkDirectionalParticles(count: number | ((link: any) => number)): ForceGraph3DInstance;
     linkDirectionalParticleWidth(width: number): ForceGraph3DInstance;
+    linkLabel(label: string | ((link: any) => string)): ForceGraph3DInstance;
     backgroundColor(color: string): ForceGraph3DInstance;
     width(width: number): ForceGraph3DInstance;
     height(height: number): ForceGraph3DInstance;
+    nodeThreeObject(fn: ((node: any) => any) | null): ForceGraph3DInstance;
+    nodeThreeObjectExtend(extend: boolean): ForceGraph3DInstance;
     onNodeClick(callback: (node: any, event: MouseEvent) => void): ForceGraph3DInstance;
+    onNodeHover(callback: (node: any, prevNode: any) => void): ForceGraph3DInstance;
     cooldownTicks(ticks: number): ForceGraph3DInstance;
     warmupTicks(ticks: number): ForceGraph3DInstance;
     d3AlphaDecay(decay: number): ForceGraph3DInstance;
@@ -36,6 +44,5 @@ declare module '3d-force-graph' {
     renderer(): any;
     controls(): any;
     _destructor?(): void;
-    [key: string]: any;
   }
 }

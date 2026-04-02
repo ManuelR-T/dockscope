@@ -1,6 +1,7 @@
 import Dockerode from 'dockerode';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import { shortId } from '../utils.js';
 import type {
   ServiceNode,
   GraphData,
@@ -42,7 +43,7 @@ export async function buildGraph(composeFile?: string): Promise<GraphData> {
     const composeService = container.Labels['com.docker.compose.service'];
     const project = container.Labels['com.docker.compose.project'] || '';
     const rawName =
-      composeService || container.Names[0]?.replace(/^\//, '') || container.Id.substring(0, 12);
+      composeService || container.Names[0]?.replace(/^\//, '') || shortId(container.Id);
 
     const hasDuplicate = containers.some(
       (c) =>
@@ -51,8 +52,8 @@ export async function buildGraph(composeFile?: string): Promise<GraphData> {
         (c.Labels['com.docker.compose.project'] || '') !== project,
     );
     const serviceName = hasDuplicate && project ? `${project}/${rawName}` : rawName;
-    const shortId = container.Id.substring(0, 12);
-    containerProject.set(shortId, project);
+    const sid = shortId(container.Id);
+    containerProject.set(sid, project);
 
     const healthStatus = container.Status?.toLowerCase() || '';
     let health: ServiceNode['health'] = 'none';
@@ -62,7 +63,7 @@ export async function buildGraph(composeFile?: string): Promise<GraphData> {
       health = 'starting';
 
     nodes.push({
-      id: shortId,
+      id: sid,
       name: serviceName,
       fullName: container.Names[0]?.replace(/^\//, '') || serviceName,
       project,
@@ -90,7 +91,7 @@ export async function buildGraph(composeFile?: string): Promise<GraphData> {
 
     for (const net of Object.keys(container.NetworkSettings?.Networks || {})) {
       if (!networkMap.has(net)) networkMap.set(net, []);
-      networkMap.get(net)!.push(shortId);
+      networkMap.get(net)!.push(sid);
     }
   }
 
@@ -309,7 +310,7 @@ export async function inspectContainer(containerId: string): Promise<ContainerIn
   const container = docker.getContainer(containerId);
   const info = await container.inspect();
   return {
-    id: info.Id.substring(0, 12),
+    id: shortId(info.Id),
     env: info.Config.Env || [],
     labels: info.Config.Labels || {},
     mounts: (info.Mounts || []).map((m: any) => ({
@@ -360,16 +361,16 @@ export function watchEvents(
       try {
         const raw = JSON.parse(chunk.toString());
         callback({
-          id: (raw.Actor?.ID || raw.id || '').substring(0, 12),
+          id: shortId(raw.Actor?.ID || raw.id || ''),
           type: raw.Type || 'unknown',
           action: raw.Action || raw.status || 'unknown',
           actor:
             raw.Actor?.Attributes?.name ||
             raw.Actor?.Attributes?.['com.docker.compose.service'] ||
-            raw.Actor?.ID?.substring(0, 12) ||
+            shortId(raw.Actor?.ID || '') ||
             'unknown',
           time: raw.time || Math.floor(Date.now() / 1000),
-          message: `${raw.Type || ''} ${raw.Action || ''}: ${raw.Actor?.Attributes?.name || raw.Actor?.ID?.substring(0, 12) || ''}`,
+          message: `${raw.Type || ''} ${raw.Action || ''}: ${raw.Actor?.Attributes?.name || shortId(raw.Actor?.ID || '') || ''}`,
         });
       } catch {
         /* ignore */

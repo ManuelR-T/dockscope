@@ -1,6 +1,7 @@
 import Dockerode from 'dockerode';
 import type { CrashDiagnostic } from '../types.js';
 import { demuxLogBuffer } from './logs.js';
+import { shortId } from '../utils.js';
 
 interface LogPattern {
   pattern: RegExp;
@@ -99,7 +100,7 @@ export async function analyzeCrash(
     const name =
       info.Config.Labels?.['com.docker.compose.service'] ||
       info.Name?.replace(/^\//, '') ||
-      containerId.substring(0, 12);
+      shortId(containerId);
 
     // Skip clean exits
     if (exitCode === 0 && !oomKilled) return null;
@@ -158,7 +159,7 @@ export async function analyzeCrash(
     const logSnippet = logLines.slice(-10);
 
     return {
-      containerId: containerId.substring(0, 12),
+      containerId: shortId(containerId),
       containerName: name,
       exitCode,
       oomKilled,

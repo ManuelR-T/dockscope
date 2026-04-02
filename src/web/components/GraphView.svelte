@@ -1,16 +1,18 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
-  import ForceGraph3D from '3d-force-graph';
+  import ForceGraph3D, { type ForceGraph3DInstance } from '3d-force-graph';
   import * as THREE from 'three';
   import type { GraphData, ServiceNode } from '../../types';
   import { GRAPH } from '../lib/constants';
   import { computeImportance } from '../lib/importance';
-  import { buildNodeObject, highlightNode } from '../lib/nodeRenderer';
+  import { buildNodeObject, highlightNode, getMeta, getNodeColor } from '../lib/nodeRenderer';
   import { createClusteringForce, updateClusters, cleanupAllClusters } from '../lib/clustering';
   import {
     addDeployAnimation,
+    addStatusFlash,
     resetDeployIndex,
     tickAnimations,
+    tickFlashAnimations,
     pulseWarningRings,
     orbitVolumeMoons,
     updateAnomalyIndicators,
@@ -124,16 +126,16 @@
     for (const node of nodes) {
       const obj = node.__threeObj;
       if (!obj) continue;
+      const meta = getMeta(obj);
+      if (!meta) continue;
       const dim = affected.size > 0 && !affected.has(node.id);
 
       // Core sphere
-      const mat = (obj as any).__coreMat;
-      if (mat) {
-        if ((mat as any).__origOpacity === undefined) (mat as any).__origOpacity = mat.opacity;
-        mat.opacity = dim ? 0.08 : (mat as any).__origOpacity;
-      }
+      if ((meta.coreMat as any).__origOpacity === undefined)
+        (meta.coreMat as any).__origOpacity = meta.coreMat.opacity;
+      meta.coreMat.opacity = dim ? 0.08 : (meta.coreMat as any).__origOpacity;
 
-      // Children (rings, labels, moons)
+      // All children (rings, labels, moons)
       for (const child of obj.children) {
         const m = (child as any).material;
         if (!m) continue;
@@ -184,14 +186,14 @@
 
   // --- Graph instance ---
   let container: HTMLDivElement;
-  let graph: ReturnType<typeof ForceGraph3D> | null = null;
+  let graph: ForceGraph3DInstance | null = null;
   let clusterFrameId: number | null = null;
 
   onMount(() => {
     const FC = GRAPH.force;
     const CC = GRAPH.controls;
 
-    graph = ForceGraph3D()(container)
+    const g = ForceGraph3D()(container)
       .backgroundColor('rgba(0,0,0,0)')
       .nodeId('id')
       .nodeThreeObject((node: any) => {
@@ -219,61 +221,55 @@
         if (node) highlightNode(node, true);
       })
       .graphData(data);
+    graph = g;
 
     // Forces
-    graph.d3Force('charge')?.strength(FC.charge.strength).distanceMax(FC.charge.distanceMax);
-    graph.d3Force('link')?.distance(FC.link.distance);
-    graph.d3Force('center')?.strength(FC.center.strength);
-    graph.d3Force('x')?.strength(FC.position.strength);
-    graph.d3Force('y')?.strength(FC.position.strength);
-    graph.d3Force('z')?.strength(FC.position.strength);
-    graph.d3Force('cluster', createClusteringForce(FC.cluster.strength));
+    g.d3Force('charge')?.strength(FC.charge.strength).distanceMax(FC.charge.distanceMax);
+    g.d3Force('link')?.distance(FC.link.distance);
+    g.d3Force('center')?.strength(FC.center.strength);
+    g.d3Force('x')?.strength(FC.position.strength);
+    g.d3Force('y')?.strength(FC.position.strength);
+    g.d3Force('z')?.strength(FC.position.strength);
+    g.d3Force('cluster', createClusteringForce(FC.cluster.strength));
 
     // Controls
-    const controls = graph.controls?.();
+    const controls = g.controls?.();
     if (controls) {
       controls.zoomSpeed = CC.zoomSpeed;
       controls.rotateSpeed = CC.rotateSpeed;
       controls.panSpeed = CC.panSpeed;
     }
 
-    const renderer = graph.renderer?.();
+    const renderer = g.renderer?.();
     if (renderer) renderer.setClearColor(0x04040e, 1);
 
     // Resize
     const observer = new ResizeObserver(([entry]) => {
       const { width, height } = entry.contentRect;
-      graph?.width(width).height(height);
+      g.width(width).height(height);
     });
     observer.observe(container);
 
     // Animation loop (clusters + deploy anims + warning pulse)
     function loop() {
-      if (graph) {
-        updateClusters(
-          graph.scene(),
-          (graph.graphData() as GraphData).nodes as any[],
-          isNodeVisible,
-        );
-      }
+      updateClusters(g.scene(), g.graphData().nodes, isNodeVisible);
       tickAnimations();
+      tickFlashAnimations();
       pulseWarningRings(warningRings);
-      if (graph) {
-        const nodes = (graph.graphData() as any).nodes || [];
-        const cam = graph.camera();
-        orbitVolumeMoons(nodes, cam);
-        updateBillboardPositions(nodes, cam);
-        updateAnomalyIndicators(nodes, anomalyIds);
-      }
+      const nodes = g.graphData().nodes;
+      const cam = g.camera();
+      orbitVolumeMoons(nodes, cam);
+      updateBillboardPositions(nodes, cam);
+      updateAnomalyIndicators(nodes, anomalyIds);
       clusterFrameId = requestAnimationFrame(loop);
     }
     clusterFrameId = requestAnimationFrame(loop);
 
     return () => {
       if (clusterFrameId !== null) cancelAnimationFrame(clusterFrameId);
-      if (graph) cleanupAllClusters(graph.scene());
+      cleanupAllClusters(g.scene());
       observer.disconnect();
-      graph?._destructor?.();
+      g._destructor?.();
     };
   });
 
@@ -308,6 +304,7 @@
 
   // --- Graph data update ---
   let prevGraphKey = '';
+  let prevStatusMap = new Map<string, string>();
   $effect(() => {
     if (!graph) return;
     if (data.nodes.length === 0) {
@@ -319,11 +316,21 @@
       return;
     }
 
+    const curStatusMap = new Map(data.nodes.map((n) => [n.id, `${n.status}:${n.health}`]));
     const graphKey = data.nodes
       .map((n) => `${n.id}:${n.status}:${n.health}`)
       .sort()
       .join(',');
     if (graphKey === prevGraphKey) return;
+
+    // Detect which nodes changed status (for flash animation)
+    const changedIds = new Set<string>();
+    for (const [id, key] of curStatusMap) {
+      const prev = prevStatusMap.get(id);
+      if (prev && prev !== key) changedIds.add(id);
+    }
+    const oldStatusMap = prevStatusMap;
+    prevStatusMap = curStatusMap;
 
     const prevIds = prevGraphKey
       ? new Set(prevGraphKey.split(',').map((k) => k.split(':')[0]))
@@ -342,6 +349,12 @@
       const imp = importanceMap.get(node.id) || 0;
       const group = buildNodeObject(node, imp, hasBrokenDependency(node.id), warningRings);
       if (isStructural) addDeployAnimation(node.id, group);
+      else if (changedIds.has(node.id)) {
+        const prevKey = oldStatusMap.get(node.id) || 'exited:none';
+        const [prevSt, prevHp] = prevKey.split(':');
+        const prevColor = getNodeColor({ status: prevSt, health: prevHp });
+        addStatusFlash(group, prevSt, node.status, prevColor);
+      }
       return group;
     });
     graph.graphData(data);
