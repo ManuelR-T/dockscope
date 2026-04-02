@@ -157,9 +157,9 @@
     if (link.type === 'depends_on') return hl ? 'rgba(255,138,43,0.5)' : 'rgba(255,138,43,0.08)';
     if (colorNetworks) {
       const rgb = networkColorMap.get(link.label) || '0,228,255';
-      return hl ? `rgba(${rgb},0.6)` : `rgba(${rgb},0.18)`;
+      return hl ? `rgba(${rgb},0.3)` : `rgba(${rgb},0.08)`;
     }
-    return hl ? 'rgba(0,228,255,0.6)' : 'rgba(0,228,255,0.15)';
+    return hl ? 'rgba(0,228,255,0.3)' : 'rgba(0,228,255,0.08)';
   }
 
   function getLinkWidth(link: any): number {
