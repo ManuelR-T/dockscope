@@ -121,21 +121,24 @@
   }
 
   function applyImpactDimming(nodes: any[], affected: Set<string>) {
-    if (affected.size === 0) return; // Reset handled by graph rebuild
     for (const node of nodes) {
       const obj = node.__threeObj;
       if (!obj) continue;
-      if (affected.has(node.id)) continue; // Keep impacted nodes as-is
+      const dim = affected.size > 0 && !affected.has(node.id);
 
-      // Dim core sphere
+      // Core sphere
       const mat = (obj as any).__coreMat;
-      if (mat) mat.opacity = 0.08;
+      if (mat) {
+        if ((mat as any).__origOpacity === undefined) (mat as any).__origOpacity = mat.opacity;
+        mat.opacity = dim ? 0.08 : (mat as any).__origOpacity;
+      }
 
-      // Dim all children (rings, labels, moons, anomaly sprite)
+      // Children (rings, labels, moons)
       for (const child of obj.children) {
-        if ((child as any).material) {
-          (child as any).material.opacity = 0.03;
-        }
+        const m = (child as any).material;
+        if (!m) continue;
+        if (m.__origOpacity === undefined) m.__origOpacity = m.opacity;
+        m.opacity = dim ? 0.03 : m.__origOpacity;
       }
     }
   }
