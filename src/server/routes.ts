@@ -40,7 +40,7 @@ function asyncRoute(handler: (req: Request, res: Response) => Promise<void>) {
 
 /** Get container ID param as string */
 function getId(req: Request): string {
-  return getId(req);
+  return req.params.id as string;
 }
 
 export function setupRoutes(
