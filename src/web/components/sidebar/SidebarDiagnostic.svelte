@@ -3,9 +3,10 @@
 
   interface Props {
     diagnostic: CrashDiagnostic;
+    onDismiss: () => void;
   }
 
-  let { diagnostic }: Props = $props();
+  let { diagnostic, onDismiss }: Props = $props();
 
   function formatTime(ts: number): string {
     return new Date(ts).toLocaleTimeString();
@@ -33,6 +34,7 @@
     </svg>
     <span class="diag-title">Crash Diagnostic</span>
     <span class="diag-time">{formatTime(diagnostic.time)}</span>
+    <button class="diag-dismiss" onclick={onDismiss} title="Dismiss">&times;</button>
   </div>
 
   <div class="diag-cause">{diagnostic.cause}</div>
@@ -94,6 +96,21 @@
     font-size: 10px;
     color: rgba(255, 255, 255, 0.3);
     font-family: 'Fira Code', monospace;
+  }
+
+  .diag-dismiss {
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.3);
+    font-size: 16px;
+    cursor: pointer;
+    padding: 0 2px;
+    line-height: 1;
+    margin-left: 4px;
+  }
+
+  .diag-dismiss:hover {
+    color: rgba(255, 255, 255, 0.7);
   }
 
   .diag-cause {

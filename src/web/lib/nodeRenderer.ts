@@ -88,16 +88,20 @@ export function buildNodeObject(
   (group as any).__baseEmissive = emissive;
 
   // Glow ring sprite
+  let ringOuterEdge = radius;
   if (isRunning) {
     const ringInner = radius + NC.ringGap;
     const ringThickness = NC.ringThicknessBase + importance * NC.ringThicknessScale;
     const ringOpacity = 0.06 + importance * 0.14;
-    group.add(createRingSprite(color, ringInner, ringInner + ringThickness, ringOpacity));
+    ringOuterEdge = ringInner + ringThickness;
+    group.add(createRingSprite(color, ringInner, ringOuterEdge, ringOpacity));
   }
 
   // Warning ring sprite (broken dependency)
   if (isRunning && hasBrokenDep) {
     const warnSprite = createRingSprite('#ff8a2b', radius + 3.5, radius + 5.5, 0.25);
+    (warnSprite as any).__warningRing = true;
+    ringOuterEdge = Math.max(ringOuterEdge, radius + 5.5);
     group.add(warnSprite);
     warningRings.push(warnSprite);
   }
@@ -153,11 +157,40 @@ export function buildNodeObject(
   label.backgroundColor = 'rgba(4, 4, 14, 0.65)' as any;
   label.padding = 1;
   label.borderRadius = 1.5;
-  label.position.set(0, radius + NC.labelOffset, 0);
+  const labelDist = ringOuterEdge + NC.labelOffset;
+  label.position.set(0, labelDist, 0);
   (label.material as THREE.SpriteMaterial).depthWrite = false;
   group.add(label);
 
+  // Store refs for camera-relative positioning
+  (group as any).__label = label;
+  (group as any).__labelOffset = labelDist;
+  (group as any).__radius = radius;
+
   return group;
+}
+
+/** Update an existing node's visual appearance without rebuilding the Three.js group */
+export function updateNodeAppearance(node: any): void {
+  const obj = node.__threeObj;
+  if (!obj) return;
+  const mat = (obj as any).__coreMat as THREE.MeshPhongMaterial | undefined;
+  if (!mat) return;
+
+  const color = getNodeColor(node);
+  const isRunning = node.status === 'running';
+  const opacity = isRunning ? 0.88 : 0.4;
+  const emissive = isRunning ? ((obj as any).__baseEmissive ?? 0.35) : 0.1;
+
+  mat.color.set(color);
+  mat.emissive.set(color);
+  mat.emissiveIntensity = emissive;
+  mat.opacity = opacity;
+  mat.needsUpdate = true;
+
+  // Toggle anomaly sprite visibility based on running state
+  const anomaly = (obj as any).__anomalySprite as THREE.Sprite | undefined;
+  if (anomaly && !isRunning) anomaly.visible = false;
 }
 
 export function highlightNode(node: any, active: boolean): void {

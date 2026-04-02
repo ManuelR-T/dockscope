@@ -14,6 +14,7 @@
     pulseWarningRings,
     orbitVolumeMoons,
     updateAnomalyIndicators,
+    updateBillboardPositions,
   } from '../lib/animations';
   import { buildNetworkColorMap } from '../lib/networkColors';
   import { getDockerState } from '../stores/docker.svelte';
@@ -123,15 +124,21 @@
     for (const node of nodes) {
       const obj = node.__threeObj;
       if (!obj) continue;
+      const dim = affected.size > 0 && !affected.has(node.id);
+
+      // Core sphere
       const mat = (obj as any).__coreMat;
-      if (!mat) continue;
-      if (affected.size === 0) {
-        // Reset
-        mat.opacity = node.status === 'running' ? 0.88 : 0.4;
-      } else if (affected.has(node.id)) {
-        mat.opacity = node.status === 'running' ? 0.88 : 0.4;
-      } else {
-        mat.opacity = 0.08;
+      if (mat) {
+        if ((mat as any).__origOpacity === undefined) (mat as any).__origOpacity = mat.opacity;
+        mat.opacity = dim ? 0.08 : (mat as any).__origOpacity;
+      }
+
+      // Children (rings, labels, moons)
+      for (const child of obj.children) {
+        const m = (child as any).material;
+        if (!m) continue;
+        if (m.__origOpacity === undefined) m.__origOpacity = m.opacity;
+        m.opacity = dim ? 0.03 : m.__origOpacity;
       }
     }
   }
@@ -143,14 +150,12 @@
     const t = typeof link.target === 'object' ? link.target : null;
     const hl = activeNodeId && (s?.id === activeNodeId || t?.id === activeNodeId);
 
-    // Impact mode: dim links not in the impact chain
+    // Impact mode: only show depends_on links in the impact chain
     if (impactedIds.size > 0) {
-      const inImpact = s && t && impactedIds.has(s.id) && impactedIds.has(t.id);
-      if (!inImpact) {
-        return link.type === 'depends_on' ? 'rgba(255,138,43,0.03)' : 'rgba(0,228,255,0.03)';
-      }
-      if (link.type === 'depends_on') return 'rgba(255,138,43,0.6)';
-      return 'rgba(0,228,255,0.4)';
+      const inImpact =
+        link.type === 'depends_on' && s && t && impactedIds.has(s.id) && impactedIds.has(t.id);
+      if (inImpact) return '#ff8a2b';
+      return 'rgba(255,255,255,0.02)';
     }
 
     if (link.type === 'depends_on') return hl ? 'rgba(255,138,43,0.5)' : 'rgba(255,138,43,0.08)';
@@ -166,10 +171,11 @@
     const t = typeof link.target === 'object' ? link.target : null;
     const hl = activeNodeId && (s?.id === activeNodeId || t?.id === activeNodeId);
 
-    // Impact mode: thicken impacted links
+    // Impact mode: only depends_on in the chain are visible
     if (impactedIds.size > 0) {
-      const inImpact = s && t && impactedIds.has(s.id) && impactedIds.has(t.id);
-      return inImpact ? 1.5 : 0.1;
+      const inImpact =
+        link.type === 'depends_on' && s && t && impactedIds.has(s.id) && impactedIds.has(t.id);
+      return inImpact ? 1 : 0.05;
     }
 
     const base = link.type === 'depends_on' ? 0.3 : 0.5;
@@ -197,11 +203,9 @@
       .nodeThreeObjectExtend(false)
       .linkColor(getLinkColor)
       .linkWidth(getLinkWidth)
-      .linkDirectionalArrowLength((link: any) => (link.type === 'depends_on' ? 3 : 0))
+      .linkDirectionalArrowLength((link: any) => (link.type === 'depends_on' ? 4 : 0))
       .linkDirectionalArrowRelPos(1)
-      .linkDirectionalArrowColor((link: any) =>
-        link.type === 'depends_on' ? 'rgba(255,138,43,0.25)' : undefined,
-      )
+      .linkDirectionalArrowColor((link: any) => getLinkColor(link))
       .linkOpacity(0.7)
       .linkLabel((link: any) => (link.type === 'depends_on' ? 'depends_on' : link.label || ''))
       .cooldownTicks(100)
@@ -256,7 +260,9 @@
       pulseWarningRings(warningRings);
       if (graph) {
         const nodes = (graph.graphData() as any).nodes || [];
-        orbitVolumeMoons(nodes, graph.camera());
+        const cam = graph.camera();
+        orbitVolumeMoons(nodes, cam);
+        updateBillboardPositions(nodes, cam);
         updateAnomalyIndicators(nodes, anomalyIds);
       }
       clusterFrameId = requestAnimationFrame(loop);
@@ -300,7 +306,7 @@
     });
   }
 
-  // --- Graph data update (structure or status change) ---
+  // --- Graph data update ---
   let prevGraphKey = '';
   $effect(() => {
     if (!graph) return;
@@ -312,31 +318,33 @@
       }
       return;
     }
+
     const graphKey = data.nodes
       .map((n) => `${n.id}:${n.status}:${n.health}`)
       .sort()
       .join(',');
-    if (graphKey !== prevGraphKey) {
-      const isStructural =
-        prevGraphKey === '' ||
-        data.nodes
-          .map((n) => n.id)
-          .sort()
-          .join(',') !== prevGraphKey.replace(/:[^,]*/g, '').replace(/:/g, '');
-      prevGraphKey = graphKey;
-      if (isStructural) {
-        assignProjectPositions(data.nodes);
-        resetDeployIndex();
-      }
-      warningRings.length = 0;
-      graph.nodeThreeObject((node: any) => {
-        const imp = importanceMap.get(node.id) || 0;
-        const group = buildNodeObject(node, imp, hasBrokenDependency(node.id), warningRings);
-        addDeployAnimation(node.id, group);
-        return group;
-      });
-      graph.graphData(data);
+    if (graphKey === prevGraphKey) return;
+
+    const prevIds = prevGraphKey
+      ? new Set(prevGraphKey.split(',').map((k) => k.split(':')[0]))
+      : new Set<string>();
+    const curIds = new Set(data.nodes.map((n) => n.id));
+    const isStructural = prevIds.size !== curIds.size || [...curIds].some((id) => !prevIds.has(id));
+    prevGraphKey = graphKey;
+
+    if (isStructural) {
+      assignProjectPositions(data.nodes);
+      resetDeployIndex();
     }
+
+    warningRings.length = 0;
+    graph.nodeThreeObject((node: any) => {
+      const imp = importanceMap.get(node.id) || 0;
+      const group = buildNodeObject(node, imp, hasBrokenDependency(node.id), warningRings);
+      if (isStructural) addDeployAnimation(node.id, group);
+      return group;
+    });
+    graph.graphData(data);
   });
 
   // --- Selection effect ---

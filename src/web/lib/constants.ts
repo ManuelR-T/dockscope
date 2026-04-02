@@ -27,7 +27,7 @@ export const GRAPH = {
     ringThicknessBase: 0.5,
     ringThicknessScale: 2.5,
     labelHeight: 2.2,
-    labelOffset: 5,
+    labelOffset: 2,
     deployStagger: 70,
     deployDuration: 500,
   },

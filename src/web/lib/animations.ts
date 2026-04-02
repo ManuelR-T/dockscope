@@ -76,6 +76,36 @@ export function updateAnomalyIndicators(nodes: any[], anomalyIds: Set<string>): 
 }
 
 /**
+ * Reposition labels and anomaly indicators in the camera's view plane
+ * so they stay screen-relative (label above, anomaly top-right).
+ */
+export function updateBillboardPositions(nodes: any[], camera: THREE.Camera): void {
+  const up = new THREE.Vector3();
+  const right = new THREE.Vector3();
+  right.setFromMatrixColumn(camera.matrixWorld, 0);
+  up.setFromMatrixColumn(camera.matrixWorld, 1);
+
+  for (const node of nodes) {
+    const obj = node.__threeObj;
+    if (!obj) continue;
+
+    // Label: position "above" the node in screen space
+    const label = obj.__label as THREE.Sprite | undefined;
+    if (label) {
+      const offset = obj.__labelOffset as number;
+      label.position.set(up.x * offset, up.y * offset, up.z * offset);
+    }
+
+    // Anomaly indicator: position top-right in screen space
+    const anomaly = obj.__anomalySprite as THREE.Sprite | undefined;
+    if (anomaly && anomaly.visible) {
+      const r = (obj.__radius as number) + 3;
+      anomaly.position.set(right.x * r + up.x * r, right.y * r + up.y * r, right.z * r + up.z * r);
+    }
+  }
+}
+
+/**
  * Orbit volume moons around their parent nodes in the camera's view plane
  * so they always appear to orbit on the ring (which is a billboard sprite).
  * Reads __moons, __orbitRadius, __moonCount from node.__threeObj.
