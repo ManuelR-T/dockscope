@@ -176,7 +176,7 @@ export async function startServer(opts: ServerOptions): Promise<void> {
     refreshTimer = setTimeout(() => {
       refreshTimer = null;
       refreshGraph();
-    }, 200);
+    }, 500);
   }
 
   const stopWatching = watchEvents(
