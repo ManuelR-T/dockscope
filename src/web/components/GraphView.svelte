@@ -14,6 +14,7 @@
     pulseWarningRings,
     orbitVolumeMoons,
     updateAnomalyIndicators,
+    updateBillboardPositions,
   } from '../lib/animations';
   import { buildNetworkColorMap } from '../lib/networkColors';
   import { getDockerState } from '../stores/docker.svelte';
@@ -256,7 +257,9 @@
       pulseWarningRings(warningRings);
       if (graph) {
         const nodes = (graph.graphData() as any).nodes || [];
-        orbitVolumeMoons(nodes, graph.camera());
+        const cam = graph.camera();
+        orbitVolumeMoons(nodes, cam);
+        updateBillboardPositions(nodes, cam);
         updateAnomalyIndicators(nodes, anomalyIds);
       }
       clusterFrameId = requestAnimationFrame(loop);

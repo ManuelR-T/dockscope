@@ -157,6 +157,11 @@ export function buildNodeObject(
   (label.material as THREE.SpriteMaterial).depthWrite = false;
   group.add(label);
 
+  // Store refs for camera-relative positioning
+  (group as any).__label = label;
+  (group as any).__labelOffset = radius + NC.labelOffset;
+  (group as any).__radius = radius;
+
   return group;
 }
 
