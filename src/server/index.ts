@@ -112,7 +112,15 @@ export async function startServer(opts: ServerOptions): Promise<void> {
       const active = activeAnomalies.get(shortId)!;
       if (active.has(metric)) return null; // Already alerted
       active.add(metric);
-      return { containerId: shortId, containerName: name, metric, value, average: mean, threshold, time: Date.now() };
+      return {
+        containerId: shortId,
+        containerName: name,
+        metric,
+        value,
+        average: mean,
+        threshold,
+        time: Date.now(),
+      };
     } else {
       // Clear anomaly flag when value returns to normal
       activeAnomalies.get(shortId)?.delete(metric);

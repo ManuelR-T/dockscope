@@ -72,6 +72,8 @@
       graphView?.resetCamera();
     } else if ((e.key === 'c' || e.key === 'C') && selectedNode) {
       graphView?.centerOnNode(selectedNode);
+    } else if ((e.key === 'i' || e.key === 'I') && selectedNode) {
+      graphView?.toggleImpactMode();
     } else if (e.key === '?') {
       showHelp = !showHelp;
     }
