@@ -18,6 +18,8 @@ A browser-based 3D dependency graph of your Docker services with live health, lo
 
 ## Quick Start
 
+> **Prerequisites:** [Node.js](https://nodejs.org/) (v18+) and [Docker](https://docs.docker.com/get-docker/) must be installed and running.
+
 ```bash
 npx dockscope up
 ```
@@ -39,14 +41,8 @@ docker run --rm --pull always -p 4681:4681 -v /var/run/docker.sock:/var/run/dock
 
 Opens `http://localhost:4681`.
 
-| Command | Description |
-| ------- | ----------- |
-| `dockscope up` | Start the dashboard |
-| `dockscope scan` | Output graph data as JSON (no UI) |
-| `dockscope --version` | Show version |
-
 | Option | Default | Description |
-| ------ | ------- | ----------- |
+|--------|---------|-------------|
 | `-p, --port <port>` | `4681` | Server port (auto-increments if in use) |
 | `--no-open` | — | Don't open browser |
 | `dockscope scan` | — | Output graph as JSON (no UI) |
@@ -55,6 +51,9 @@ Opens `http://localhost:4681`.
 
 - **3D Force Graph** — Containers as interactive spheres, color-coded by health/status, with `depends_on` arrows and network links. Node size scales by importance (ports, connections, CPU, memory, I/O). Compose projects grouped with enclosure spheres.
 - **Live Monitoring** — CPU, memory, network I/O polled every 3s with 5-minute sparkline history. Real-time Docker event stream.
+- **Anomaly Detection** — CPU/memory spikes flagged using IQR-based outlier detection. Pulsing indicator on graph nodes, toast notification, and dismissable sidebar alert.
+- **Crash Diagnostics** — When a container dies, auto-analyzes exit code, OOM status, and last log lines to surface the likely cause. Diagnostic card shown in the sidebar.
+- **Dependency Impact View** — Select a node and toggle impact mode (`I` key) to highlight everything that would break if it goes down. Traverses `depends_on` upstream and dims unaffected nodes.
 - **Container Actions** — Start, stop, restart, pause, unpause, kill, remove — directly from the sidebar with confirmation dialogs for destructive actions.
 - **Log Streaming** — Live logs with ANSI color support, in-log search, and export to `.txt`.
 - **Interactive Terminal** — Shell access (`/bin/sh`) via xterm.js embedded in the sidebar.
@@ -65,18 +64,19 @@ Opens `http://localhost:4681`.
 ## Keyboard Shortcuts
 
 | Key | Action |
-| --- | ------ |
+|-----|--------|
 | `/` or `Ctrl+K` | Focus search |
 | `Escape` | Close panel / clear search |
 | `F` | Zoom to fit |
 | `R` | Reset camera |
 | `C` | Center on selected node |
+| `I` | Toggle impact view |
 | `?` | Show shortcut help |
 
 ## API
 
 | Method | Path | Description |
-| ------ | ---- | ----------- |
+|--------|------|-------------|
 | GET | `/api/graph` | Full graph (nodes + links) |
 | GET | `/api/containers/:id/stats` | CPU, memory, network I/O |
 | GET | `/api/containers/:id/logs?tail=N` | Logs (default 200 lines) |
@@ -84,13 +84,15 @@ Opens `http://localhost:4681`.
 | GET | `/api/containers/:id/history` | Metric sparkline data |
 | GET | `/api/containers/:id/top` | Running processes |
 | GET | `/api/containers/:id/diff` | Filesystem changes |
+| GET | `/api/containers/:id/diagnostic` | Crash diagnostic analysis |
 | POST | `/api/containers/:id/{action}` | start, stop, restart, pause, unpause, kill |
 | DELETE | `/api/containers/:id?volumes=true` | Remove container |
 | GET | `/api/projects` | List compose projects |
 | POST | `/api/projects/:name/{action}` | up, down, stop, start, restart, destroy |
 | GET | `/api/system` | Docker version, CPUs, memory |
 | GET | `/api/health` | Docker connectivity check |
-| WS | `/ws` | Real-time graph, stats, events, logs, exec |
+| GET | `/api/version` | Current + latest version |
+| WS | `/ws` | Real-time graph, stats, events, logs, exec, anomalies, diagnostics |
 
 ## Development
 
@@ -102,10 +104,11 @@ npm run dev    # Starts on port 4681 with Vite HMR
 ```
 
 | Command | Description |
-| ------- | ----------- |
+|---------|-------------|
 | `npm run dev` | Dev server (backend + frontend with HMR) |
 | `npm run build` | Production build |
 | `npm run start` | Run production build |
+| `npm test` | Run unit tests (vitest) |
 | `npm run lint` | ESLint check |
 | `npm run format` | Prettier format |
 | `npm run typecheck` | TypeScript check |
@@ -113,10 +116,11 @@ npm run dev    # Starts on port 4681 with Vite HMR
 ## Tech Stack
 
 | Layer | Technology |
-| ----- | --------- |
+|-------|-----------|
 | **Frontend** | Svelte 5, Three.js, 3d-force-graph, xterm.js |
 | **Backend** | Express, WebSocket (ws), dockerode |
 | **Build** | Vite, TypeScript |
+| **Testing** | Vitest |
 | **CLI** | Commander |
 | **CI/CD** | GitHub Actions, commitlint, ESLint, Prettier |
 
