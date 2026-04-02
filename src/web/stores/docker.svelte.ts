@@ -179,6 +179,12 @@ export function addDiagnostic(diag: CrashDiagnostic) {
   diagnostics = updated;
 }
 
+export function removeDiagnostic(containerId: string) {
+  const updated = new Map(diagnostics);
+  updated.delete(containerId);
+  diagnostics = updated;
+}
+
 export function getDockerState() {
   return {
     get graph() {
