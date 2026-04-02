@@ -299,74 +299,39 @@
   }
 
   // --- Graph data update ---
-  let prevNodeIds = '';
-  let prevStatusMap = new Map<string, string>();
+  let prevGraphKey = '';
   $effect(() => {
     if (!graph) return;
     if (data.nodes.length === 0) {
-      if (prevNodeIds !== '') {
-        prevNodeIds = '';
-        prevStatusMap = new Map();
+      if (prevGraphKey !== '') {
+        prevGraphKey = '';
         warningRings.length = 0;
         graph.graphData({ nodes: [], links: [] });
       }
       return;
     }
 
-    const nodeIds = data.nodes.map((n) => n.id).sort().join(',');
-    const curStatus = new Map(data.nodes.map((n) => [n.id, `${n.status}:${n.health}`]));
-    const isStructural = nodeIds !== prevNodeIds;
+    const graphKey = data.nodes.map((n) => `${n.id}:${n.status}:${n.health}`).sort().join(',');
+    if (graphKey === prevGraphKey) return;
 
-    // Find which nodes changed status
-    const changedIds = new Set<string>();
-    if (!isStructural) {
-      for (const [id, key] of curStatus) {
-        if (prevStatusMap.get(id) !== key) changedIds.add(id);
-      }
-      if (changedIds.size === 0) { prevStatusMap = curStatus; return; }
-    }
-
-    prevNodeIds = nodeIds;
-    prevStatusMap = curStatus;
+    const prevIds = prevGraphKey ? new Set(prevGraphKey.split(',').map((k) => k.split(':')[0])) : new Set<string>();
+    const curIds = new Set(data.nodes.map((n) => n.id));
+    const isStructural = prevIds.size !== curIds.size || [...curIds].some((id) => !prevIds.has(id));
+    prevGraphKey = graphKey;
 
     if (isStructural) {
-      // Nodes added or removed — full rebuild + simulation
       assignProjectPositions(data.nodes);
       resetDeployIndex();
-      warningRings.length = 0;
-      graph.nodeThreeObject((node: any) => {
-        const imp = importanceMap.get(node.id) || 0;
-        const group = buildNodeObject(node, imp, hasBrokenDependency(node.id), warningRings);
-        addDeployAnimation(node.id, group);
-        return group;
-      });
-      graph.graphData(data);
-    } else {
-      // Status-only — rebuild Three.js objects for changed nodes without reheating simulation
-      const graphNodes = (graph.graphData() as any).nodes as any[];
-      // Rebuild warning rings from scratch (some may appear/disappear)
-      warningRings.length = 0;
-      for (const n of graphNodes) {
-        const oldObj = n.__threeObj;
-        if (changedIds.has(n.id)) {
-          // Rebuild this node's visual
-          if (oldObj?.parent) oldObj.parent.remove(oldObj);
-          const imp = importanceMap.get(n.id) || 0;
-          const group = buildNodeObject(n, imp, hasBrokenDependency(n.id), warningRings);
-          // Preserve position
-          if (oldObj) {
-            group.position.copy(oldObj.position);
-          }
-          n.__threeObj = group;
-          graph.scene().add(group);
-        } else if (oldObj) {
-          // Re-collect warning rings from unchanged nodes
-          for (const child of oldObj.children) {
-            if ((child as any).__warningRing) warningRings.push(child as THREE.Sprite);
-          }
-        }
-      }
     }
+
+    warningRings.length = 0;
+    graph.nodeThreeObject((node: any) => {
+      const imp = importanceMap.get(node.id) || 0;
+      const group = buildNodeObject(node, imp, hasBrokenDependency(node.id), warningRings);
+      if (isStructural) addDeployAnimation(node.id, group);
+      return group;
+    });
+    graph.graphData(data);
   });
 
   // --- Selection effect ---
