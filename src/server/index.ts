@@ -88,8 +88,17 @@ export async function startServer(opts: ServerOptions): Promise<void> {
 
   // Track active anomalies to avoid repeated alerts (cleared when value returns to normal)
   const activeAnomalies = new Map<string, Set<string>>();
-  const ANOMALY_STDDEV_FACTOR = 3;
+  const ANOMALY_IQR_FACTOR = 2.5; // Tukey fence multiplier (1.5 = mild outlier, 3 = extreme)
   const ANOMALY_MIN_SAMPLES = 20;
+  // Minimum absolute values to trigger — ignores low-usage spikes
+  const ANOMALY_MIN_ABS: Record<string, number> = { cpu: 70, memory: 75 };
+
+  function percentile(sorted: number[], p: number): number {
+    const idx = (sorted.length - 1) * p;
+    const lo = Math.floor(idx);
+    const hi = Math.ceil(idx);
+    return lo === hi ? sorted[lo] : sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
+  }
 
   function detectAnomaly(
     shortId: string,
@@ -99,13 +108,21 @@ export async function startServer(opts: ServerOptions): Promise<void> {
     history: { cpu: number; memory: number }[],
   ): Anomaly | null {
     if (history.length < ANOMALY_MIN_SAMPLES) return null;
-    const values = history.map((h) => h[metric]);
-    const mean = values.reduce((a, b) => a + b, 0) / values.length;
-    const variance = values.reduce((a, b) => a + (b - mean) ** 2, 0) / values.length;
-    const stddev = Math.sqrt(variance);
-    if (stddev < 1) return null; // Skip if nearly constant
 
-    const threshold = mean + ANOMALY_STDDEV_FACTOR * stddev;
+    // Must exceed minimum absolute threshold
+    if (value < (ANOMALY_MIN_ABS[metric] || 0)) {
+      activeAnomalies.get(shortId)?.delete(metric);
+      return null;
+    }
+
+    const sorted = history.map((h) => h[metric]).sort((a, b) => a - b);
+    const q1 = percentile(sorted, 0.25);
+    const q3 = percentile(sorted, 0.75);
+    const iqr = q3 - q1;
+
+    // Skip if data is too uniform (IQR near zero) — use a fallback based on median
+    const median = percentile(sorted, 0.5);
+    const threshold = iqr > 1 ? q3 + ANOMALY_IQR_FACTOR * iqr : median * 2;
 
     if (value > threshold) {
       if (!activeAnomalies.has(shortId)) activeAnomalies.set(shortId, new Set());
@@ -117,7 +134,7 @@ export async function startServer(opts: ServerOptions): Promise<void> {
         containerName: name,
         metric,
         value,
-        average: mean,
+        average: median,
         threshold,
         time: Date.now(),
       };
