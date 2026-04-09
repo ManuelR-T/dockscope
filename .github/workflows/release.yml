@@ -77,9 +77,9 @@ jobs:
             COMMITS=$(git log --oneline)
           fi
 
-          if echo "$COMMITS" | grep -qiE "BREAKING CHANGE|^.+!:"; then
+          if echo "$COMMITS" | grep -qiE "BREAKING CHANGE|!:"; then
             echo "type=major" >> $GITHUB_OUTPUT
-          elif echo "$COMMITS" | grep -qiE "^feat"; then
+          elif echo "$COMMITS" | grep -qiE "\bfeat(\(.+\))?[!]?:"; then
             echo "type=minor" >> $GITHUB_OUTPUT
           else
             echo "type=patch" >> $GITHUB_OUTPUT
