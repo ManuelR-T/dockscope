@@ -21,7 +21,7 @@
     bottom: 200px;
     left: 50%;
     transform: translateX(-50%);
-    z-index: 50;
+    z-index: 200;
     display: flex;
     flex-direction: column;
     gap: 8px;
