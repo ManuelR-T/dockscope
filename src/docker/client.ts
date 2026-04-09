@@ -56,8 +56,13 @@ export async function checkConnection(): Promise<boolean> {
   }
 }
 
-export async function buildGraph(composeFile?: string): Promise<GraphData> {
-  const containers = await docker.listContainers({ all: true });
+/** Create a Dockerode client for a given host URL (or default local) */
+export function createDockerClient(host?: string): Dockerode {
+  return host ? new Dockerode(parseDockerHost(host)) : new Dockerode();
+}
+
+export async function buildGraph(composeFile?: string, host: string = 'local', client?: Dockerode): Promise<GraphData> {
+  const containers = await (client || docker).listContainers({ all: true });
   const nodes: ServiceNode[] = [];
   const networkMap = new Map<string, string[]>();
   const containerProject = new Map<string, string>();
@@ -90,6 +95,7 @@ export async function buildGraph(composeFile?: string): Promise<GraphData> {
       name: serviceName,
       fullName: container.Names[0]?.replace(/^\//, '') || serviceName,
       project,
+      host,
       containerId: container.Id,
       image: container.Image,
       status: container.State as ServiceNode['status'],

@@ -54,6 +54,18 @@ export const GRAPH = {
   },
 } as const;
 
+// --- Host cluster palette ---
+export const HOST_PALETTE = [
+  '#2288ff',
+  '#ff6644',
+  '#44dd88',
+  '#cc66ff',
+  '#ffaa22',
+  '#ff4488',
+  '#22ddcc',
+  '#aabb33',
+] as const;
+
 // --- Project cluster palette ---
 export const PROJECT_PALETTE = [
   '#00e4ff',

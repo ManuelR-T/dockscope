@@ -273,31 +273,52 @@
     };
   });
 
-  // --- Initial project positioning ---
+  // --- Initial host + project positioning ---
   function assignProjectPositions(nodes: any[]) {
-    const projects = new Map<string, any[]>();
+    // Group by host first
+    const hosts = new Map<string, any[]>();
     for (const node of nodes) {
-      const p = node.project || '';
-      if (!projects.has(p)) projects.set(p, []);
-      projects.get(p)!.push(node);
+      const h = node.host || 'local';
+      if (!hosts.has(h)) hosts.set(h, []);
+      hosts.get(h)!.push(node);
     }
-    if (projects.size <= 1) return;
 
-    const projectList = [...projects.entries()];
-    const baseRadius = 20 * Math.sqrt(nodes.length);
-    const angleStep = (2 * Math.PI) / projectList.length;
+    const multiHost = hosts.size > 1;
+    const hostList = [...hosts.entries()];
+    const hostRadius = multiHost ? 40 * Math.sqrt(nodes.length) : 0;
+    const hostAngleStep = (2 * Math.PI) / hostList.length;
 
-    projectList.forEach(([_, pNodes], i) => {
-      const angle = angleStep * i;
-      const cx = Math.cos(angle) * baseRadius;
-      const cz = Math.sin(angle) * baseRadius;
-      const cr = 8 * Math.sqrt(pNodes.length);
-      pNodes.forEach((node: any, j: number) => {
-        if (node.x !== undefined) return;
-        const a = (2 * Math.PI * j) / pNodes.length;
-        node.x = cx + Math.cos(a) * cr;
-        node.y = (Math.random() - 0.5) * cr * 0.5;
-        node.z = cz + Math.sin(a) * cr;
+    hostList.forEach(([_, hostNodes], hi) => {
+      const hostAngle = hostAngleStep * hi;
+      const hx = multiHost ? Math.cos(hostAngle) * hostRadius : 0;
+      const hz = multiHost ? Math.sin(hostAngle) * hostRadius : 0;
+
+      // Group this host's nodes by project
+      const projects = new Map<string, any[]>();
+      for (const node of hostNodes) {
+        const p = node.project || '';
+        if (!projects.has(p)) projects.set(p, []);
+        projects.get(p)!.push(node);
+      }
+
+      if (projects.size <= 1 && !multiHost) return;
+
+      const projectList = [...projects.entries()];
+      const baseRadius = 20 * Math.sqrt(hostNodes.length);
+      const angleStep = (2 * Math.PI) / projectList.length;
+
+      projectList.forEach(([_, pNodes], i) => {
+        const angle = angleStep * i;
+        const cx = hx + Math.cos(angle) * baseRadius;
+        const cz = hz + Math.sin(angle) * baseRadius;
+        const cr = 8 * Math.sqrt(pNodes.length);
+        pNodes.forEach((node: any, j: number) => {
+          if (node.x !== undefined) return;
+          const a = (2 * Math.PI * j) / pNodes.length;
+          node.x = cx + Math.cos(a) * cr;
+          node.y = (Math.random() - 0.5) * cr * 0.5;
+          node.z = cz + Math.sin(a) * cr;
+        });
       });
     });
   }

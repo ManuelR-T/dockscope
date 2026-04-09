@@ -8,6 +8,7 @@ function makeNode(id: string, name: string, project = ''): ServiceNode {
     name,
     fullName: name,
     project,
+    host: 'local',
     containerId: id + '0'.repeat(52),
     image: 'test:latest',
     status: 'running',

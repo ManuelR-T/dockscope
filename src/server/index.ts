@@ -5,7 +5,6 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import {
-  buildGraph,
   checkConnection,
   createExecSession,
   diagnoseCrash,
@@ -14,6 +13,7 @@ import {
   streamContainerLogs,
   watchEvents,
 } from '../docker/client.js';
+import { initHosts, buildMultiHostGraph, refreshHostStatus } from '../docker/hosts.js';
 import { setupRoutes } from './routes.js';
 import type { ServerOptions, GraphData, WSMessage } from '../types.js';
 import { checkAnomaly } from './anomaly.js';
@@ -23,6 +23,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export async function startServer(opts: ServerOptions): Promise<void> {
   if (opts.host) initDockerClient(opts.host);
+  initHosts(opts.host);
 
   const app = express();
   app.use(cors());
@@ -79,7 +80,7 @@ export async function startServer(opts: ServerOptions): Promise<void> {
 
   const refreshGraph = async () => {
     try {
-      cachedGraph = await buildGraph();
+      cachedGraph = await buildMultiHostGraph();
       broadcast({ type: 'graph', data: cachedGraph });
       // Clean stale metric history for removed containers
       const activeIds = new Set(cachedGraph.nodes.map((n) => n.id));
@@ -195,6 +196,8 @@ export async function startServer(opts: ServerOptions): Promise<void> {
 
   const statsInterval = setInterval(refreshStats, 3000);
   const graphInterval = setInterval(refreshGraph, 10000);
+  const hostStatusInterval = setInterval(() => refreshHostStatus().catch(() => {}), 10000);
+  refreshHostStatus().catch(() => {});
 
   // Per-client log streams and exec sessions
   const clientLogStreams = new Map<WebSocket, () => void>();
@@ -307,6 +310,7 @@ export async function startServer(opts: ServerOptions): Promise<void> {
     console.log('\nShutting down DockScope...');
     clearInterval(statsInterval);
     clearInterval(graphInterval);
+    clearInterval(hostStatusInterval);
     stopWatching();
     wss.close();
     server.close();

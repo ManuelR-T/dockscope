@@ -18,6 +18,7 @@
   import SidebarExec from './sidebar/SidebarExec.svelte';
   import SidebarDiagnostic from './sidebar/SidebarDiagnostic.svelte';
   import SidebarAnomaly from './sidebar/SidebarAnomaly.svelte';
+  import SidebarCompare from './sidebar/SidebarCompare.svelte';
   import { getDockerState } from '../stores/docker.svelte';
   import type { ServiceNode, ContainerStats, ContainerInspect, MetricPoint } from '../../types';
 
@@ -34,10 +35,12 @@
   let stats = $state<ContainerStats | null>(null);
   let inspect = $state<ContainerInspect | null>(null);
   let history = $state<MetricPoint[]>([]);
-  let activeTab = $state<'info' | 'env' | 'logs' | 'top' | 'diff' | 'exec'>('info');
+  let activeTab = $state<'info' | 'env' | 'logs' | 'top' | 'diff' | 'exec' | 'compare'>('info');
   let actionPending = $state(false);
   let showMore = $state(false);
   let moreBtn = $state<HTMLElement | null>(null);
+  let multipleHosts = $derived(new Set(docker.graph.nodes.map((n) => n.host)).size > 1);
+
   let confirmDialog = $state<{
     title: string;
     message: string;
@@ -330,6 +333,12 @@
           onclick={() => (activeTab = 'exec')}>Exec</button
         >
       {/if}
+      {#if multipleHosts}
+        <button
+          class="tab {activeTab === 'compare' ? 'active' : ''}"
+          onclick={() => (activeTab = 'compare')}>Compare</button
+        >
+      {/if}
     </div>
 
     {#if docker.diagnostics.has(node.id)}
@@ -355,6 +364,8 @@
       <SidebarDiff containerId={node.containerId} />
     {:else if activeTab === 'exec'}
       <SidebarExec containerId={node.containerId} />
+    {:else if activeTab === 'compare'}
+      <SidebarCompare />
     {/if}
   {/if}
 </div>
