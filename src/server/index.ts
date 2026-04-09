@@ -10,6 +10,7 @@ import {
   createExecSession,
   diagnoseCrash,
   getContainerStats,
+  initDockerClient,
   streamContainerLogs,
   watchEvents,
 } from '../docker/client.js';
@@ -21,6 +22,8 @@ import { shortId } from '../utils.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export async function startServer(opts: ServerOptions): Promise<void> {
+  if (opts.host) initDockerClient(opts.host);
+
   const app = express();
   app.use(cors());
   app.use(express.json());

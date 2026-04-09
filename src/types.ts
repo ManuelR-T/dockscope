@@ -139,4 +139,5 @@ export interface CrashDiagnostic {
 export interface ServerOptions {
   port: number;
   open: boolean;
+  host?: string;
 }
