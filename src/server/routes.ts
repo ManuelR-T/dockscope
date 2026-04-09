@@ -4,7 +4,6 @@ import {
   checkConnection,
   composeAction,
   containerAction,
-  createDockerClient,
   diagnoseCrash,
   getContainerLogs,
   getContainerStats,
