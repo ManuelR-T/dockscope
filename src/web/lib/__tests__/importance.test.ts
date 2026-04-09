@@ -7,6 +7,7 @@ function makeNode(overrides: Partial<ServiceNode> & { id: string }): ServiceNode
     name: overrides.id,
     fullName: overrides.id,
     project: '',
+    host: 'local',
     containerId: overrides.id,
     image: 'test:latest',
     status: 'running',

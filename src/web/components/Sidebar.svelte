@@ -38,6 +38,7 @@
   let actionPending = $state(false);
   let showMore = $state(false);
   let moreBtn = $state<HTMLElement | null>(null);
+
   let confirmDialog = $state<{
     title: string;
     message: string;

@@ -14,6 +14,8 @@ import {
   listComposeProjects,
   removeContainer,
 } from '../docker/client.js';
+import { compareEnvironments } from './compare.js';
+import { addHost, removeHost, listHosts, getHost } from '../docker/hosts.js';
 import { readFileSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -162,6 +164,37 @@ export function setupRoutes(
     res.json(versionCache);
   });
 
+  // Host management
+  app.get('/api/hosts', (_req, res) => {
+    res.json(listHosts());
+  });
+
+  app.post(
+    '/api/hosts',
+    asyncRoute(async (req, res) => {
+      const { name, url } = req.body as { name?: string; url?: string };
+      if (!name || !url) {
+        res.status(400).json({ error: 'Both name and url are required' });
+        return;
+      }
+      const result = await addHost(name, url);
+      if (!result.ok) {
+        res.status(400).json({ error: result.error });
+        return;
+      }
+      res.json({ ok: true });
+    }),
+  );
+
+  app.delete('/api/hosts/:name', (req, res) => {
+    const name = req.params.name as string;
+    if (!removeHost(name)) {
+      res.status(400).json({ error: `Cannot remove host "${name}"` });
+      return;
+    }
+    res.json({ ok: true });
+  });
+
   const composeEnabled = process.env.DOCKSCOPE_NO_COMPOSE !== '1';
 
   app.get('/api/features', (_req, res) => {
@@ -193,6 +226,28 @@ export function setupRoutes(
         return;
       }
       res.json({ ok: true, message: await composeAction(name, action as any) });
+    }),
+  );
+
+  app.post(
+    '/api/compare',
+    asyncRoute(async (req, res) => {
+      const { hostA, hostB } = req.body as { hostA?: string; hostB?: string };
+      if (!hostA || !hostB) {
+        res.status(400).json({ error: 'Both hostA and hostB are required' });
+        return;
+      }
+      const a = getHost(hostA);
+      const b = getHost(hostB);
+      if (!a || !b) {
+        res.status(400).json({ error: `Unknown host: ${!a ? hostA : hostB}` });
+        return;
+      }
+      const [graphA, graphB] = await Promise.all([
+        buildGraph(undefined, hostA, a.client),
+        buildGraph(undefined, hostB, b.client),
+      ]);
+      res.json(compareEnvironments(graphA, graphB));
     }),
   );
 }

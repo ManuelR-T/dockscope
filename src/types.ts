@@ -3,6 +3,7 @@ export interface ServiceNode {
   name: string;
   fullName: string;
   project: string;
+  host: string;
   containerId: string;
   image: string;
   status: 'running' | 'exited' | 'paused' | 'restarting' | 'dead' | 'created' | 'removing';
@@ -139,4 +140,5 @@ export interface CrashDiagnostic {
 export interface ServerOptions {
   port: number;
   open: boolean;
+  host?: string;
 }

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 import { createConnection } from 'net';
 import { startServer } from './server/index.js';
-import { buildGraph, checkConnection } from './docker/client.js';
+import { buildGraph, checkConnection, initDockerClient } from './docker/client.js';
 
 function isPortInUse(port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -70,11 +70,13 @@ program
   .command('up', { isDefault: true })
   .description('Start the DockScope dashboard')
   .option('-p, --port <port>', 'Server port', '4681')
+  .option('-H, --host <url>', 'Docker host URL (e.g. ssh://user@remote, tcp://host:2375)')
   .option('--no-open', "Don't open browser automatically")
   .option('--no-port-check', 'Skip port conflict detection')
   .action(async (opts) => {
     const requestedPort = parseInt(opts.port, 10);
     const port = opts.portCheck === false ? requestedPort : await findAvailablePort(requestedPort);
+    const host: string | undefined = opts.host || process.env.DOCKER_HOST || undefined;
 
     console.log(`
   ____             _    ____
@@ -85,9 +87,10 @@ program
                                        |_|  v${VERSION}
 `);
 
-    await startServer({ port, open: opts.open !== false });
+    await startServer({ port, open: opts.open !== false, host });
 
     const url = `http://localhost:${port}`;
+    if (host) console.log(`  Docker host: ${host}`);
     console.log(`  Dashboard: ${url}`);
     console.log(`  API:       ${url}/api/graph`);
     console.log(`  WebSocket: ws://localhost:${port}/ws\n`);
@@ -111,7 +114,10 @@ program
 program
   .command('scan')
   .description('Scan Docker environment and output graph data as JSON')
-  .action(async () => {
+  .option('-H, --host <url>', 'Docker host URL')
+  .action(async (opts) => {
+    const scanHost: string | undefined = opts.host || process.env.DOCKER_HOST || undefined;
+    if (scanHost) initDockerClient(scanHost);
     const connected = await checkConnection();
     if (!connected) {
       console.error('Cannot connect to Docker daemon. Is Docker running?');

@@ -22,7 +22,30 @@ import {
 } from './links.js';
 import { analyzeCrash as _analyzeCrash } from './diagnostics.js';
 
-const docker = new Dockerode();
+let docker = new Dockerode();
+
+/** Parse a DOCKER_HOST-style URL into Dockerode constructor options */
+function parseDockerHost(host: string): Dockerode.DockerOptions {
+  const url = new URL(host);
+  switch (url.protocol) {
+    case 'tcp:':
+    case 'http:':
+      return { host: url.hostname, port: parseInt(url.port, 10) || 2375, protocol: 'http' };
+    case 'https:':
+      return { host: url.hostname, port: parseInt(url.port, 10) || 2376, protocol: 'https' };
+    case 'ssh:':
+      return { host, protocol: 'ssh' as any };
+    case 'unix:':
+      return { socketPath: url.pathname };
+    default:
+      throw new Error(`Unsupported Docker host protocol: ${url.protocol}`);
+  }
+}
+
+/** Re-initialize the Docker client with a custom host URL */
+export function initDockerClient(host?: string): void {
+  docker = host ? new Dockerode(parseDockerHost(host)) : new Dockerode();
+}
 
 export async function checkConnection(): Promise<boolean> {
   try {
@@ -33,8 +56,17 @@ export async function checkConnection(): Promise<boolean> {
   }
 }
 
-export async function buildGraph(composeFile?: string): Promise<GraphData> {
-  const containers = await docker.listContainers({ all: true });
+/** Create a Dockerode client for a given host URL (or default local) */
+export function createDockerClient(host?: string): Dockerode {
+  return host ? new Dockerode(parseDockerHost(host)) : new Dockerode();
+}
+
+export async function buildGraph(
+  composeFile?: string,
+  host: string = 'local',
+  client?: Dockerode,
+): Promise<GraphData> {
+  const containers = await (client || docker).listContainers({ all: true });
   const nodes: ServiceNode[] = [];
   const networkMap = new Map<string, string[]>();
   const containerProject = new Map<string, string>();
@@ -67,6 +99,7 @@ export async function buildGraph(composeFile?: string): Promise<GraphData> {
       name: serviceName,
       fullName: container.Names[0]?.replace(/^\//, '') || serviceName,
       project,
+      host,
       containerId: container.Id,
       image: container.Image,
       status: container.State as ServiceNode['status'],
