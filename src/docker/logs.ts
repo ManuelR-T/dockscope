@@ -10,7 +10,9 @@ export function demuxLogBuffer(buffer: Buffer): string {
     while (offset + DEMUX_HEADER_SIZE <= buffer.length) {
       const size = buffer.readUInt32BE(offset + 4);
       offset += DEMUX_HEADER_SIZE;
-      if (offset + size > buffer.length) break;
+      if (offset + size > buffer.length) {
+        break;
+      }
       lines.push(buffer.subarray(offset, offset + size).toString('utf-8'));
       offset += size;
     }
@@ -60,7 +62,9 @@ export function streamContainerLogs(
       logStream = stream;
       stream.on('data', (chunk: Buffer) => {
         const text = demuxLogBuffer(chunk);
-        if (text) onData(text);
+        if (text) {
+          onData(text);
+        }
       });
       stream.on('error', (e: Error) => onError?.(e));
     },

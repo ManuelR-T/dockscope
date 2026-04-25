@@ -61,12 +61,15 @@ const COLOR_256: string[] = [
   '#f8fafc',
 ];
 // 16-231: 6x6x6 color cube
-for (let r = 0; r < 6; r++)
-  for (let g = 0; g < 6; g++)
-    for (let b = 0; b < 6; b++)
+for (let r = 0; r < 6; r++) {
+  for (let g = 0; g < 6; g++) {
+    for (let b = 0; b < 6; b++) {
       COLOR_256.push(
         `#${(r ? r * 40 + 55 : 0).toString(16).padStart(2, '0')}${(g ? g * 40 + 55 : 0).toString(16).padStart(2, '0')}${(b ? b * 40 + 55 : 0).toString(16).padStart(2, '0')}`,
       );
+    }
+  }
+}
 // 232-255: grayscale
 for (let i = 0; i < 24; i++) {
   const v = (i * 10 + 8).toString(16).padStart(2, '0');
@@ -86,7 +89,9 @@ function shortenTimestamps(text: string): string {
 }
 
 export function ansiToHtml(text: string): string {
-  if (!text) return '';
+  if (!text) {
+    return '';
+  }
 
   // Fast path: no escape codes at all
   if (!text.includes('\x1b') && !text.includes('\u001b')) {
@@ -103,14 +108,28 @@ export function ansiToHtml(text: string): string {
   let spanOpen = false;
 
   const pushSpan = () => {
-    if (spanOpen) result.push('</span>');
+    if (spanOpen) {
+      result.push('</span>');
+    }
     const styles: string[] = [];
-    if (fg) styles.push(`color:${fg}`);
-    if (bg) styles.push(`background:${bg}`);
-    if (bold) styles.push('font-weight:700');
-    if (dim) styles.push('opacity:0.6');
-    if (italic) styles.push('font-style:italic');
-    if (underline) styles.push('text-decoration:underline');
+    if (fg) {
+      styles.push(`color:${fg}`);
+    }
+    if (bg) {
+      styles.push(`background:${bg}`);
+    }
+    if (bold) {
+      styles.push('font-weight:700');
+    }
+    if (dim) {
+      styles.push('opacity:0.6');
+    }
+    if (italic) {
+      styles.push('font-style:italic');
+    }
+    if (underline) {
+      styles.push('text-decoration:underline');
+    }
     if (styles.length > 0) {
       result.push(`<span style="${styles.join(';')}">`);
       spanOpen = true;
@@ -200,7 +219,9 @@ export function ansiToHtml(text: string): string {
     result.push(escapeHtml(text.slice(lastIndex)));
   }
 
-  if (spanOpen) result.push('</span>');
+  if (spanOpen) {
+    result.push('</span>');
+  }
   return colorLogLevels(shortenTimestamps(result.join('')));
 }
 
@@ -230,7 +251,9 @@ function colorLogLevels(html: string): string {
 
 // Highlight search matches in HTML (avoids matching inside tags)
 export function highlightLogSearch(html: string, query: string): { html: string; count: number } {
-  if (!query || !html) return { html, count: 0 };
+  if (!query || !html) {
+    return { html, count: 0 };
+  }
   let count = 0;
   const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 

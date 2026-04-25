@@ -31,7 +31,9 @@
   });
 
   async function runCompare() {
-    if (!hostA || !hostB) return;
+    if (!hostA || !hostB) {
+      return;
+    }
     if (hostA === hostB) {
       error = 'Select two different hosts to compare';
       return;

@@ -15,7 +15,9 @@ const NET_COLORS = [
 export function buildNetworkColorMap(links: ServiceLink[]): Map<string, string> {
   const names = new Set<string>();
   for (const link of links) {
-    if (link.type === 'network' && link.label) names.add(link.label);
+    if (link.type === 'network' && link.label) {
+      names.add(link.label);
+    }
   }
   const sorted = [...names].sort();
   return new Map(sorted.map((n, i) => [n, NET_COLORS[i % NET_COLORS.length]]));

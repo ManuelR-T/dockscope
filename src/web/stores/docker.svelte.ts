@@ -22,26 +22,78 @@ let anomalies = $state<Map<string, Anomaly>>(new Map());
 let diagnostics = $state<Map<string, CrashDiagnostic>>(new Map());
 
 let ws: WebSocket | null = null;
-let reconnectTimer: ReturnType<typeof setTimeout>;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let shouldReconnect = false;
+
+function clearReconnectTimer() {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+}
+
+function scheduleReconnect() {
+  if (!shouldReconnect || reconnectTimer) {
+    return;
+  }
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    connect();
+  }, DOCKER.wsReconnectDelay);
+}
+
+function sendLogSubscription() {
+  if (streamingLogContainerId && ws?.readyState === WebSocket.OPEN) {
+    ws.send(
+      JSON.stringify({ type: 'subscribe_logs', data: { containerId: streamingLogContainerId } }),
+    );
+  }
+}
+
+function isSocketActive(socket: WebSocket | null): boolean {
+  return socket?.readyState === WebSocket.CONNECTING || socket?.readyState === WebSocket.OPEN;
+}
 
 function connect() {
+  if (!shouldReconnect) {
+    return;
+  }
+  if (isSocketActive(ws)) {
+    return;
+  }
+
+  clearReconnectTimer();
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+  const socket = new WebSocket(`${protocol}//${window.location.host}/ws`);
+  ws = socket;
 
-  ws.onopen = () => {
+  socket.onopen = () => {
+    if (ws !== socket) {
+      return;
+    }
     connected = true;
+    sendLogSubscription();
   };
 
-  ws.onclose = () => {
+  socket.onclose = () => {
+    if (ws !== socket) {
+      return;
+    }
     connected = false;
-    reconnectTimer = setTimeout(connect, DOCKER.wsReconnectDelay);
+    ws = null;
+    scheduleReconnect();
   };
 
-  ws.onerror = () => {
-    ws?.close();
+  socket.onerror = () => {
+    if (ws === socket) {
+      socket.close();
+    }
   };
 
-  ws.onmessage = (e) => {
+  socket.onmessage = (e) => {
+    if (ws !== socket) {
+      return;
+    }
     try {
       const msg: WSMessage = JSON.parse(e.data);
       switch (msg.type) {
@@ -111,7 +163,9 @@ function connect() {
         case 'anomaly': {
           const a = msg.data as Anomaly;
           const key = `${a.containerId}:${a.metric}`;
-          if (dismissedAnomalies.has(key)) break;
+          if (dismissedAnomalies.has(key)) {
+            break;
+          }
           const updated = new Map(anomalies);
           updated.set(key, a);
           anomalies = updated;
@@ -137,6 +191,8 @@ function connect() {
 }
 
 export function initDocker() {
+  shouldReconnect = true;
+
   fetch('/api/graph')
     .then((r) => r.json())
     .then((data) => {
@@ -154,8 +210,14 @@ export function initDocker() {
   connect();
 
   return () => {
-    clearTimeout(reconnectTimer);
+    shouldReconnect = false;
+    clearReconnectTimer();
+    if (ws?.readyState === WebSocket.OPEN && streamingLogContainerId) {
+      ws.send(JSON.stringify({ type: 'unsubscribe_logs' }));
+    }
     ws?.close();
+    ws = null;
+    connected = false;
   };
 }
 
@@ -163,9 +225,7 @@ export function subscribeLogs(containerId: string) {
   unsubscribeLogs();
   streamingLogContainerId = containerId;
   streamingLogs = '';
-  if (ws?.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'subscribe_logs', data: { containerId } }));
-  }
+  sendLogSubscription();
 }
 
 export function unsubscribeLogs() {
@@ -178,7 +238,9 @@ export function unsubscribeLogs() {
 const dismissedDiagnostics = new Set<string>();
 
 export function addDiagnostic(diag: CrashDiagnostic) {
-  if (dismissedDiagnostics.has(diag.containerId)) return;
+  if (dismissedDiagnostics.has(diag.containerId)) {
+    return;
+  }
   const updated = new Map(diagnostics);
   updated.set(diag.containerId, diag);
   diagnostics = updated;
@@ -204,7 +266,9 @@ export function removeAnomaly(key: string) {
 export function getAnomaliesForContainer(containerId: string): Anomaly[] {
   const result: Anomaly[] = [];
   for (const [key, a] of anomalies) {
-    if (key.startsWith(containerId + ':')) result.push(a);
+    if (key.startsWith(containerId + ':')) {
+      result.push(a);
+    }
   }
   return result;
 }

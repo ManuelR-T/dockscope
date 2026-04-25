@@ -21,9 +21,15 @@ export function checkAnomaly(
   value: number,
   history: number[],
 ): { median: number; threshold: number } | null {
-  if (history.length < ANOMALY_MIN_SAMPLES) return null;
-  if (value > 1000) return null; // Sanity: not a percentage
-  if (value < (ANOMALY_MIN_ABS[metric] || 0)) return null;
+  if (history.length < ANOMALY_MIN_SAMPLES) {
+    return null;
+  }
+  if (value > 1000) {
+    return null;
+  } // Sanity: not a percentage
+  if (value < (ANOMALY_MIN_ABS[metric] || 0)) {
+    return null;
+  }
 
   const sorted = [...history].sort((a, b) => a - b);
   const q1 = percentile(sorted, 0.25);

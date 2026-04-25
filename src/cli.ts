@@ -49,10 +49,14 @@ async function checkForUpdate(): Promise<string | null> {
     const res = await fetch('https://registry.npmjs.org/dockscope/latest', {
       signal: AbortSignal.timeout(3000),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      return null;
+    }
     const data = (await res.json()) as { version?: string };
     const latest = data.version;
-    if (latest && latest !== VERSION) return latest;
+    if (latest && latest !== VERSION) {
+      return latest;
+    }
     return null;
   } catch {
     return null;
@@ -90,7 +94,9 @@ program
     await startServer({ port, open: opts.open !== false, host });
 
     const url = `http://localhost:${port}`;
-    if (host) console.log(`  Docker host: ${host}`);
+    if (host) {
+      console.log(`  Docker host: ${host}`);
+    }
     console.log(`  Dashboard: ${url}`);
     console.log(`  API:       ${url}/api/graph`);
     console.log(`  WebSocket: ws://localhost:${port}/ws\n`);
@@ -117,7 +123,9 @@ program
   .option('-H, --host <url>', 'Docker host URL')
   .action(async (opts) => {
     const scanHost: string | undefined = opts.host || process.env.DOCKER_HOST || undefined;
-    if (scanHost) initDockerClient(scanHost);
+    if (scanHost) {
+      initDockerClient(scanHost);
+    }
     const connected = await checkConnection();
     if (!connected) {
       console.error('Cannot connect to Docker daemon. Is Docker running?');

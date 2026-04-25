@@ -34,7 +34,9 @@ export function initHosts(defaultHost?: string): void {
 
 /** Add a remote Docker host */
 export async function addHost(name: string, url: string): Promise<{ ok: boolean; error?: string }> {
-  if (hosts.has(name)) return { ok: false, error: `Host "${name}" already exists` };
+  if (hosts.has(name)) {
+    return { ok: false, error: `Host "${name}" already exists` };
+  }
   const client = createDockerClient(url);
   try {
     await Promise.race([
@@ -55,7 +57,9 @@ export function getHost(name: string): DockerHost | undefined {
 
 /** Remove a Docker host */
 export function removeHost(name: string): boolean {
-  if (name === 'local') return false; // Can't remove default
+  if (name === 'local') {
+    return false;
+  } // Can't remove default
   return hosts.delete(name);
 }
 
@@ -131,8 +135,12 @@ export async function buildMultiHostGraph(): Promise<GraphData> {
           node.id = `${hostName}:${node.id}`;
         }
         for (const link of result.value.links) {
-          if (typeof link.source === 'string') link.source = `${hostName}:${link.source}`;
-          if (typeof link.target === 'string') link.target = `${hostName}:${link.target}`;
+          if (typeof link.source === 'string') {
+            link.source = `${hostName}:${link.source}`;
+          }
+          if (typeof link.target === 'string') {
+            link.target = `${hostName}:${link.target}`;
+          }
         }
       }
       allNodes.push(...result.value.nodes);

@@ -16,15 +16,21 @@ export function extractDependsOnFromLabels(
 
   for (const container of containers) {
     const depsLabel = container.Labels['com.docker.compose.depends_on'];
-    if (!depsLabel) continue;
+    if (!depsLabel) {
+      continue;
+    }
     const project = container.Labels['com.docker.compose.project'] || '';
     const sourceId = shortId(container.Id);
     const sourceNode = nodes.find((n) => n.id === sourceId);
-    if (!sourceNode) continue;
+    if (!sourceNode) {
+      continue;
+    }
 
     for (const entry of depsLabel.split(',')) {
       const depName = entry.split(':')[0]?.trim();
-      if (!depName) continue;
+      if (!depName) {
+        continue;
+      }
       const targetNode = nodes.find((n) => {
         const tp = containerProject.get(n.id) || '';
         return (
@@ -57,14 +63,18 @@ export async function extractDependsOnFromFile(
   const filesToTry = composeFile ? [composeFile] : COMPOSE_FILES;
 
   for (const file of filesToTry) {
-    if (!existsSync(file)) continue;
+    if (!existsSync(file)) {
+      continue;
+    }
     try {
       const compose = await parseComposeFile(file);
       for (const service of compose.services) {
         const node = nodes.find(
           (n) => n.name === service.name || n.name.endsWith(`/${service.name}`),
         );
-        if (!node) continue;
+        if (!node) {
+          continue;
+        }
         const nodeProject = containerProject.get(node.id) || '';
         for (const dep of service.dependsOn) {
           const target = nodes.find((n) => {
@@ -98,11 +108,15 @@ export function extractNetworkLinks(networkMap: Map<string, string[]>): ServiceL
   const seen = new Set<string>();
 
   for (const [network, containerIds] of networkMap) {
-    if (defaultNetworks.has(network)) continue;
+    if (defaultNetworks.has(network)) {
+      continue;
+    }
     for (let i = 0; i < containerIds.length; i++) {
       for (let j = i + 1; j < containerIds.length; j++) {
         const key = `${containerIds[i]}<>${containerIds[j]}:${network}`;
-        if (seen.has(key)) continue;
+        if (seen.has(key)) {
+          continue;
+        }
         seen.add(key);
         links.push({
           source: containerIds[i],

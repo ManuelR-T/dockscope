@@ -103,7 +103,9 @@ export async function analyzeCrash(
       shortId(containerId);
 
     // Skip clean exits
-    if (exitCode === 0 && !oomKilled) return null;
+    if (exitCode === 0 && !oomKilled) {
+      return null;
+    }
 
     // Fetch last 50 log lines
     let logLines: string[] = [];

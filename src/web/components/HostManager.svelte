@@ -58,7 +58,9 @@
   }
 
   async function addNewHost() {
-    if (!newName.trim() || !newUrl.trim() || adding) return;
+    if (!newName.trim() || !newUrl.trim() || adding) {
+      return;
+    }
     adding = true;
     try {
       const res = await fetch('/api/hosts', {

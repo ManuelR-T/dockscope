@@ -89,10 +89,13 @@ export async function buildGraph(
 
     const healthStatus = container.Status?.toLowerCase() || '';
     let health: ServiceNode['health'] = 'none';
-    if (healthStatus.includes('healthy') && !healthStatus.includes('unhealthy')) health = 'healthy';
-    else if (healthStatus.includes('unhealthy')) health = 'unhealthy';
-    else if (healthStatus.includes('starting') || healthStatus.includes('health:'))
+    if (healthStatus.includes('healthy') && !healthStatus.includes('unhealthy')) {
+      health = 'healthy';
+    } else if (healthStatus.includes('unhealthy')) {
+      health = 'unhealthy';
+    } else if (healthStatus.includes('starting') || healthStatus.includes('health:')) {
       health = 'starting';
+    }
 
     nodes.push({
       id: sid,
@@ -123,7 +126,9 @@ export async function buildGraph(
     });
 
     for (const net of Object.keys(container.NetworkSettings?.Networks || {})) {
-      if (!networkMap.has(net)) networkMap.set(net, []);
+      if (!networkMap.has(net)) {
+        networkMap.set(net, []);
+      }
       networkMap.get(net)!.push(sid);
     }
   }
@@ -185,11 +190,18 @@ export async function listComposeProjects(): Promise<
   // Live containers
   for (const c of containers) {
     const project = c.Labels['com.docker.compose.project'];
-    if (!project) continue;
-    if (!projects.has(project)) projects.set(project, { running: 0, stopped: 0 });
+    if (!project) {
+      continue;
+    }
+    if (!projects.has(project)) {
+      projects.set(project, { running: 0, stopped: 0 });
+    }
     const p = projects.get(project)!;
-    if (c.State === 'running') p.running++;
-    else p.stopped++;
+    if (c.State === 'running') {
+      p.running++;
+    } else {
+      p.stopped++;
+    }
   }
 
   // Cached projects with no live containers (after down)
@@ -230,7 +242,9 @@ function getComposeCommand(
     }
   }
 
-  if (!workDir || !configFiles) return null;
+  if (!workDir || !configFiles) {
+    return null;
+  }
   const args = configFiles.split(',').flatMap((f: string) => ['-f', f.trim()]);
   return { args, cwd: workDir };
 }
@@ -256,12 +270,16 @@ export async function composeAction(
         ['compose', ...compose.args, ...subArgs],
         { cwd: compose.cwd },
       );
-      if (action === 'destroy') projectCache.delete(project);
+      if (action === 'destroy') {
+        projectCache.delete(project);
+      }
       return stdout || stderr || `${action} completed`;
     }
     if (action === 'up') {
       for (const c of containers) {
-        if (c.State !== 'running') await docker.getContainer(c.Id).start();
+        if (c.State !== 'running') {
+          await docker.getContainer(c.Id).start();
+        }
       }
       return `Started containers in project ${project}`;
     }
@@ -271,9 +289,13 @@ export async function composeAction(
   // stop / start / restart — act on individual containers
   for (const c of containers) {
     const container = docker.getContainer(c.Id);
-    if (action === 'stop' && c.State === 'running') await container.stop();
-    else if (action === 'start' && c.State !== 'running') await container.start();
-    else if (action === 'restart' && c.State === 'running') await container.restart();
+    if (action === 'stop' && c.State === 'running') {
+      await container.stop();
+    } else if (action === 'start' && c.State !== 'running') {
+      await container.start();
+    } else if (action === 'restart' && c.State === 'running') {
+      await container.restart();
+    }
   }
   return `${action} completed for project ${project}`;
 }
@@ -332,7 +354,9 @@ export async function getContainerDiff(containerId: string): Promise<ContainerDi
     container.changes(),
     new Promise<null>((_, reject) => setTimeout(() => reject(new Error('Diff timed out')), 10000)),
   ]);
-  if (!diff) return [];
+  if (!diff) {
+    return [];
+  }
   return diff.map((d: any) => ({
     kind: DIFF_KIND_MAP[d.Kind] || 'C',
     path: d.Path,

@@ -14,17 +14,35 @@
   let fitAddon: FitAddon | null = null;
   let ws: WebSocket | null = null;
   let connected = $state(false);
+  let connecting = $state(false);
+
+  function isSocketActive(socket: WebSocket | null): boolean {
+    return socket?.readyState === WebSocket.CONNECTING || socket?.readyState === WebSocket.OPEN;
+  }
 
   function connect() {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+    if (isSocketActive(ws)) {
+      return;
+    }
 
-    ws.onopen = () => {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const socket = new WebSocket(`${protocol}//${window.location.host}/ws`);
+    ws = socket;
+    connecting = true;
+
+    socket.onopen = () => {
+      if (ws !== socket) {
+        return;
+      }
       connected = true;
-      ws!.send(JSON.stringify({ type: 'exec_start', data: { containerId } }));
+      connecting = false;
+      socket.send(JSON.stringify({ type: 'exec_start', data: { containerId } }));
     };
 
-    ws.onmessage = (e) => {
+    socket.onmessage = (e) => {
+      if (ws !== socket) {
+        return;
+      }
       try {
         const msg = JSON.parse(e.data);
         if (msg.type === 'exec_output' && msg.data?.text) {
@@ -39,8 +57,19 @@
       }
     };
 
-    ws.onclose = () => {
+    socket.onclose = () => {
+      if (ws !== socket) {
+        return;
+      }
       connected = false;
+      connecting = false;
+      ws = null;
+    };
+
+    socket.onerror = () => {
+      if (ws === socket) {
+        socket.close();
+      }
     };
   }
 
@@ -51,6 +80,7 @@
     ws?.close();
     ws = null;
     connected = false;
+    connecting = false;
   }
 
   onMount(() => {
@@ -118,12 +148,12 @@
   <div class="exec-header">
     <span class="exec-status" class:connected>
       <span class="exec-dot"></span>
-      {connected ? 'Connected' : 'Disconnected'}
+      {connected ? 'Connected' : connecting ? 'Connecting' : 'Disconnected'}
     </span>
     {#if connected}
       <button class="exec-btn" onclick={disconnect}>Disconnect</button>
     {:else}
-      <button class="exec-btn" onclick={connect}>Reconnect</button>
+      <button class="exec-btn" onclick={connect} disabled={connecting}>Reconnect</button>
     {/if}
   </div>
   <div class="exec-terminal" bind:this={termEl}></div>

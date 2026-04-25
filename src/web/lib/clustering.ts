@@ -26,7 +26,9 @@ function buildCentroids(
   const centroids = new Map<string, { x: number; y: number; z: number; count: number }>();
   for (const node of nodes) {
     const key = keyFn(node);
-    if (!key) continue;
+    if (!key) {
+      continue;
+    }
     let c = centroids.get(key);
     if (!c) {
       c = { x: 0, y: 0, z: 0, count: 0 };
@@ -55,7 +57,9 @@ function applyCentroidForce(
 ): void {
   for (const node of nodes) {
     const c = centroids.get(keyFn(node));
-    if (!c || c.count < 2) continue;
+    if (!c || c.count < 2) {
+      continue;
+    }
     node.vx += (c.x - node.x) * s * alpha;
     node.vy += (c.y - node.y) * s * alpha;
     node.vz += (c.z - node.z) * s * alpha;
@@ -110,7 +114,9 @@ function createClusterLabel(name: string, color: string): SpriteText {
 
 function removeFromMap(scene: THREE.Scene, map: Map<string, ClusterVisual>, name: string): void {
   const cluster = map.get(name);
-  if (!cluster) return;
+  if (!cluster) {
+    return;
+  }
   scene.remove(cluster.mesh);
   scene.remove(cluster.label);
   (cluster.mesh.material as THREE.Material).dispose();
@@ -128,17 +134,27 @@ export function updateClusters(
   const hostNodes = new Map<string, any[]>();
 
   for (const node of nodes) {
-    if (node.x === undefined) continue;
-    if (!isVisible(node)) continue;
+    if (node.x === undefined) {
+      continue;
+    }
+    if (!isVisible(node)) {
+      continue;
+    }
 
     const host = node.host || 'local';
-    if (!hostNodes.has(host)) hostNodes.set(host, []);
+    if (!hostNodes.has(host)) {
+      hostNodes.set(host, []);
+    }
     hostNodes.get(host)!.push(node);
 
     const p = node.project || '';
-    if (!p) continue;
+    if (!p) {
+      continue;
+    }
     const key = `${host}/${p}`;
-    if (!projectNodes.has(key)) projectNodes.set(key, []);
+    if (!projectNodes.has(key)) {
+      projectNodes.set(key, []);
+    }
     projectNodes.get(key)!.push(node);
   }
 
@@ -167,7 +183,9 @@ export function updateClusters(
     let maxR = 0;
     for (const n of pNodes) {
       const r = Math.sqrt((n.x - cx) ** 2 + (n.y - cy) ** 2 + (n.z - cz) ** 2);
-      if (r > maxR) maxR = r;
+      if (r > maxR) {
+        maxR = r;
+      }
     }
     const radius = maxR + 15;
     const color = PROJECT_PALETTE[colorIndex.get(key)! % PROJECT_PALETTE.length];
@@ -223,7 +241,9 @@ export function updateClusters(
       let maxR = 0;
       for (const n of hNodes) {
         const r = Math.sqrt((n.x - cx) ** 2 + (n.y - cy) ** 2 + (n.z - cz) ** 2);
-        if (r > maxR) maxR = r;
+        if (r > maxR) {
+          maxR = r;
+        }
       }
       const radius = maxR + 30;
       const color = HOST_PALETTE[hostColorIndex.get(hostName)! % HOST_PALETTE.length];

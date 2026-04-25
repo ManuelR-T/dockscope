@@ -14,7 +14,9 @@
   async function fetchTop() {
     try {
       const res = await fetch(`/api/containers/${containerId}/top`);
-      if (!res.ok) throw new Error('Not running');
+      if (!res.ok) {
+        throw new Error('Not running');
+      }
       top = await res.json();
       error = '';
     } catch {

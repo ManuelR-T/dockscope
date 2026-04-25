@@ -18,7 +18,9 @@ export function resetDeployIndex(): void {
 }
 
 export function addDeployAnimation(nodeId: string, group: THREE.Group): void {
-  if (animatedNodes.has(nodeId)) return;
+  if (animatedNodes.has(nodeId)) {
+    return;
+  }
   animatedNodes.add(nodeId);
   const idx = deployIndex++;
   group.scale.setScalar(0.01);
@@ -38,7 +40,9 @@ export function tickAnimations(): void {
     const a = pendingAnims[i];
     const t = Math.min((now - a.start) / a.dur, 1);
     a.obj.scale.setScalar(1 - Math.pow(1 - t, 3));
-    if (t >= 1) pendingAnims.splice(i, 1);
+    if (t >= 1) {
+      pendingAnims.splice(i, 1);
+    }
   }
 }
 
@@ -66,7 +70,9 @@ export function addStatusFlash(
   prevColor: string,
 ): void {
   const meta = getMeta(group);
-  if (!meta) return;
+  if (!meta) {
+    return;
+  }
 
   const prevRadius = ACTIVE_STATES.has(prevStatus) ? BASE_RADIUS.running : BASE_RADIUS.stopped;
   const curRadius = ACTIVE_STATES.has(curStatus) ? BASE_RADIUS.running : BASE_RADIUS.stopped;
@@ -107,7 +113,9 @@ export function tickFlashAnimations(): void {
     // Interpolate from startScale → 1.0
     const scaleDelta = f.startScale - 1;
     f.group.scale.setScalar(1 + scaleDelta * ease);
-    if (t >= 1) flashAnims.splice(i, 1);
+    if (t >= 1) {
+      flashAnims.splice(i, 1);
+    }
   }
 }
 
@@ -124,7 +132,9 @@ export function updateAnomalyIndicators(nodes: any[], anomalyIds: Set<string>): 
   const pulse = 0.6 + Math.sin(performance.now() * 0.006) * 0.4;
   for (const node of nodes) {
     const meta = node.__threeObj ? getMeta(node.__threeObj) : null;
-    if (!meta?.anomalySprite) continue;
+    if (!meta?.anomalySprite) {
+      continue;
+    }
     const hasAnomaly = anomalyIds.has(node.id);
     meta.anomalySprite.visible = hasAnomaly;
     if (hasAnomaly) {
@@ -142,7 +152,9 @@ export function updateBillboardPositions(nodes: any[], camera: THREE.Camera): vo
 
   for (const node of nodes) {
     const meta = node.__threeObj ? getMeta(node.__threeObj) : null;
-    if (!meta) continue;
+    if (!meta) {
+      continue;
+    }
 
     // Label: position "above" in screen space
     const d = meta.labelOffset;
@@ -171,7 +183,9 @@ export function orbitVolumeMoons(nodes: any[], camera: THREE.Camera): void {
 
   for (const node of nodes) {
     const meta = node.__threeObj ? getMeta(node.__threeObj) : null;
-    if (!meta || meta.moonCount === 0) continue;
+    if (!meta || meta.moonCount === 0) {
+      continue;
+    }
     for (let i = 0; i < meta.moonCount; i++) {
       const angle = t + meta.orbitPhase + (2 * Math.PI * i) / meta.moonCount;
       const cos = Math.cos(angle) * meta.orbitRadius;

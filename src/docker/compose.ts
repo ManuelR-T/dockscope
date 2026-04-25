@@ -52,30 +52,47 @@ export async function parseComposeFile(filePath: string): Promise<ComposeData> {
 }
 
 function parseDependsOn(dep: unknown): string[] {
-  if (!dep) return [];
+  if (!dep) {
+    return [];
+  }
   // Simple form: depends_on: [db, redis]
-  if (Array.isArray(dep)) return dep.map(String);
+  if (Array.isArray(dep)) {
+    return dep.map(String);
+  }
   // Extended form: depends_on: { db: { condition: service_healthy } }
-  if (typeof dep === 'object') return Object.keys(dep);
+  if (typeof dep === 'object') {
+    return Object.keys(dep);
+  }
   return [];
 }
 
 function parseNetworks(nets: unknown): string[] {
-  if (!nets) return [];
-  if (Array.isArray(nets)) return nets.map(String);
-  if (typeof nets === 'object') return Object.keys(nets as object);
+  if (!nets) {
+    return [];
+  }
+  if (Array.isArray(nets)) {
+    return nets.map(String);
+  }
+  if (typeof nets === 'object') {
+    return Object.keys(nets as object);
+  }
   return [];
 }
 
 function parseEnvironment(env: unknown): Record<string, string> {
-  if (!env) return {};
+  if (!env) {
+    return {};
+  }
   if (Array.isArray(env)) {
     const result: Record<string, string> = {};
     for (const item of env) {
       const s = String(item);
       const eqIdx = s.indexOf('=');
-      if (eqIdx > 0) result[s.substring(0, eqIdx)] = s.substring(eqIdx + 1);
-      else result[s] = '';
+      if (eqIdx > 0) {
+        result[s.substring(0, eqIdx)] = s.substring(eqIdx + 1);
+      } else {
+        result[s] = '';
+      }
     }
     return result;
   }
@@ -88,13 +105,17 @@ function parseEnvironment(env: unknown): Record<string, string> {
 }
 
 function parseLabels(labels: unknown): Record<string, string> {
-  if (!labels) return {};
+  if (!labels) {
+    return {};
+  }
   if (Array.isArray(labels)) {
     const result: Record<string, string> = {};
     for (const item of labels) {
       const s = String(item);
       const eqIdx = s.indexOf('=');
-      if (eqIdx > 0) result[s.substring(0, eqIdx)] = s.substring(eqIdx + 1);
+      if (eqIdx > 0) {
+        result[s.substring(0, eqIdx)] = s.substring(eqIdx + 1);
+      }
     }
     return result;
   }
@@ -107,10 +128,14 @@ function parseLabels(labels: unknown): Record<string, string> {
 }
 
 function parseHealthcheck(hc: unknown): ComposeService['healthcheck'] {
-  if (!hc || typeof hc !== 'object') return null;
+  if (!hc || typeof hc !== 'object') {
+    return null;
+  }
   const h = hc as any;
   const test = Array.isArray(h.test) ? h.test.join(' ') : String(h.test || '');
-  if (!test) return null;
+  if (!test) {
+    return null;
+  }
   return {
     test,
     interval: h.interval,
@@ -120,10 +145,14 @@ function parseHealthcheck(hc: unknown): ComposeService['healthcheck'] {
 }
 
 function parseResourceLimits(deploy: unknown): ComposeService['resourceLimits'] {
-  if (!deploy || typeof deploy !== 'object') return null;
+  if (!deploy || typeof deploy !== 'object') {
+    return null;
+  }
   const d = deploy as any;
   const limits = d.resources?.limits;
-  if (!limits) return null;
+  if (!limits) {
+    return null;
+  }
   return {
     cpus: limits.cpus ? String(limits.cpus) : undefined,
     memory: limits.memory ? String(limits.memory) : undefined,

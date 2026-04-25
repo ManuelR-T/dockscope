@@ -36,7 +36,9 @@
     fetch('/api/version')
       .then((r) => r.json())
       .then((d) => {
-        if (d.latest && d.latest !== d.current) latestVersion = d.latest;
+        if (d.latest && d.latest !== d.current) {
+          latestVersion = d.latest;
+        }
       })
       .catch(() => {});
     const cleanup = initDocker();
@@ -63,7 +65,9 @@
       }
     }
 
-    if (isInput) return;
+    if (isInput) {
+      return;
+    }
 
     if (e.key === '/' || (e.key === 'k' && (e.metaKey || e.ctrlKey))) {
       e.preventDefault();

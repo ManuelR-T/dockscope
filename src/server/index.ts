@@ -22,7 +22,9 @@ import { shortId } from '../utils.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export async function startServer(opts: ServerOptions): Promise<void> {
-  if (opts.host) initDockerClient(opts.host);
+  if (opts.host) {
+    initDockerClient(opts.host);
+  }
   initHosts(opts.host);
 
   const app = express();
@@ -72,7 +74,9 @@ export async function startServer(opts: ServerOptions): Promise<void> {
   const broadcast = (msg: WSMessage) => {
     const data = JSON.stringify(msg);
     wss.clients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN) client.send(data);
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(data);
+      }
     });
   };
 
@@ -85,7 +89,9 @@ export async function startServer(opts: ServerOptions): Promise<void> {
       // Clean stale metric history for removed containers
       const activeIds = new Set(cachedGraph.nodes.map((n) => n.id));
       for (const id of metricHistory.keys()) {
-        if (!activeIds.has(id)) metricHistory.delete(id);
+        if (!activeIds.has(id)) {
+          metricHistory.delete(id);
+        }
       }
     } catch {
       /* Docker may be temporarily unavailable */
@@ -104,9 +110,13 @@ export async function startServer(opts: ServerOptions): Promise<void> {
   ) {
     const result = checkAnomaly(metric, value, history);
     if (result) {
-      if (!activeAnomalies.has(shortId)) activeAnomalies.set(shortId, new Set());
+      if (!activeAnomalies.has(shortId)) {
+        activeAnomalies.set(shortId, new Set());
+      }
       const active = activeAnomalies.get(shortId)!;
-      if (active.has(metric)) return; // Already alerted
+      if (active.has(metric)) {
+        return;
+      } // Already alerted
       active.add(metric);
       broadcast({
         type: 'anomaly',
@@ -127,16 +137,22 @@ export async function startServer(opts: ServerOptions): Promise<void> {
 
   const refreshStats = async () => {
     for (const node of cachedGraph.nodes) {
-      if (node.status !== 'running') continue;
+      if (node.status !== 'running') {
+        continue;
+      }
       try {
         const stats = await getContainerStats(node.containerId);
         broadcast({ type: 'stats', data: stats });
 
         const sid = shortId(node.containerId);
-        if (!metricHistory.has(sid)) metricHistory.set(sid, []);
+        if (!metricHistory.has(sid)) {
+          metricHistory.set(sid, []);
+        }
         const history = metricHistory.get(sid)!;
         history.push({ cpu: stats.cpu, memory: stats.memory, time: Date.now() });
-        if (history.length > 100) history.splice(0, history.length - 100);
+        if (history.length > 100) {
+          history.splice(0, history.length - 100);
+        }
 
         // Anomaly detection — CPU always, memory only with a real limit
         detectAndBroadcastAnomaly(
@@ -168,7 +184,9 @@ export async function startServer(opts: ServerOptions): Promise<void> {
   // Debounce graph refresh so rapid events (die+stop, create+start) collapse
   let refreshTimer: ReturnType<typeof setTimeout> | null = null;
   function debouncedRefreshGraph() {
-    if (refreshTimer) clearTimeout(refreshTimer);
+    if (refreshTimer) {
+      clearTimeout(refreshTimer);
+    }
     refreshTimer = setTimeout(() => {
       refreshTimer = null;
       refreshGraph();
@@ -185,7 +203,9 @@ export async function startServer(opts: ServerOptions): Promise<void> {
       }
       if (event.action === 'die') {
         diagnoseCrash(event.id).then((diag) => {
-          if (diag) broadcast({ type: 'diagnostic', data: diag });
+          if (diag) {
+            broadcast({ type: 'diagnostic', data: diag });
+          }
         });
       }
     },
@@ -244,7 +264,9 @@ export async function startServer(opts: ServerOptions): Promise<void> {
         if (msg.type === 'exec_start' && msg.data?.containerId) {
           // Clean up previous exec session
           const prevStream = clientExecStreams.get(ws);
-          if (prevStream) (prevStream as any).destroy?.();
+          if (prevStream) {
+            (prevStream as any).destroy?.();
+          }
 
           try {
             const { stream: execStream } = await createExecSession(
@@ -279,7 +301,9 @@ export async function startServer(opts: ServerOptions): Promise<void> {
 
         if (msg.type === 'exec_input' && msg.data?.text) {
           const execStream = clientExecStreams.get(ws);
-          if (execStream) execStream.write(msg.data.text);
+          if (execStream) {
+            execStream.write(msg.data.text);
+          }
         }
 
         if (msg.type === 'exec_resize' && msg.data) {
@@ -289,7 +313,9 @@ export async function startServer(opts: ServerOptions): Promise<void> {
 
         if (msg.type === 'exec_stop') {
           const execStream = clientExecStreams.get(ws);
-          if (execStream) (execStream as any).destroy?.();
+          if (execStream) {
+            (execStream as any).destroy?.();
+          }
           clientExecStreams.delete(ws);
         }
       } catch {
@@ -301,7 +327,9 @@ export async function startServer(opts: ServerOptions): Promise<void> {
       clientLogStreams.get(ws)?.();
       clientLogStreams.delete(ws);
       const execStream = clientExecStreams.get(ws);
-      if (execStream) (execStream as any).destroy?.();
+      if (execStream) {
+        (execStream as any).destroy?.();
+      }
       clientExecStreams.delete(ws);
     });
   });

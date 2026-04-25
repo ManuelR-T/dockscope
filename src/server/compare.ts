@@ -29,7 +29,9 @@ function canonicalName(node: ServiceNode): string {
 
 /** Compare image strings, normalizing implicit :latest tags */
 function normalizeImage(image: string): string {
-  if (!image.includes(':')) return `${image}:latest`;
+  if (!image.includes(':')) {
+    return `${image}:latest`;
+  }
   return image;
 }
 
@@ -37,7 +39,9 @@ function normalizeImage(image: string): string {
 function compareArrayField(field: string, a: string[], b: string[]): ServiceDiff | null {
   const sa = [...a].sort().join(', ');
   const sb = [...b].sort().join(', ');
-  if (sa !== sb) return { field, hostA: sa || '(none)', hostB: sb || '(none)' };
+  if (sa !== sb) {
+    return { field, hostA: sa || '(none)', hostB: sb || '(none)' };
+  }
   return null;
 }
 
@@ -50,8 +54,12 @@ export function compareEnvironments(a: GraphData, b: GraphData): CompareResult {
   const mapA = new Map<string, ServiceNode>();
   const mapB = new Map<string, ServiceNode>();
 
-  for (const node of a.nodes) mapA.set(canonicalName(node), node);
-  for (const node of b.nodes) mapB.set(canonicalName(node), node);
+  for (const node of a.nodes) {
+    mapA.set(canonicalName(node), node);
+  }
+  for (const node of b.nodes) {
+    mapB.set(canonicalName(node), node);
+  }
 
   const onlyInA: ServiceNode[] = [];
   const onlyInB: ServiceNode[] = [];
@@ -86,11 +94,15 @@ export function compareEnvironments(a: GraphData, b: GraphData): CompareResult {
 
     // Port mappings
     const portDiff = compareArrayField('Ports', nodeA.ports, nodeB.ports);
-    if (portDiff) diffs.push(portDiff);
+    if (portDiff) {
+      diffs.push(portDiff);
+    }
 
     // Networks
     const netDiff = compareArrayField('Networks', nodeA.networks, nodeB.networks);
-    if (netDiff) diffs.push(netDiff);
+    if (netDiff) {
+      diffs.push(netDiff);
+    }
 
     // Memory limit
     if (nodeA.memoryLimit !== nodeB.memoryLimit) {
@@ -106,13 +118,17 @@ export function compareEnvironments(a: GraphData, b: GraphData): CompareResult {
 
   // Services only in B
   for (const [name, nodeB] of mapB) {
-    if (!mapA.has(name)) onlyInB.push(nodeB);
+    if (!mapA.has(name)) {
+      onlyInB.push(nodeB);
+    }
   }
 
   return { onlyInA, onlyInB, matched };
 }
 
 function formatMB(bytes: number): string {
-  if (bytes === 0) return '0';
+  if (bytes === 0) {
+    return '0';
+  }
   return `${(bytes / 1024 / 1024).toFixed(0)} MB`;
 }

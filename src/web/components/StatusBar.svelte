@@ -32,11 +32,15 @@
   );
 
   function selectByActor(actor: string) {
-    if (!onSelectContainer) return;
+    if (!onSelectContainer) {
+      return;
+    }
     const node = graph.nodes.find(
       (n) => n.fullName === actor || n.name === actor || n.id === actor,
     );
-    if (node) onSelectContainer(node);
+    if (node) {
+      onSelectContainer(node);
+    }
   }
 
   onMount(() => {

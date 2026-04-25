@@ -155,7 +155,9 @@ export function setupRoutes(
         const r = await fetch('https://registry.npmjs.org/dockscope/latest', {
           signal: AbortSignal.timeout(3000),
         });
-        if (r.ok) latest = ((await r.json()) as { version?: string }).version || null;
+        if (r.ok) {
+          latest = ((await r.json()) as { version?: string }).version || null;
+        }
       } catch {
         /* ignore */
       }

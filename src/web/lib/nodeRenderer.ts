@@ -195,9 +195,13 @@ export function buildNodeObject(
 }
 
 export function highlightNode(node: any, active: boolean): void {
-  if (!node?.__threeObj) return;
+  if (!node?.__threeObj) {
+    return;
+  }
   const meta = getMeta(node.__threeObj);
-  if (!meta) return;
+  if (!meta) {
+    return;
+  }
   if (active) {
     node.__threeObj.scale.setScalar(1.25);
     meta.coreMat.emissiveIntensity = 0.9;

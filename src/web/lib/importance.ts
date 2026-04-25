@@ -10,15 +10,21 @@ function getLinkId(link: ServiceLink, end: 'source' | 'target'): string {
 
 export function computeImportance(nodes: ServiceNode[], links: ServiceLink[]): Map<string, number> {
   const scores = new Map<string, number>();
-  if (nodes.length === 0) return scores;
+  if (nodes.length === 0) {
+    return scores;
+  }
 
   // Build adjacency for depends_on (target → sources that depend on it)
   const dependents = new Map<string, Set<string>>();
   for (const link of links) {
-    if (link.type !== 'depends_on') continue;
+    if (link.type !== 'depends_on') {
+      continue;
+    }
     const srcId = getLinkId(link, 'source');
     const tgtId = getLinkId(link, 'target');
-    if (!dependents.has(tgtId)) dependents.set(tgtId, new Set());
+    if (!dependents.has(tgtId)) {
+      dependents.set(tgtId, new Set());
+    }
     dependents.get(tgtId)!.add(srcId);
   }
 
@@ -29,7 +35,9 @@ export function computeImportance(nodes: ServiceNode[], links: ServiceLink[]): M
     while (queue.length > 0) {
       const current = queue.pop()!;
       const deps = dependents.get(current);
-      if (!deps) continue;
+      if (!deps) {
+        continue;
+      }
       for (const dep of deps) {
         if (!visited.has(dep)) {
           visited.add(dep);
@@ -75,12 +83,24 @@ export function computeImportance(nodes: ServiceNode[], links: ServiceLink[]): M
     const cpu = node.cpu || 0;
     const mem = node.memoryLimit > 0 ? (node.memory || 0) / node.memoryLimit : 0;
     const nets = node.networks?.length || 0;
-    if (lc > maxLinks) maxLinks = lc;
-    if (chain > maxChain) maxChain = chain;
-    if (netIO > maxNetIO) maxNetIO = netIO;
-    if (cpu > maxCpu) maxCpu = cpu;
-    if (mem > maxMem) maxMem = mem;
-    if (nets > maxNets) maxNets = nets;
+    if (lc > maxLinks) {
+      maxLinks = lc;
+    }
+    if (chain > maxChain) {
+      maxChain = chain;
+    }
+    if (netIO > maxNetIO) {
+      maxNetIO = netIO;
+    }
+    if (cpu > maxCpu) {
+      maxCpu = cpu;
+    }
+    if (mem > maxMem) {
+      maxMem = mem;
+    }
+    if (nets > maxNets) {
+      maxNets = nets;
+    }
     rawScores.push({
       id: node.id,
       ports: hasExposedPorts ? 1 : 0,

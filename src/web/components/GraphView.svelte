@@ -59,12 +59,18 @@
   // --- Health propagation ---
   function hasBrokenDependency(nodeId: string): boolean {
     for (const link of data.links) {
-      if (link.type !== 'depends_on') continue;
+      if (link.type !== 'depends_on') {
+        continue;
+      }
       const srcId = typeof link.source === 'object' ? (link.source as any).id : link.source;
       const tgtId = typeof link.target === 'object' ? (link.target as any).id : link.target;
-      if (srcId !== nodeId) continue;
+      if (srcId !== nodeId) {
+        continue;
+      }
       const target = data.nodes.find((n) => n.id === tgtId);
-      if (target && (target.status !== 'running' || target.health === 'unhealthy')) return true;
+      if (target && (target.status !== 'running' || target.health === 'unhealthy')) {
+        return true;
+      }
     }
     return false;
   }
@@ -79,7 +85,9 @@
         (statusFilter.has('running') && node.status === 'running') ||
         (statusFilter.has('stopped') && node.status !== 'running') ||
         (statusFilter.has('unhealthy') && node.health === 'unhealthy');
-      if (!match) return false;
+      if (!match) {
+        return false;
+      }
     }
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
@@ -87,8 +95,9 @@
         !node.name?.toLowerCase().includes(q) &&
         !node.fullName?.toLowerCase().includes(q) &&
         !node.image?.toLowerCase().includes(q)
-      )
+      ) {
         return false;
+      }
     }
     return true;
   }
@@ -109,7 +118,9 @@
     while (changed) {
       changed = false;
       for (const link of data.links) {
-        if (link.type !== 'depends_on') continue;
+        if (link.type !== 'depends_on') {
+          continue;
+        }
         const srcId = typeof link.source === 'object' ? (link.source as any).id : link.source;
         const tgtId = typeof link.target === 'object' ? (link.target as any).id : link.target;
         // src depends_on tgt — if tgt is impacted, src is too
@@ -125,21 +136,30 @@
   function applyImpactDimming(nodes: any[], affected: Set<string>) {
     for (const node of nodes) {
       const obj = node.__threeObj;
-      if (!obj) continue;
+      if (!obj) {
+        continue;
+      }
       const meta = getMeta(obj);
-      if (!meta) continue;
+      if (!meta) {
+        continue;
+      }
       const dim = affected.size > 0 && !affected.has(node.id);
 
       // Core sphere
-      if ((meta.coreMat as any).__origOpacity === undefined)
+      if ((meta.coreMat as any).__origOpacity === undefined) {
         (meta.coreMat as any).__origOpacity = meta.coreMat.opacity;
+      }
       meta.coreMat.opacity = dim ? 0.08 : (meta.coreMat as any).__origOpacity;
 
       // All children (rings, labels, moons)
       for (const child of obj.children) {
         const m = (child as any).material;
-        if (!m) continue;
-        if (m.__origOpacity === undefined) m.__origOpacity = m.opacity;
+        if (!m) {
+          continue;
+        }
+        if (m.__origOpacity === undefined) {
+          m.__origOpacity = m.opacity;
+        }
         m.opacity = dim ? 0.03 : m.__origOpacity;
       }
     }
@@ -156,11 +176,15 @@
     if (impactedIds.size > 0) {
       const inImpact =
         link.type === 'depends_on' && s && t && impactedIds.has(s.id) && impactedIds.has(t.id);
-      if (inImpact) return '#ff8a2b';
+      if (inImpact) {
+        return '#ff8a2b';
+      }
       return 'rgba(255,255,255,0.02)';
     }
 
-    if (link.type === 'depends_on') return hl ? 'rgba(255,138,43,0.5)' : 'rgba(255,138,43,0.08)';
+    if (link.type === 'depends_on') {
+      return hl ? 'rgba(255,138,43,0.5)' : 'rgba(255,138,43,0.08)';
+    }
     if (colorNetworks) {
       const rgb = networkColorMap.get(link.label) || '0,228,255';
       return hl ? `rgba(${rgb},0.6)` : `rgba(${rgb},0.18)`;
@@ -217,8 +241,12 @@
       .onNodeClick((node: any) => onNodeClick(node as ServiceNode))
       .onNodeHover((node: any, prevNode: any) => {
         container.style.cursor = node ? 'pointer' : 'default';
-        if (prevNode && prevNode.id !== selectedId) highlightNode(prevNode, false);
-        if (node) highlightNode(node, true);
+        if (prevNode && prevNode.id !== selectedId) {
+          highlightNode(prevNode, false);
+        }
+        if (node) {
+          highlightNode(node, true);
+        }
       })
       .graphData(data);
     graph = g;
@@ -241,7 +269,9 @@
     }
 
     const renderer = g.renderer?.();
-    if (renderer) renderer.setClearColor(0x04040e, 1);
+    if (renderer) {
+      renderer.setClearColor(0x04040e, 1);
+    }
 
     // Resize
     const observer = new ResizeObserver(([entry]) => {
@@ -266,7 +296,9 @@
     clusterFrameId = requestAnimationFrame(loop);
 
     return () => {
-      if (clusterFrameId !== null) cancelAnimationFrame(clusterFrameId);
+      if (clusterFrameId !== null) {
+        cancelAnimationFrame(clusterFrameId);
+      }
       cleanupAllClusters(g.scene());
       observer.disconnect();
       g._destructor?.();
@@ -279,7 +311,9 @@
     const hosts = new Map<string, any[]>();
     for (const node of nodes) {
       const h = node.host || 'local';
-      if (!hosts.has(h)) hosts.set(h, []);
+      if (!hosts.has(h)) {
+        hosts.set(h, []);
+      }
       hosts.get(h)!.push(node);
     }
 
@@ -297,11 +331,15 @@
       const projects = new Map<string, any[]>();
       for (const node of hostNodes) {
         const p = node.project || '';
-        if (!projects.has(p)) projects.set(p, []);
+        if (!projects.has(p)) {
+          projects.set(p, []);
+        }
         projects.get(p)!.push(node);
       }
 
-      if (projects.size <= 1 && !multiHost) return;
+      if (projects.size <= 1 && !multiHost) {
+        return;
+      }
 
       const projectList = [...projects.entries()];
       const baseRadius = 20 * Math.sqrt(hostNodes.length);
@@ -313,7 +351,9 @@
         const cz = hz + Math.sin(angle) * baseRadius;
         const cr = 8 * Math.sqrt(pNodes.length);
         pNodes.forEach((node: any, j: number) => {
-          if (node.x !== undefined) return;
+          if (node.x !== undefined) {
+            return;
+          }
           const a = (2 * Math.PI * j) / pNodes.length;
           node.x = cx + Math.cos(a) * cr;
           node.y = (Math.random() - 0.5) * cr * 0.5;
@@ -327,7 +367,9 @@
   let prevGraphKey = '';
   let prevStatusMap = new Map<string, string>();
   $effect(() => {
-    if (!graph) return;
+    if (!graph) {
+      return;
+    }
     if (data.nodes.length === 0) {
       if (prevGraphKey !== '') {
         prevGraphKey = '';
@@ -342,13 +384,17 @@
       .map((n) => `${n.id}:${n.status}:${n.health}`)
       .sort()
       .join(',');
-    if (graphKey === prevGraphKey) return;
+    if (graphKey === prevGraphKey) {
+      return;
+    }
 
     // Detect which nodes changed status (for flash animation)
     const changedIds = new Set<string>();
     for (const [id, key] of curStatusMap) {
       const prev = prevStatusMap.get(id);
-      if (prev && prev !== key) changedIds.add(id);
+      if (prev && prev !== key) {
+        changedIds.add(id);
+      }
     }
     const oldStatusMap = prevStatusMap;
     prevStatusMap = curStatusMap;
@@ -369,8 +415,9 @@
     graph.nodeThreeObject((node: any) => {
       const imp = importanceMap.get(node.id) || 0;
       const group = buildNodeObject(node, imp, hasBrokenDependency(node.id), warningRings);
-      if (isStructural) addDeployAnimation(node.id, group);
-      else if (changedIds.has(node.id)) {
+      if (isStructural) {
+        addDeployAnimation(node.id, group);
+      } else if (changedIds.has(node.id)) {
         const prevKey = oldStatusMap.get(node.id) || 'exited:none';
         const [prevSt, prevHp] = prevKey.split(':');
         const prevColor = getNodeColor({ status: prevSt, health: prevHp });
@@ -386,11 +433,15 @@
     const sel = selectedNode;
     const impact = impactMode;
     untrack(() => {
-      if (!graph) return;
+      if (!graph) {
+        return;
+      }
       const nodes = (graph.graphData() as any).nodes as any[];
       if (prevSelectedId) {
         const prev = nodes.find((n: any) => n.id === prevSelectedId);
-        if (prev) highlightNode(prev, false);
+        if (prev) {
+          highlightNode(prev, false);
+        }
       }
       if (sel) {
         const node = nodes.find((n: any) => n.id === sel.id);
@@ -414,14 +465,18 @@
 
   // --- Re-apply link colors when colorNetworks toggles ---
   $effect(() => {
-    if (!graph) return;
+    if (!graph) {
+      return;
+    }
     void colorNetworks;
     graph.linkColor((link: any) => getLinkColor(link));
   });
 
   // --- Search + status filtering ---
   $effect(() => {
-    if (!graph) return;
+    if (!graph) {
+      return;
+    }
     const hasFilter = searchQuery || statusFilter.size > 0;
     if (!hasFilter) {
       graph.nodeVisibility(() => true);

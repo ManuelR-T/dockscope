@@ -10,7 +10,9 @@
   let { data, color, width = 200, height = 32, label = '' }: Props = $props();
 
   let path = $derived.by(() => {
-    if (data.length < 2) return '';
+    if (data.length < 2) {
+      return '';
+    }
     const max = Math.max(...data, 1);
     const min = Math.min(...data, 0);
     const range = max - min || 1;
@@ -28,14 +30,18 @@
   });
 
   let areaPath = $derived.by(() => {
-    if (!path) return '';
+    if (!path) {
+      return '';
+    }
     const stepX = width / (data.length - 1);
     return `${path} L${((data.length - 1) * stepX).toFixed(1)},${height} L0,${height} Z`;
   });
 
   let lastValue = $derived(data.length > 0 ? data[data.length - 1] : 0);
   let lastPos = $derived.by(() => {
-    if (data.length < 2) return { x: 0, y: height / 2 };
+    if (data.length < 2) {
+      return { x: 0, y: height / 2 };
+    }
     const max = Math.max(...data, 1);
     const min = Math.min(...data, 0);
     const range = max - min || 1;

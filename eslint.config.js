@@ -7,6 +7,12 @@ export default [
   js.configs.recommended,
   ...ts.configs.recommended,
 
+  {
+    rules: {
+      curly: ['error', 'all'],
+    },
+  },
+
   // Svelte files
   {
     files: ['**/*.svelte', '**/*.svelte.ts'],
@@ -19,10 +25,14 @@ export default [
     },
     rules: {
       ...svelte.configs.recommended.rules,
+      curly: ['error', 'all'],
       'no-undef': 'off',
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-unused-expressions': 'off',
-      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^\\$' }],
+      '@typescript-eslint/no-unused-vars': [
+        'warn',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^\\$' },
+      ],
     },
   },
 
@@ -30,6 +40,7 @@ export default [
   {
     files: ['**/*.ts'],
     rules: {
+      curly: ['error', 'all'],
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
       'no-control-regex': 'off',

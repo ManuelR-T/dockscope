@@ -49,7 +49,9 @@
   } | null>(null);
 
   async function doAction(action: string) {
-    if (!node || actionPending) return;
+    if (!node || actionPending) {
+      return;
+    }
     actionPending = true;
     try {
       const res = await fetch(`/api/containers/${node.containerId}/${action}`, { method: 'POST' });
@@ -67,7 +69,9 @@
   }
 
   async function doRemove(withVolumes: boolean) {
-    if (!node || actionPending) return;
+    if (!node || actionPending) {
+      return;
+    }
     actionPending = true;
     try {
       const res = await fetch(`/api/containers/${node.containerId}?volumes=${withVolumes}`, {
@@ -94,7 +98,9 @@
 
   // Fetch stats + inspect + history when node changes
   $effect(() => {
-    if (!node) return;
+    if (!node) {
+      return;
+    }
     // Fall back to 'info' only if current tab isn't available for this node
     const runningTabs = ['top', 'exec'];
     if (runningTabs.includes(activeTab) && node.status !== 'running' && node.status !== 'paused') {
@@ -120,7 +126,9 @@
         fetch(`/api/containers/${node.containerId}/diagnostic`)
           .then((r) => r.json())
           .then((d) => {
-            if (d) addDiagnostic(d);
+            if (d) {
+              addDiagnostic(d);
+            }
           })
           .catch(() => {});
       }
@@ -137,8 +145,11 @@
     const tab = activeTab;
     const n = node;
     untrack(() => {
-      if (tab === 'logs' && n) subscribeLogs(n.containerId);
-      else unsubscribeLogs();
+      if (tab === 'logs' && n) {
+        subscribeLogs(n.containerId);
+      } else {
+        unsubscribeLogs();
+      }
     });
   });
 
