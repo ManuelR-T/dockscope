@@ -142,3 +142,8 @@ export interface ServerOptions {
   open: boolean;
   host?: string;
 }
+
+export interface ServerHandle {
+  port: number;
+  close(): Promise<void>;
+}

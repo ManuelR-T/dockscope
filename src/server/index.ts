@@ -15,13 +15,13 @@ import {
 } from '../docker/client.js';
 import { initHosts, buildMultiHostGraph, refreshHostStatus } from '../docker/hosts.js';
 import { setupRoutes } from './routes.js';
-import type { ServerOptions, GraphData, WSMessage } from '../types.js';
+import type { ServerOptions, GraphData, ServerHandle, WSMessage } from '../types.js';
 import { checkAnomaly } from './anomaly.js';
 import { shortId } from '../utils.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-export async function startServer(opts: ServerOptions): Promise<void> {
+export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
   if (opts.host) {
     initDockerClient(opts.host);
   }
@@ -334,20 +334,52 @@ export async function startServer(opts: ServerOptions): Promise<void> {
     });
   });
 
-  const shutdown = () => {
-    console.log('\nShutting down DockScope...');
+  const close = async (exit = false) => {
     clearInterval(statsInterval);
     clearInterval(graphInterval);
     clearInterval(hostStatusInterval);
     stopWatching();
-    wss.close();
-    server.close();
-    process.exit(0);
+    process.off('SIGINT', shutdown);
+    process.off('SIGTERM', shutdown);
+
+    await new Promise<void>((resolve) => {
+      wss.close(() => resolve());
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.close((err) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve();
+      });
+    });
+
+    if (exit) {
+      process.exit(0);
+    }
+  };
+
+  const shutdown = () => {
+    console.log('\nShutting down DockScope...');
+    close(true).catch((err) => {
+      console.error('Shutdown failed:', err);
+      process.exit(1);
+    });
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 
-  return new Promise((resolve) => {
-    server.listen(opts.port, () => resolve());
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(opts.port, '127.0.0.1', () => {
+      server.off('error', reject);
+      const address = server.address();
+      const port = typeof address === 'object' && address ? address.port : opts.port;
+      resolve({
+        port,
+        close: () => close(false),
+      });
+    });
   });
 }
