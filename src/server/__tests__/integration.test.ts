@@ -172,6 +172,11 @@ describe('server integration', () => {
     expect(initial).toEqual({ type: 'graph', data: mockGraph });
 
     ws.send('{malformed json');
+    ws.send(JSON.stringify({ type: 'subscribe_logs', data: {} }));
+    ws.send(JSON.stringify({ type: 'exec_input', data: { text: 42 } }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(mocks.streamContainerLogs).not.toHaveBeenCalled();
+
     ws.send(JSON.stringify({ type: 'subscribe_logs', data: { containerId: '123456789abc' } }));
 
     await waitFor(() => pushLog !== null);
