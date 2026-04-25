@@ -46,6 +46,8 @@ docker run --rm --pull always -p 4681:4681 -v /var/run/docker.sock:/var/run/dock
 
 > **Note:** The Docker image does not include Compose project management (up/down/destroy) since it cannot access host compose files. All other features work normally.
 
+> **Security:** Mounting `/var/run/docker.sock` gives DockScope control over the host Docker daemon, including container actions and exec access. Only run it on trusted machines and networks.
+
 Opens `http://localhost:4681`.
 
 | Option | Default | Description |
