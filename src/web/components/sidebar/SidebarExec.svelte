@@ -146,14 +146,25 @@
 
 <div class="exec-container">
   <div class="exec-header">
-    <span class="exec-status" class:connected>
+    <span
+      class="exec-status"
+      class:connected
+      class:connecting
+      title={connected
+        ? 'Terminal session is connected'
+        : connecting
+          ? 'Terminal session is connecting'
+          : 'Terminal session is disconnected'}
+    >
       <span class="exec-dot"></span>
       {connected ? 'Connected' : connecting ? 'Connecting' : 'Disconnected'}
     </span>
     {#if connected}
       <button class="exec-btn" onclick={disconnect}>Disconnect</button>
     {:else}
-      <button class="exec-btn" onclick={connect} disabled={connecting}>Reconnect</button>
+      <button class="exec-btn" onclick={connect} disabled={connecting}>
+        {connecting ? 'Connecting' : 'Reconnect'}
+      </button>
     {/if}
   </div>
   <div class="exec-terminal" bind:this={termEl}></div>
@@ -191,6 +202,10 @@
     color: var(--accent-green);
   }
 
+  .exec-status.connecting {
+    color: var(--accent-cyan);
+  }
+
   .exec-dot {
     width: 6px;
     height: 6px;
@@ -201,6 +216,11 @@
   .exec-status.connected .exec-dot {
     background: var(--accent-green);
     box-shadow: 0 0 6px rgba(0, 255, 106, 0.3);
+  }
+
+  .exec-status.connecting .exec-dot {
+    background: var(--accent-cyan);
+    box-shadow: 0 0 6px rgba(0, 228, 255, 0.3);
   }
 
   .exec-btn {
@@ -219,6 +239,16 @@
   .exec-btn:hover {
     border-color: var(--border-glow);
     color: var(--text-secondary);
+  }
+
+  .exec-btn:disabled {
+    cursor: wait;
+    opacity: 0.65;
+  }
+
+  .exec-btn:disabled:hover {
+    border-color: var(--border-subtle);
+    color: var(--text-dim);
   }
 
   .exec-terminal {

@@ -148,7 +148,12 @@
           <span class="update-dot"></span>
         </a>
       {/if}
-      <span class="hud-connection {docker.connected ? 'active' : 'disconnected'}">
+      <span
+        class="hud-connection {docker.connected ? 'active' : 'disconnected'}"
+        title={docker.connected
+          ? 'DockScope is connected to the live Docker event stream'
+          : 'DockScope is disconnected from the live Docker event stream'}
+      >
         <span class="pulse-dot"></span>
       </span>
     </div>
