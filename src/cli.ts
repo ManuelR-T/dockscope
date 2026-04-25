@@ -100,7 +100,7 @@ program
     console.log(`  Dashboard: ${url}`);
     console.log(`  API:       ${url}/api/graph`);
     console.log(`  WebSocket: ws://localhost:${port}/ws\n`);
-    console.log('');
+    console.log('  Star DockScope if it helps: https://github.com/ManuelR-T/dockscope\n');
     console.log('  Press Ctrl+C to stop\n');
 
     // Non-blocking update check
