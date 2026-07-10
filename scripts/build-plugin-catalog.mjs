@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { createPublicKey, generateKeyPairSync } from 'crypto';
-import { mkdir, readdir, readFile, writeFile } from 'fs/promises';
+import { mkdir, readdir, readFile, rm, writeFile } from 'fs/promises';
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 
@@ -33,6 +33,10 @@ function stringOption(options, key, fallback) {
 
 async function readOptionalText(filePath) {
   return filePath ? readFile(path.resolve(projectRoot, filePath), 'utf-8') : undefined;
+}
+
+async function readKey(options, optionName, envName) {
+  return (await readOptionalText(options[optionName])) || process.env[envName]?.trim() || undefined;
 }
 
 async function readOptionalJson(filePath) {
@@ -141,6 +145,7 @@ const outDir = path.resolve(
   projectRoot,
   stringOption(initialOptions, 'out', 'dist/plugin-catalog'),
 );
+await rm(outDir, { recursive: true, force: true });
 const options = await ensureDevKeys(initialOptions, outDir);
 const sourceDir = path.resolve(projectRoot, stringOption(options, 'source', 'plugins/official'));
 const packageDir = path.join(outDir, 'packages');
@@ -149,21 +154,40 @@ const catalogName = stringOption(options, 'catalog-name', 'DockScope Official Pl
 const baseUrl = stringOption(options, 'base-url', '');
 const now = new Date().toISOString();
 
-const packagePrivateKey = await readOptionalText(options['package-private-key']);
+const packagePrivateKey = await readKey(
+  options,
+  'package-private-key',
+  'DOCKSCOPE_PLUGIN_PACKAGE_PRIVATE_KEY',
+);
 const packagePublicKey =
-  (await readOptionalText(options['package-public-key'])) ||
+  (await readKey(options, 'package-public-key', 'DOCKSCOPE_PLUGIN_PACKAGE_PUBLIC_KEY')) ||
   (packagePrivateKey
     ? createPublicKey(packagePrivateKey).export({ type: 'spki', format: 'pem' }).toString()
     : undefined);
 const catalogPrivateKey =
-  (await readOptionalText(options['catalog-private-key'])) || packagePrivateKey;
+  (await readKey(options, 'catalog-private-key', 'DOCKSCOPE_PLUGIN_CATALOG_PRIVATE_KEY')) ||
+  packagePrivateKey;
+const catalogPublicKey =
+  (await readKey(options, 'catalog-public-key', 'DOCKSCOPE_PLUGIN_CATALOG_PUBLIC_KEY')) ||
+  (catalogPrivateKey
+    ? createPublicKey(catalogPrivateKey).export({ type: 'spki', format: 'pem' }).toString()
+    : undefined);
 const packageKeyId = stringOption(options, 'package-key-id', 'official-package');
 const catalogKeyId = stringOption(options, 'catalog-key-id', 'official-catalog');
+
+if (options['require-signatures'] === true && (!packagePrivateKey || !catalogPrivateKey)) {
+  throw new Error(
+    'Signed catalog build requires package and catalog private keys. Set the key options or DOCKSCOPE_PLUGIN_PACKAGE_PRIVATE_KEY and DOCKSCOPE_PLUGIN_CATALOG_PRIVATE_KEY.',
+  );
+}
 
 await mkdir(packageDir, { recursive: true });
 
 const { packageModule, catalogModule } = await loadBuildModules();
 const pluginDirs = await discoverPluginDirs(sourceDir);
+if (pluginDirs.length === 0) {
+  throw new Error(`No plugin manifests found under ${sourceDir}`);
+}
 const entries = [];
 
 for (const pluginDir of pluginDirs) {
@@ -231,7 +255,14 @@ if (catalogPrivateKey) {
   });
 }
 
+if (packagePublicKey) {
+  await writeFile(path.join(outDir, 'package.public.pem'), packagePublicKey, 'utf-8');
+}
+if (catalogPublicKey) {
+  await writeFile(path.join(outDir, 'catalog.public.pem'), catalogPublicKey, 'utf-8');
+}
+
 console.log(`catalog ${catalogPath}`);
-if (options['catalog-public-key']) {
-  console.log(`catalog public key ${path.resolve(projectRoot, options['catalog-public-key'])}`);
+if (catalogPublicKey) {
+  console.log(`catalog public key ${path.join(outDir, 'catalog.public.pem')}`);
 }

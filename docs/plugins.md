@@ -271,6 +271,19 @@ npm run plugins:catalog -- \
 
 The script packages every directory under `plugins/official`, writes package artifacts under `dist/plugin-catalog/packages`, writes `dist/plugin-catalog/catalog.json`, and signs the catalog when a catalog private key is provided.
 
+### Official catalog releases
+
+CI builds a temporary signed catalog, verifies its signature, installs the Kubernetes package, and loads it through the public plugin path. The release workflow builds the production catalog, attaches its files to the GitHub release, and deploys the same files under `/plugins/` on GitHub Pages.
+
+Configure these GitHub Actions secrets before releasing:
+
+- `PLUGIN_PACKAGE_PRIVATE_KEY`: Ed25519 private key used to sign plugin packages.
+- `PLUGIN_CATALOG_PRIVATE_KEY`: Ed25519 private key used to sign the catalog metadata.
+
+Generate each pair with `dockscope plugin:keys`. Keep private keys outside the repository and retain them between releases. The catalog builder derives and publishes `package.public.pem` and `catalog.public.pem`; it also accepts the corresponding `DOCKSCOPE_PLUGIN_*_PRIVATE_KEY` environment variables in CI. Release builds use `--require-signatures` and fail closed when either secret is absent.
+
+GitHub Pages must use **GitHub Actions** as its deployment source. Once enabled, the stable catalog URL is `https://<owner>.github.io/<repository>/plugins/catalog.json`.
+
 ## Catalogs
 
 A plugin catalog is a signed-package index. It can be a local JSON file or an HTTP(S) URL configured with `--plugin-catalog` or `DOCKSCOPE_PLUGIN_CATALOG`.

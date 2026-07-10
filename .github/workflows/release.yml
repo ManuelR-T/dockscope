@@ -24,6 +24,7 @@ permissions:
   contents: write
   id-token: write
   packages: write
+  pages: write
 
 # Parallel releases would race on the version bump and publish
 concurrency:
@@ -102,6 +103,23 @@ jobs:
       - name: Rebuild with bumped version
         run: npm run build
 
+      - name: Build signed official plugin catalog
+        env:
+          DOCKSCOPE_PLUGIN_PACKAGE_PRIVATE_KEY: ${{ secrets.PLUGIN_PACKAGE_PRIVATE_KEY }}
+          DOCKSCOPE_PLUGIN_CATALOG_PRIVATE_KEY: ${{ secrets.PLUGIN_CATALOG_PRIVATE_KEY }}
+        run: >-
+          npm run plugins:catalog --
+          --out dist/plugin-pages/plugins
+          --base-url https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/plugins/
+          --package-key-id official-package-v1
+          --catalog-key-id official-catalog-v1
+          --require-signatures
+
+      - name: Upload plugin catalog Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/plugin-pages
+
       - name: Publish to npm
         run: npm publish --ignore-scripts --provenance --access public
 
@@ -121,6 +139,11 @@ jobs:
           tag_name: ${{ steps.version.outputs.version }}
           name: ${{ steps.version.outputs.version }}
           generate_release_notes: true
+          files: |
+            dist/plugin-pages/plugins/catalog.json
+            dist/plugin-pages/plugins/catalog.public.pem
+            dist/plugin-pages/plugins/package.public.pem
+            dist/plugin-pages/plugins/packages/*.dockscope-plugin
 
       - name: Lowercase image name
         run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
@@ -149,3 +172,18 @@ jobs:
           tags: |
             ${{ env.IMAGE }}:latest
             ${{ env.IMAGE }}:${{ steps.version.outputs.version }}
+
+  deploy-plugin-catalog:
+    name: Deploy Official Plugin Catalog
+    runs-on: ubuntu-latest
+    needs: [release]
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}plugins/catalog.json
+    steps:
+      - name: Deploy catalog to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
