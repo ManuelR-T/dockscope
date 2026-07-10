@@ -1,6 +1,5 @@
 import { PluginRegistry } from '../core/plugins.js';
 import { createComposePlugin } from '../docker/composePlugin.js';
-import { createKubernetesPlugin } from '../docker/kubernetesPlugin.js';
 import { createDockerPlugin } from '../docker/plugin.js';
 import { createPluginApprovalStoreFromEnv } from './approvalStore.js';
 import { createPluginConfigStoreFromEnv } from './configStore.js';
@@ -12,7 +11,6 @@ import { createPluginStateStoreFromEnv } from './stateStore.js';
 export function createInternalPluginRegistry(registry = new PluginRegistry()): PluginRegistry {
   registry.register(createDockerPlugin());
   registry.register(createComposePlugin());
-  registry.register(createKubernetesPlugin());
   return registry;
 }
 

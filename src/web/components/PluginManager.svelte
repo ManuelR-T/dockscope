@@ -62,6 +62,7 @@
   let secrets = $state<PluginSecretSnapshot[]>([]);
   let drafts = $state<Record<string, Record<string, PluginConfigValue>>>({});
   let secretDrafts = $state<Record<string, Record<string, string>>>({});
+  let commandDrafts = $state<Record<string, Record<string, PluginConfigValue>>>({});
   let saving = $state<string | null>(null);
   let toggling = $state<string | null>(null);
   let reloading = $state<string | null>(null);
@@ -122,6 +123,15 @@
         configData.map((config) => [config.pluginId, { ...config.values }]),
       );
       secretDrafts = Object.fromEntries(secretData.map((secret) => [secret.pluginId, {}]));
+      commandDrafts = Object.fromEntries(
+        commandData.map((command) => [
+          commandKey(command),
+          {
+            ...commandInputDefaults(command),
+            ...(commandDrafts[commandKey(command)] ?? {}),
+          },
+        ]),
+      );
     } catch {
       addToast('Failed to load plugins', 'error');
     } finally {
@@ -166,6 +176,52 @@
       return 0;
     }
     return '';
+  }
+
+  function defaultFieldValue(field: PluginConfigField): PluginConfigValue {
+    if (field.default !== undefined) {
+      return field.default;
+    }
+    if (field.type === 'boolean') {
+      return false;
+    }
+    if (field.type === 'number') {
+      return 0;
+    }
+    return '';
+  }
+
+  function commandKey(command: PluginCommand): string {
+    return `${command.pluginId}:${command.id}`;
+  }
+
+  function commandInputDefaults(command: PluginCommand): Record<string, PluginConfigValue> {
+    return Object.fromEntries(
+      (command.input?.fields ?? []).map((field) => [field.key, defaultFieldValue(field)]),
+    );
+  }
+
+  function commandFieldValue(command: PluginCommand, field: PluginConfigField): PluginConfigValue {
+    return commandDrafts[commandKey(command)]?.[field.key] ?? defaultFieldValue(field);
+  }
+
+  function setCommandInputValue(command: PluginCommand, key: string, value: PluginConfigValue) {
+    const id = commandKey(command);
+    commandDrafts = {
+      ...commandDrafts,
+      [id]: {
+        ...(commandDrafts[id] ?? {}),
+        [key]: value,
+      },
+    };
+  }
+
+  function commandInputPayload(command: PluginCommand): Record<string, PluginConfigValue> {
+    const payload: Record<string, PluginConfigValue> = {};
+    for (const field of command.input?.fields ?? []) {
+      payload[field.key] = commandFieldValue(command, field);
+    }
+    return payload;
   }
 
   async function saveConfig(pluginId: string) {
@@ -238,15 +294,22 @@
   }
 
   async function runCommand(command: PluginCommand) {
-    const key = `${command.pluginId}:${command.id}`;
+    const key = commandKey(command);
     if (runningCommand) {
       return;
     }
     runningCommand = key;
     try {
+      const hasInput = (command.input?.fields.length ?? 0) > 0;
       const result = await requestJson<PluginCommandResult>(
         `/api/plugins/${encodeURIComponent(command.pluginId)}/commands/${encodeURIComponent(command.id)}`,
-        { method: 'POST' },
+        hasInput
+          ? {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ input: commandInputPayload(command) }),
+            }
+          : { method: 'POST' },
       );
       await loadPluginState();
       addToast(
@@ -480,6 +543,7 @@
         entry.description,
         entry.category,
         entry.author,
+        entry.readme,
         ...(entry.tags ?? []),
         ...entry.capabilities,
         ...entry.permissions,
@@ -721,13 +785,56 @@
                   {#if command.description}
                     <div class="item-desc">{command.description}</div>
                   {/if}
+                  {#if command.input?.fields.length}
+                    <div class="command-inputs">
+                      {#each command.input.fields as field}
+                        <label class="field command-field">
+                          <span class="field-label">{field.label}</span>
+                          {#if field.type === 'boolean'}
+                            <input
+                              type="checkbox"
+                              checked={Boolean(commandFieldValue(command, field))}
+                              onchange={(event) =>
+                                setCommandInputValue(command, field.key, checkedValue(event))}
+                            />
+                          {:else if field.type === 'select'}
+                            <select
+                              value={String(commandFieldValue(command, field))}
+                              onchange={(event) =>
+                                setCommandInputValue(command, field.key, inputValue(event))}
+                            >
+                              {#each field.options ?? [] as option}
+                                <option value={option.value}>{option.label}</option>
+                              {/each}
+                            </select>
+                          {:else}
+                            <input
+                              type={field.type === 'number' ? 'number' : 'text'}
+                              value={String(commandFieldValue(command, field))}
+                              oninput={(event) =>
+                                setCommandInputValue(
+                                  command,
+                                  field.key,
+                                  field.type === 'number'
+                                    ? Number(inputValue(event))
+                                    : inputValue(event),
+                                )}
+                            />
+                          {/if}
+                          {#if field.description}
+                            <span class="field-desc">{field.description}</span>
+                          {/if}
+                        </label>
+                      {/each}
+                    </div>
+                  {/if}
                 </div>
                 <button
                   class="save-btn"
                   disabled={runningCommand !== null}
                   onclick={() => runCommand(command)}
                 >
-                  {runningCommand === `${command.pluginId}:${command.id}` ? 'Running...' : 'Run'}
+                  {runningCommand === commandKey(command) ? 'Running...' : 'Run'}
                 </button>
               </div>
             {/each}
@@ -873,9 +980,14 @@
                   {marketplaceLabel(entry)}
                 </div>
                 <div class="item-main">
-                  <div class="item-title">
-                    <span>{entry.name}</span>
-                    <code>{entry.id} v{entry.version}</code>
+                  <div class="marketplace-identity">
+                    {#if entry.iconUrl}
+                      <img class="marketplace-icon" src={entry.iconUrl} alt="" loading="lazy" />
+                    {/if}
+                    <div class="item-title">
+                      <span>{entry.name}</span>
+                      <code>{entry.id} v{entry.version}</code>
+                    </div>
                   </div>
                   {#if entry.description}
                     <div class="item-desc">{entry.description}</div>
@@ -912,6 +1024,16 @@
                   </div>
                   {#if entry.releaseNotes}
                     <div class="item-desc">{entry.releaseNotes}</div>
+                  {/if}
+                  {#if entry.repositoryUrl || entry.readmeUrl}
+                    <div class="marketplace-links">
+                      {#if entry.repositoryUrl}
+                        <a href={entry.repositoryUrl} target="_blank" rel="noreferrer">Repo</a>
+                      {/if}
+                      {#if entry.readmeUrl}
+                        <a href={entry.readmeUrl} target="_blank" rel="noreferrer">README</a>
+                      {/if}
+                    </div>
                   {/if}
                   {#each entry.compatibilityWarnings as warning}
                     <div class="error-line">{warning}</div>
@@ -1131,6 +1253,28 @@
 
           {#if marketplaceReview.entry.releaseNotes}
             <div class="release-notes">{marketplaceReview.entry.releaseNotes}</div>
+          {/if}
+
+          {#if marketplaceReview.entry.screenshots.length > 0}
+            <div class="screenshot-strip">
+              {#each marketplaceReview.entry.screenshots as screenshot}
+                <img
+                  src={screenshot}
+                  alt={`${marketplaceReview.entry.name} screenshot`}
+                  loading="lazy"
+                />
+              {/each}
+            </div>
+          {/if}
+
+          {#if marketplaceReview.entry.readme}
+            <pre class="readme-preview">{marketplaceReview.entry.readme}</pre>
+          {:else if marketplaceReview.entry.readmeUrl}
+            <div class="marketplace-links review-links">
+              <a href={marketplaceReview.entry.readmeUrl} target="_blank" rel="noreferrer">
+                Open README
+              </a>
+            </div>
           {/if}
 
           <div class="confirm-actions">
@@ -1403,6 +1547,38 @@
     margin-bottom: 10px;
   }
 
+  .marketplace-identity {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px;
+    align-items: center;
+  }
+
+  .marketplace-icon {
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    object-fit: cover;
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .marketplace-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+    font-size: 11px;
+  }
+
+  .marketplace-links a {
+    color: #00e4ff;
+    text-decoration: none;
+  }
+
+  .marketplace-links a:hover {
+    text-decoration: underline;
+  }
+
   .marketplace-facts {
     display: flex;
     flex-wrap: wrap;
@@ -1470,6 +1646,41 @@
     white-space: pre-wrap;
   }
 
+  .screenshot-strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .screenshot-strip img {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    object-fit: cover;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .readme-preview {
+    max-height: 220px;
+    overflow: auto;
+    margin: 12px 0 0;
+    padding: 10px;
+    white-space: pre-wrap;
+    border: 1px solid rgba(255, 255, 255, 0.055);
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.2);
+    color: rgba(226, 232, 240, 0.72);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    line-height: 1.55;
+  }
+
+  .review-links {
+    margin-top: 12px;
+  }
+
   .confirm-actions {
     margin-top: 14px;
     justify-content: flex-end;
@@ -1529,6 +1740,19 @@
     font-family: var(--font-mono);
     font-size: 10px;
     color: rgba(226, 232, 240, 0.66);
+  }
+
+  .command-inputs {
+    display: grid;
+    gap: 4px;
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.04);
+  }
+
+  .command-field {
+    grid-template-columns: minmax(100px, 150px) minmax(0, 1fr);
+    padding: 4px 0;
   }
 
   .config-block {

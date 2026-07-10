@@ -23,8 +23,9 @@
     "typecheck": "tsc --noEmit && svelte-check --tsconfig ./tsconfig.json",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
-    "format": "prettier --write 'src/**/*.{ts,svelte,css}'",
-    "format:check": "prettier --check 'src/**/*.{ts,svelte,css}'",
+    "format": "prettier --write 'src/**/*.{ts,svelte,css}' 'scripts/**/*.mjs' 'plugins/**/*.{mjs,json,md}'",
+    "format:check": "prettier --check 'src/**/*.{ts,svelte,css}' 'scripts/**/*.mjs' 'plugins/**/*.{mjs,json,md}'",
+    "plugins:catalog": "node scripts/build-plugin-catalog.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "prepublishOnly": "npm run build"
@@ -41,7 +42,6 @@
   "author": "Manuel Tomé",
   "license": "MIT",
   "dependencies": {
-    "@kubernetes/client-node": "^1.4.0",
     "commander": "^12.1.0",
     "cors": "^2.8.5",
     "dockerode": "^4.0.4",

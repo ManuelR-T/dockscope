@@ -35,13 +35,11 @@ const mocks = vi.hoisted(() => ({
   composeAction: vi.fn(),
   containerAction: vi.fn(),
   diagnoseCrash: vi.fn(),
-  getKubernetesPodLogs: vi.fn(),
   getContainerDiff: vi.fn(),
   getContainerLogs: vi.fn(),
   getContainerStats: vi.fn(),
   getContainerTop: vi.fn(),
   inspectContainer: vi.fn(),
-  kubernetesResourceAction: vi.fn(),
   listComposeProjects: vi.fn(),
   removeContainer: vi.fn(),
   streamContainerLogs: vi.fn(),
@@ -64,11 +62,9 @@ vi.mock('../../docker/client.js', () => ({
   getContainerLogs: mocks.getContainerLogs,
   getContainerStats: mocks.getContainerStats,
   getContainerTop: mocks.getContainerTop,
-  getKubernetesPodLogs: mocks.getKubernetesPodLogs,
   getSystemInfo: vi.fn(),
   initDockerClient: vi.fn(),
   inspectContainer: mocks.inspectContainer,
-  kubernetesResourceAction: mocks.kubernetesResourceAction,
   listComposeProjects: mocks.listComposeProjects,
   removeContainer: mocks.removeContainer,
   streamContainerLogs: mocks.streamContainerLogs,
@@ -78,18 +74,6 @@ vi.mock('../../docker/client.js', () => ({
 vi.mock('../../docker/projects.js', () => ({
   composeAction: mocks.composeAction,
   listComposeProjects: mocks.listComposeProjects,
-}));
-
-vi.mock('../../docker/kubernetes.js', () => ({
-  getKubernetesPodLogs: mocks.getKubernetesPodLogs,
-  kubernetesResourceAction: mocks.kubernetesResourceAction,
-  parseKubernetesResourceId: (id: string) => {
-    const [prefix, kind, namespace, name] = id.split(':');
-    if (prefix !== 'k8s' || !kind || !namespace || !name) {
-      throw new Error('Invalid Kubernetes resource ID');
-    }
-    return { kind, namespace, name };
-  },
 }));
 
 vi.mock('../../docker/hosts.js', () => ({
@@ -152,8 +136,6 @@ describe('server integration', () => {
     mocks.buildGraph.mockResolvedValue(mockGraph);
     mocks.listComposeProjects.mockResolvedValue([{ name: 'demo', running: 1, stopped: 0 }]);
     mocks.composeAction.mockResolvedValue('restart completed for project demo');
-    mocks.getKubernetesPodLogs.mockResolvedValue('pod log\n');
-    mocks.kubernetesResourceAction.mockResolvedValue(undefined);
     mocks.getContainerLogs.mockResolvedValue('hello\n');
     mocks.getContainerStats.mockResolvedValue({
       id: '123456789abc',
@@ -260,14 +242,6 @@ describe('server integration', () => {
           status: 'started',
           enabled: true,
         }),
-        expect.objectContaining({
-          manifest: expect.objectContaining({
-            id: 'core.kubernetes',
-            capabilities: expect.arrayContaining(['source.logs', 'action.scale']),
-          }),
-          status: 'started',
-          enabled: true,
-        }),
       ]),
     );
 
@@ -285,7 +259,6 @@ describe('server integration', () => {
       expect.arrayContaining([
         expect.objectContaining({ pluginId: 'core.docker', values: {} }),
         expect.objectContaining({ pluginId: 'core.compose', values: {} }),
-        expect.objectContaining({ pluginId: 'core.kubernetes', values: {} }),
       ]),
     );
 
@@ -309,39 +282,6 @@ describe('server integration', () => {
       message: 'restart completed for project demo',
     });
     expect(mocks.composeAction).toHaveBeenCalledWith('demo', 'restart');
-
-    const kubernetesLogsResponse = await fetch(
-      `http://127.0.0.1:${server.port}/api/kubernetes/logs`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: 'k8s:pod:default:web', tail: 10 }),
-      },
-    );
-    expect(kubernetesLogsResponse.status).toBe(200);
-    expect(await kubernetesLogsResponse.json()).toEqual({ logs: 'pod log\n' });
-    expect(mocks.getKubernetesPodLogs).toHaveBeenCalledWith('k8s:pod:default:web', 10);
-
-    const kubernetesActionResponse = await fetch(
-      `http://127.0.0.1:${server.port}/api/kubernetes/action`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: 'k8s:hpa:default:web',
-          action: 'set_hpa_constraints',
-          minReplicas: 2,
-          maxReplicas: 5,
-        }),
-      },
-    );
-    expect(kubernetesActionResponse.status).toBe(200);
-    expect(await kubernetesActionResponse.json()).toEqual({ ok: true });
-    expect(mocks.kubernetesResourceAction).toHaveBeenCalledWith(
-      'k8s:hpa:default:web',
-      'set_hpa_constraints',
-      { minReplicas: 2, maxReplicas: 5 },
-    );
 
     const statsResponse = await fetch(
       `http://127.0.0.1:${server.port}/api/containers/123456789abc/stats?nodeId=local:123456789abc`,

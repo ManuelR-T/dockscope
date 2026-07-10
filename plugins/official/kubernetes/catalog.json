@@ -1,0 +1,10 @@
+{
+  "category": "Infrastructure",
+  "license": "MIT",
+  "status": "active",
+  "tags": ["kubernetes", "pods", "services", "ingress", "hpa"],
+  "releaseNotes": "Initial external Kubernetes provider with graph, logs, lifecycle, and HPA actions.",
+  "repositoryUrl": "https://github.com/ManuelR-T/dockscope",
+  "readmeUrl": "https://github.com/ManuelR-T/dockscope/blob/main/plugins/official/kubernetes/README.md",
+  "screenshots": []
+}

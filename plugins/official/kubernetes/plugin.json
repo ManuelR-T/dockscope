@@ -1,0 +1,13 @@
+{
+  "id": "official.kubernetes",
+  "name": "Kubernetes",
+  "version": "0.1.0",
+  "dockscopeApiVersion": "1",
+  "description": "Adds Kubernetes graph, logs, restart, delete, and HPA scale actions through kubectl.",
+  "entry": "./plugin.mjs",
+  "capabilities": ["source.graph", "source.logs", "action.lifecycle", "action.scale"],
+  "permissions": ["kubernetes.api", "process.exec"],
+  "compatibility": {
+    "minDockscopeVersion": "0.7.1"
+  }
+}

@@ -39,6 +39,7 @@ export interface PluginCatalogEntry {
   homepage?: string;
   repositoryUrl?: string;
   readmeUrl?: string;
+  readme?: string;
   iconUrl?: string;
   license?: string;
   category?: string;
@@ -219,6 +220,7 @@ function validateEntry(raw: unknown): PluginCatalogEntry {
     homepage: optionalString(raw.homepage, 'homepage'),
     repositoryUrl: optionalString(raw.repositoryUrl, 'repositoryUrl'),
     readmeUrl: optionalString(raw.readmeUrl, 'readmeUrl'),
+    readme: optionalString(raw.readme, 'readme'),
     iconUrl: optionalString(raw.iconUrl, 'iconUrl'),
     license: optionalString(raw.license, 'license'),
     category: optionalString(raw.category, 'category'),

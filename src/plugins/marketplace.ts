@@ -44,6 +44,7 @@ export interface PluginMarketplaceEntry {
   homepage?: string;
   repositoryUrl?: string;
   readmeUrl?: string;
+  readme?: string;
   iconUrl?: string;
   license?: string;
   category?: string;
@@ -129,6 +130,7 @@ function catalogMarketplaceEntry(options: {
     homepage: options.catalogEntry.homepage,
     repositoryUrl: options.catalogEntry.repositoryUrl,
     readmeUrl: options.catalogEntry.readmeUrl,
+    readme: options.catalogEntry.readme,
     iconUrl: options.catalogEntry.iconUrl,
     license: options.catalogEntry.license,
     category: options.catalogEntry.category,

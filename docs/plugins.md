@@ -117,9 +117,11 @@ dockscope plugin:validate --plugins ./plugins --plugin-permissions all
 Developer workflow commands:
 
 ```bash
-dockscope plugin:init --dir ./plugins/example --id example.plugin --name "Example Plugin"
+dockscope plugin:init --dir ./plugins/example --id example.plugin --name "Example Plugin" --template command
+dockscope plugin:init --dir ./plugins/graph --id example.graph --name "Graph Plugin" --template graph
 dockscope plugin:keys --out-dir ./keys
 dockscope plugin:test --plugins ./plugins --plugin-permissions all
+dockscope plugin:dev --plugins ./plugins --plugin-permissions all
 dockscope plugin:watch --plugins ./plugins --plugin-permissions all
 dockscope plugin:doctor --plugins ./plugins --catalog ./plugin-catalog.json
 dockscope plugin:catalog --catalog ./plugin-catalog.json
@@ -246,6 +248,29 @@ Generate a catalog entry from a signed package:
 dockscope plugin:catalog:entry --package ./example.dockscope-plugin --public-key ./keys/dockscope-plugin.public.pem --key-id maintainer-1
 ```
 
+Build the repo-local official plugin catalog after a DockScope build:
+
+```bash
+npm run build
+npm run plugins:catalog -- --source plugins/official --out dist/plugin-catalog --dev-keys
+```
+
+For release signing, pass real key files instead of `--dev-keys`:
+
+```bash
+npm run plugins:catalog -- \
+  --source plugins/official \
+  --out dist/plugin-catalog \
+  --package-private-key ./keys/package.private.pem \
+  --package-public-key ./keys/package.public.pem \
+  --catalog-private-key ./keys/catalog.private.pem \
+  --catalog-public-key ./keys/catalog.public.pem \
+  --package-key-id official-package \
+  --catalog-key-id official-catalog
+```
+
+The script packages every directory under `plugins/official`, writes package artifacts under `dist/plugin-catalog/packages`, writes `dist/plugin-catalog/catalog.json`, and signs the catalog when a catalog private key is provided.
+
 ## Catalogs
 
 A plugin catalog is a signed-package index. It can be a local JSON file or an HTTP(S) URL configured with `--plugin-catalog` or `DOCKSCOPE_PLUGIN_CATALOG`.
@@ -269,6 +294,7 @@ A plugin catalog is a signed-package index. It can be a local JSON file or an HT
       "homepage": "https://github.com/ManuelR-T/dockscope",
       "repositoryUrl": "https://github.com/ManuelR-T/dockscope",
       "readmeUrl": "https://github.com/ManuelR-T/dockscope/blob/main/docs/plugins.md",
+      "readme": "# Example Plugin\n\nRendered in the Marketplace review panel.",
       "iconUrl": "https://example.com/icon.png",
       "license": "MIT",
       "category": "Utilities",
@@ -304,6 +330,25 @@ Package signatures and catalog signatures are separate:
 Use `dockscope plugin:catalog --catalog ./plugin-catalog.json --public-key ./keys/catalog.public.pem` to inspect a signed catalog and `dockscope plugin:catalog:install <pluginId> --catalog ./plugin-catalog.json --catalog-public-key ./keys/catalog.public.pem` to install from it. When DockScope is started with `--plugin-catalog`, the Plugin Manager Marketplace tab can install, update, and uninstall catalog plugins in the configured local registry. Install and update actions open a review step with package signature, package hash, capabilities, permissions, compatibility range, target registry, installed version, and release notes.
 
 Marketplace installs reject `yanked` entries, incompatible entries, hash mismatches, and unsigned package entries by default. Use `--allow-unsigned-plugins`, `DOCKSCOPE_PLUGIN_ALLOW_UNSIGNED=1`, or `dockscope plugin:catalog:install --allow-unsigned` only for local development catalogs.
+
+Marketplace entries can include `iconUrl`, `screenshots`, `repositoryUrl`, `readmeUrl`, and inline `readme` text. DockScope renders screenshots and inline README content in the install/update review panel.
+
+## Official Plugins
+
+Official plugins live in `plugins/official`. They are not registered as built-ins; they are packaged and installed through a catalog like any other external plugin.
+
+The first official plugin is `official.kubernetes`:
+
+- uses `kubectl` through `host.execFile()`
+- requires `process.exec` and `kubernetes.api`
+- adds a Kubernetes graph source
+- handles Pod logs, restart/delete, and HPA replica actions
+
+Local development:
+
+```bash
+dockscope plugin:dev --plugins plugins/official/kubernetes --plugin-permissions all
+```
 
 Marketplace API:
 

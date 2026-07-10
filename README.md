@@ -25,7 +25,7 @@ A browser-based 3D dependency graph of your Docker services with live health, lo
 
 ## Quick Start
 
-> **Prerequisites:** [Node.js](https://nodejs.org/) (v20+) and [Docker](https://docs.docker.com/get-docker/) must be installed and running. Kubernetes graph support is enabled automatically when DockScope can load a kubeconfig or in-cluster service account with read access to the Kubernetes API.
+> **Prerequisites:** [Node.js](https://nodejs.org/) (v20+) and [Docker](https://docs.docker.com/get-docker/) must be installed and running. Kubernetes support is provided by the official external Kubernetes plugin.
 
 ```bash
 npx dockscope up
@@ -73,6 +73,7 @@ Opens `http://localhost:4681`.
 | `dockscope plugin:keys`              | —           | Generate Ed25519 plugin package signing keys                           |
 | `dockscope plugin:validate`          | —           | Validate external plugin manifests                                     |
 | `dockscope plugin:test`              | —           | Validate and import external plugins                                   |
+| `dockscope plugin:dev`               | —           | Run DockScope with local plugin development defaults                   |
 | `dockscope plugin:doctor`            | —           | Check plugin paths and catalog configuration                           |
 | `dockscope plugin:pack`              | —           | Create a hash-verified plugin package                                  |
 | `dockscope plugin:install`           | —           | Install a directory or package into the local plugin registry           |
@@ -96,7 +97,7 @@ Opens `http://localhost:4681`.
 - **Search & Filters** — Real-time search by name/image, status filters (running/stopped/unhealthy), network color toggle.
 - **Session Recording & Replay** — Record an incident (graph state, events, metrics over time) with the `REC` button in the status bar; stopping saves it as a JSON file. Replay it in place or load a recording file (upload button) on any DockScope instance, with a timeline scrubber, event markers, play/pause (`Space`), and 1–8× playback speed for postmortem analysis. During replay, live updates pause and container actions are disabled.
 - **Snapshot Export** — Export the current graph view from the toolbar (bottom-left) as a PNG (exact render) or SVG (vector projection with labels, dependency arrows, and a status legend) for documentation and READMEs. Both respect active search/status filters.
-- **Kubernetes Graph** — Pods, Services, Ingresses, and HPAs are rendered alongside Docker resources when Kubernetes API credentials are available. Services link to selected pods, Ingresses link to Services, HPAs show current vs desired replicas, and the HUD can filter Kubernetes resources by namespace.
+- **Kubernetes Plugin** — The official external Kubernetes plugin renders Pods, Services, Ingresses, and HPAs alongside Docker resources, with Pod logs, restart/delete actions, and HPA replica controls through `kubectl`.
 - **Plugin Marketplace** — Catalog plugins can be installed, updated, and removed from the Plugin Manager with a pre-install review of signature, package hash, permissions, compatibility, and release notes.
 
 ## Keyboard Shortcuts
@@ -175,6 +176,7 @@ npm run dev    # Starts on port 4681 with Vite HMR
 | `npm run lint`      | ESLint check                             |
 | `npm run format`    | Prettier format                          |
 | `npm run typecheck` | TypeScript check (tsc + svelte-check)    |
+| `npm run plugins:catalog` | Build packages and catalog for official plugins |
 
 ## Tech Stack
 

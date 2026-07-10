@@ -82,37 +82,120 @@ async function writePluginScaffold(options: {
   dir: string;
   id: string;
   name: string;
+  template?: string;
 }): Promise<void> {
   const pluginDir = path.resolve(options.dir);
   await mkdir(pluginDir, { recursive: true });
+  const template = options.template === 'graph' ? 'graph' : 'command';
   const manifest = {
     id: options.id,
     name: options.name,
     version: '0.1.0',
     dockscopeApiVersion: '1',
     entry: './plugin.mjs',
-    capabilities: ['ui.command', 'source.events'],
+    capabilities:
+      template === 'graph'
+        ? ['source.graph', 'ui.command', 'source.events']
+        : ['ui.command', 'source.events'],
     permissions: [],
     commands: [
       {
-        id: 'hello',
-        title: 'Say hello',
-        description: 'Emit a sample plugin event',
+        id: template === 'graph' ? 'refresh' : 'hello',
+        title: template === 'graph' ? 'Refresh graph sample' : 'Say hello',
+        description: template === 'graph' ? 'Emit a refresh event' : 'Emit a sample plugin event',
+        input:
+          template === 'command'
+            ? {
+                fields: [
+                  {
+                    key: 'name',
+                    label: 'Name',
+                    type: 'string',
+                    default: 'DockScope',
+                  },
+                ],
+              }
+            : undefined,
       },
     ],
   };
   await writeFile(path.join(pluginDir, 'plugin.json'), JSON.stringify(manifest, null, 2), 'utf-8');
   await writeFile(
     path.join(pluginDir, 'plugin.mjs'),
-    `export default function createPlugin({ manifest, host }) {
+    template === 'graph'
+      ? `const source = {
+  id: 'sample',
+  label: 'Sample Graph',
+  kind: 'plugin',
+  pluginId: '',
+  capabilities: ['source.graph'],
+  status: 'connected',
+};
+
+export default function createPlugin({ manifest, host }) {
   return {
     manifest,
+    getGraphSources() {
+      return [
+        {
+          describe() {
+            return { ...source, pluginId: manifest.id };
+          },
+          async collectGraph() {
+            return {
+              source: { ...source, pluginId: manifest.id },
+              collectedAt: Date.now(),
+              graph: {
+                nodes: [
+                  {
+                    id: 'sample-node',
+                    name: 'sample-node',
+                    fullName: 'sample/sample-node',
+                    project: 'sample',
+                    host: 'sample',
+                    containerId: 'sample-node',
+                    image: 'Sample',
+                    status: 'running',
+                    health: 'healthy',
+                    ports: [],
+                    networks: ['sample'],
+                    volumeCount: 0,
+                    cpu: 0,
+                    memory: 0,
+                    memoryLimit: 0,
+                    networkRx: 0,
+                    networkTx: 0,
+                    networkRxRate: 0,
+                    networkTxRate: 0,
+                  },
+                ],
+                links: [],
+              },
+            };
+          },
+        },
+      ];
+    },
     async runCommand(commandId) {
+      if (commandId !== 'refresh') {
+        return { ok: false, message: \`Unknown command: \${commandId}\` };
+      }
+      await host.publishEvent('sample.refresh', { time: Date.now() });
+      return { ok: true, message: 'Refresh event emitted' };
+    },
+  };
+}
+`
+      : `export default function createPlugin({ manifest, host }) {
+  return {
+    manifest,
+    async runCommand(commandId, input) {
       if (commandId !== 'hello') {
         return { ok: false, message: \`Unknown command: \${commandId}\` };
       }
-      await host.publishEvent('hello.ran', { time: Date.now() });
-      return { ok: true, message: 'Hello from your DockScope plugin' };
+      const name = typeof input?.name === 'string' && input.name.trim() ? input.name : 'DockScope';
+      await host.publishEvent('hello.ran', { name, time: Date.now() });
+      return { ok: true, message: \`Hello, \${name}\` };
     },
   };
 }
@@ -152,7 +235,7 @@ DockScope plugin id: \`${options.id}\`
 \`\`\`bash
 dockscope plugin:validate --plugins . --plugin-permissions all
 dockscope plugin:test --plugins . --plugin-permissions all
-dockscope up --plugins . --plugin-permissions all
+dockscope plugin:dev --plugins . --plugin-permissions all
 \`\`\`
 
 ## Packaging
@@ -319,8 +402,14 @@ program
   .requiredOption('--dir <path>', 'Plugin directory to create')
   .requiredOption('--id <id>', 'Plugin id')
   .requiredOption('--name <name>', 'Plugin display name')
+  .option('--template <name>', 'Plugin scaffold template: command or graph', 'command')
   .action(async (opts) => {
-    await writePluginScaffold({ dir: opts.dir, id: opts.id, name: opts.name });
+    await writePluginScaffold({
+      dir: opts.dir,
+      id: opts.id,
+      name: opts.name,
+      template: opts.template,
+    });
     console.log(`  created ${opts.id} in ${path.resolve(opts.dir)}`);
   });
 
@@ -398,6 +487,60 @@ program
     setInterval(() => {
       void run();
     }, interval);
+  });
+
+program
+  .command('plugin:dev')
+  .description('Run DockScope with local plugin development defaults')
+  .requiredOption('--plugins <paths>', 'Plugin path list')
+  .option('-p, --port <port>', 'Server port', '4681')
+  .option(
+    '--plugin-permissions <permissions>',
+    'Allowed plugin permissions: all or comma-separated',
+    'all',
+  )
+  .option('--plugin-config <file>', 'Plugin configuration JSON file')
+  .option('--plugin-state <file>', 'Plugin enabled/disabled state JSON file')
+  .option('--plugin-secrets <file>', 'Plugin secrets JSON file')
+  .option('--plugin-secret-key <key>', 'Encrypt plugin secrets with this local key')
+  .option('--plugin-events <file>', 'Plugin event history JSON file')
+  .option('--plugin-approvals <file>', 'Plugin approval JSON file')
+  .option('--plugin-catalog <source>', 'Plugin catalog file or URL')
+  .option(
+    '--plugin-catalog-public-key <file>',
+    'Verify signed plugin catalogs with this public key',
+  )
+  .option('--plugin-registry <dir>', 'Local plugin registry directory')
+  .option('--allow-unsigned-plugins', 'Allow marketplace installs from unsigned catalog entries')
+  .option('--no-open', "Don't open browser automatically")
+  .action(async (opts) => {
+    if (!(await validatePluginPaths(opts))) {
+      process.exit(1);
+    }
+    const requestedPort = parseInt(opts.port, 10);
+    const port = await findAvailablePort(requestedPort);
+    await startServer({
+      port,
+      open: opts.open !== false,
+      pluginPaths: opts.plugins,
+      pluginPermissions: opts.pluginPermissions,
+      pluginConfig: opts.pluginConfig,
+      pluginState: opts.pluginState,
+      pluginSecrets: opts.pluginSecrets,
+      pluginSecretKey: opts.pluginSecretKey,
+      pluginEvents: opts.pluginEvents,
+      pluginApprovals: opts.pluginApprovals,
+      pluginCatalog: opts.pluginCatalog,
+      pluginCatalogPublicKey: await readOptionalTextFile(opts.pluginCatalogPublicKey),
+      pluginRegistry: opts.pluginRegistry,
+      allowUnsignedPlugins: opts.allowUnsignedPlugins === true,
+    });
+    console.log(`  Plugin dev server: http://localhost:${port}`);
+    console.log('  Press Ctrl+C to stop\n');
+    if (opts.open !== false) {
+      const open = (await import('open')).default;
+      await open(`http://localhost:${port}`);
+    }
   });
 
 program
