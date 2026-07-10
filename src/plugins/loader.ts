@@ -2,7 +2,20 @@ import { readdir, readFile, stat } from 'fs/promises';
 import path from 'path';
 import { pathToFileURL } from 'url';
 import { errorMessage } from '../utils.js';
-import type { DataSourceDescriptor, GraphSourceAdapter } from '../core/model.js';
+import type { GraphSourceAdapter, SourceEvent, SourceGraphSnapshot } from '../core/model.js';
+import type {
+  EntityDiagnosticProvider,
+  EntityExecProvider,
+  EntityFilesystemProvider,
+  EntityInspectProvider,
+  EntityLifecycleProvider,
+  EntityLogsProvider,
+  EntityLogStreamProvider,
+  EntityStatsProvider,
+  ProjectProvider,
+  ProjectSummary,
+  ResourceProvider,
+} from '../core/operations.js';
 import { defaultPluginConfig, type PluginConfig } from '../core/plugin-config.js';
 import {
   type DockscopePlugin,
@@ -14,11 +27,16 @@ import { isPluginPermission, type PluginPermission } from '../core/capabilities.
 import { createPluginHostApi, type PluginHostApi } from './hostApi.js';
 import type { PluginSecretStore } from './secretStore.js';
 import type { PluginEvent } from '../core/plugin-events.js';
-import {
-  collectIsolatedPluginGraphSource,
-  describeIsolatedPluginGraphSources,
-  runIsolatedPluginCommand,
-} from './processSandbox.js';
+import { PluginProcessSandbox } from './processSandbox.js';
+import type { SandboxEntityProviderKind, SandboxPluginDescriptor } from './processProtocol.js';
+import type {
+  ContainerDiffEntry,
+  ContainerInspect,
+  ContainerStats,
+  ContainerTopResult,
+  CrashDiagnostic,
+} from '../types.js';
+import type { PluginCommandResult } from '../core/plugin-commands.js';
 
 const PLUGIN_MANIFEST_FILE = 'plugin.json';
 
@@ -49,6 +67,7 @@ export interface ExternalPluginLoadOptions {
   cacheBust?: boolean;
   processCommandTimeoutMs?: number;
   processMaxStderrBytes?: number;
+  processMemoryLimitMb?: number;
   logger?: Pick<Console, 'debug' | 'info' | 'warn' | 'error'>;
 }
 
@@ -192,75 +211,257 @@ async function instantiatePlugin(
   return { ...plugin, manifest: validatedManifest };
 }
 
-function createGraphSourceProxy(
-  options: {
-    manifest: PluginManifest;
-    pluginDir: string;
-    entryPath: string;
-    config: PluginConfig;
-    publishEvent?: ExternalPluginLoadOptions['publishEvent'];
-    timeoutMs?: number;
-    maxStderrBytes?: number;
-  },
-  descriptor: DataSourceDescriptor,
-): GraphSourceAdapter {
-  return {
-    describe: () => ({ ...descriptor }),
-    collectGraph: () =>
-      collectIsolatedPluginGraphSource({
-        entryPath: options.entryPath,
-        manifest: options.manifest,
-        pluginDir: options.pluginDir,
-        config: options.config,
-        sourceId: descriptor.id,
-        timeoutMs: options.timeoutMs,
-        maxStderrBytes: options.maxStderrBytes,
-        publishEvent: options.publishEvent,
-      }),
-  };
-}
-
 async function createProcessIsolatedPlugin(options: {
   manifest: PluginManifest;
   pluginDir: string;
   entryPath: string;
   config: PluginConfig;
+  secretStore?: PluginSecretStore;
   publishEvent?: ExternalPluginLoadOptions['publishEvent'];
   timeoutMs?: number;
   maxStderrBytes?: number;
+  memoryLimitMb?: number;
+  logger: Pick<Console, 'debug' | 'info' | 'warn' | 'error'>;
 }): Promise<DockscopePlugin> {
-  const manifestCommands = options.manifest.commands ?? [];
-  const graphSources = options.manifest.capabilities.includes('source.graph')
-    ? (
-        await describeIsolatedPluginGraphSources({
-          entryPath: options.entryPath,
-          manifest: options.manifest,
-          pluginDir: options.pluginDir,
-          config: options.config,
-          timeoutMs: options.timeoutMs,
-          maxStderrBytes: options.maxStderrBytes,
-          publishEvent: options.publishEvent,
-        })
-      ).map((descriptor) => createGraphSourceProxy(options, descriptor))
-    : [];
+  const sandbox = new PluginProcessSandbox({
+    ...options,
+    onCrash: (error, restartCount) => {
+      options.logger.error(
+        `Plugin process crashed (${options.manifest.id}, restart ${restartCount}): ${error.message}`,
+      );
+      void options.publishEvent?.(options.manifest.id, 'runtime.crashed', {
+        message: error.message,
+        restartCount,
+      });
+    },
+  });
+  let descriptor: SandboxPluginDescriptor;
+  try {
+    descriptor = await sandbox.initialize();
+  } catch (error) {
+    sandbox.dispose();
+    throw error;
+  }
+  if (descriptor.manifest.id !== options.manifest.id) {
+    sandbox.dispose();
+    throw new Error(
+      `Plugin process manifest id "${descriptor.manifest.id}" does not match "${options.manifest.id}"`,
+    );
+  }
+  const manifest = validatePluginManifest({
+    ...descriptor.manifest,
+    execution: {
+      ...descriptor.manifest.execution,
+      isolation: 'process',
+    },
+  });
+  const graphSources: GraphSourceAdapter[] = descriptor.graphSources.map((source) => {
+    const adapter: GraphSourceAdapter = {
+      describe: () => ({ ...source.descriptor }),
+      collectGraph: () =>
+        sandbox.request<SourceGraphSnapshot>({
+          type: 'collectGraph',
+          sourceId: source.descriptor.id,
+        }),
+    };
+    if (source.supportsEvents) {
+      adapter.startEvents = (callback, onError, onClose) =>
+        sandbox.openStream(
+          (streamId) => ({
+            type: 'startGraphEvents',
+            sourceId: source.descriptor.id,
+            streamId,
+          }),
+          {
+            onData: (event) => callback(event as SourceEvent),
+            onError: (error) => onError?.(error),
+            onEnd: () => onClose?.(),
+          },
+        );
+    }
+    return adapter;
+  });
+  const canHandleEntity = (
+    provider: SandboxEntityProviderKind,
+    providerIndex: number,
+    ref: Parameters<EntityStatsProvider['canHandle']>[0],
+  ) =>
+    sandbox.request<boolean>({
+      type: 'canHandleEntity',
+      provider,
+      providerIndex,
+      ref,
+    });
   const plugin: DockscopePlugin = {
-    manifest: options.manifest,
-    getCommands: () => manifestCommands,
-    runCommand: (commandId, input) =>
-      runIsolatedPluginCommand({
-        entryPath: options.entryPath,
-        manifest: options.manifest,
-        pluginDir: options.pluginDir,
-        config: options.config,
-        commandId,
-        input,
-        timeoutMs: options.timeoutMs,
-        maxStderrBytes: options.maxStderrBytes,
-        publishEvent: options.publishEvent,
-      }),
+    manifest,
+    configure: (config) => sandbox.configure(config),
+    start: () => sandbox.start(),
+    stop: () => sandbox.stop(),
   };
-  if (options.manifest.capabilities.includes('source.graph')) {
+  if (manifest.capabilities.includes('ui.command')) {
+    plugin.getCommands = () => descriptor.commands;
+    plugin.runCommand = (commandId, input) =>
+      sandbox.request<PluginCommandResult>({ type: 'runCommand', commandId, input });
+  }
+  if (descriptor.ui.length > 0) {
+    plugin.getUiExtensions = () => descriptor.ui;
+  }
+  if (manifest.capabilities.includes('source.graph')) {
     plugin.getGraphSources = () => graphSources;
+  }
+  if (descriptor.providers.stats > 0) {
+    const providers: EntityStatsProvider[] = Array.from(
+      { length: descriptor.providers.stats },
+      (_, providerIndex) => ({
+        canHandle: (ref) => canHandleEntity('stats', providerIndex, ref),
+        getStats: (ref) =>
+          sandbox.request<ContainerStats>({ type: 'getStats', providerIndex, ref }),
+      }),
+    );
+    plugin.getStatsProviders = () => providers;
+  }
+  if (descriptor.providers.logs > 0) {
+    const providers: EntityLogsProvider[] = Array.from(
+      { length: descriptor.providers.logs },
+      (_, providerIndex) => ({
+        canHandle: (ref) => canHandleEntity('logs', providerIndex, ref),
+        getLogs: (ref, requestOptions) =>
+          sandbox.request<string>({
+            type: 'getLogs',
+            providerIndex,
+            ref,
+            options: requestOptions,
+          }),
+      }),
+    );
+    plugin.getLogsProviders = () => providers;
+  }
+  if (descriptor.providers.logStream > 0) {
+    const providers: EntityLogStreamProvider[] = Array.from(
+      { length: descriptor.providers.logStream },
+      (_, providerIndex) => ({
+        canHandle: (ref) => canHandleEntity('logStream', providerIndex, ref),
+        streamLogs: (ref, onData, onError) =>
+          sandbox.openStream(
+            (streamId) => ({ type: 'startLogStream', providerIndex, ref, streamId }),
+            {
+              onData: (data) => {
+                if (typeof data === 'string') {
+                  onData(data);
+                }
+              },
+              onError: (error) => onError?.(error),
+              onEnd: () => {},
+            },
+          ),
+      }),
+    );
+    plugin.getLogStreamProviders = () => providers;
+  }
+  if (descriptor.providers.lifecycle > 0) {
+    const providers: EntityLifecycleProvider[] = Array.from(
+      { length: descriptor.providers.lifecycle },
+      (_, providerIndex) => ({
+        canHandle: (ref) => canHandleEntity('lifecycle', providerIndex, ref),
+        runLifecycleAction: (ref, action) =>
+          sandbox.request<void>({ type: 'runLifecycleAction', providerIndex, ref, action }),
+        removeEntity: (ref, requestOptions) =>
+          sandbox.request<void>({
+            type: 'removeEntity',
+            providerIndex,
+            ref,
+            options: requestOptions,
+          }),
+      }),
+    );
+    plugin.getLifecycleProviders = () => providers;
+  }
+  if (descriptor.providers.inspect > 0) {
+    const providers: EntityInspectProvider[] = Array.from(
+      { length: descriptor.providers.inspect },
+      (_, providerIndex) => ({
+        canHandle: (ref) => canHandleEntity('inspect', providerIndex, ref),
+        inspect: (ref) =>
+          sandbox.request<ContainerInspect>({ type: 'inspect', providerIndex, ref }),
+      }),
+    );
+    plugin.getInspectProviders = () => providers;
+  }
+  if (descriptor.providers.filesystem > 0) {
+    const providers: EntityFilesystemProvider[] = Array.from(
+      { length: descriptor.providers.filesystem },
+      (_, providerIndex) => ({
+        canHandle: (ref) => canHandleEntity('filesystem', providerIndex, ref),
+        getTop: (ref) =>
+          sandbox.request<ContainerTopResult>({ type: 'getTop', providerIndex, ref }),
+        getDiff: (ref) =>
+          sandbox.request<ContainerDiffEntry[]>({ type: 'getDiff', providerIndex, ref }),
+      }),
+    );
+    plugin.getFilesystemProviders = () => providers;
+  }
+  if (descriptor.providers.diagnostic > 0) {
+    const providers: EntityDiagnosticProvider[] = Array.from(
+      { length: descriptor.providers.diagnostic },
+      (_, providerIndex) => ({
+        canHandle: (ref) => canHandleEntity('diagnostic', providerIndex, ref),
+        diagnose: (ref) =>
+          sandbox.request<CrashDiagnostic | null>({ type: 'diagnose', providerIndex, ref }),
+      }),
+    );
+    plugin.getDiagnosticProviders = () => providers;
+  }
+  if (descriptor.providers.exec > 0) {
+    const providers: EntityExecProvider[] = Array.from(
+      { length: descriptor.providers.exec },
+      (_, providerIndex) => ({
+        canHandle: (ref) => canHandleEntity('exec', providerIndex, ref),
+        createExecSession: (ref, command) => sandbox.openExecSession(providerIndex, ref, command),
+      }),
+    );
+    plugin.getExecProviders = () => providers;
+  }
+  if (descriptor.providers.project > 0) {
+    const providers: ProjectProvider[] = Array.from(
+      { length: descriptor.providers.project },
+      (_, providerIndex) => ({
+        listProjects: () =>
+          sandbox.request<ProjectSummary[]>({ type: 'listProjects', providerIndex }),
+        runProjectAction: (project, action) =>
+          sandbox.request<string>({
+            type: 'runProjectAction',
+            providerIndex,
+            project,
+            action,
+          }),
+      }),
+    );
+    plugin.getProjectProviders = () => providers;
+  }
+  if (descriptor.providers.resource > 0) {
+    const providers: ResourceProvider[] = Array.from(
+      { length: descriptor.providers.resource },
+      (_, providerIndex) => ({
+        canHandle: (resourceId) =>
+          sandbox.request<boolean>({ type: 'canHandleResource', providerIndex, resourceId }),
+        getResourceLogs: (resourceId, requestOptions) =>
+          sandbox.request<string>({
+            type: 'getResourceLogs',
+            providerIndex,
+            resourceId,
+            options: requestOptions,
+          }),
+        runResourceAction: (resourceId, action, requestOptions) =>
+          sandbox.request<void>({
+            type: 'runResourceAction',
+            providerIndex,
+            resourceId,
+            action,
+            options: requestOptions,
+          }),
+      }),
+    );
+    plugin.getResourceProviders = () => providers;
   }
   return plugin;
 }
@@ -294,16 +495,19 @@ export async function loadExternalPlugins(
       phase = 'load';
       const entryPath = resolvePluginEntry(manifestPath, manifest);
       const pluginDir = path.dirname(manifestPath);
-      if (manifest.execution?.isolation === 'process') {
+      if (manifest.execution?.isolation !== 'in-process') {
         plugins.push(
           await createProcessIsolatedPlugin({
             manifest,
             pluginDir,
             entryPath,
             config,
+            secretStore: options.secretStore,
             publishEvent: options.publishEvent,
-            timeoutMs: manifest.execution.commandTimeoutMs ?? options.processCommandTimeoutMs,
-            maxStderrBytes: manifest.execution.maxStderrBytes ?? options.processMaxStderrBytes,
+            timeoutMs: manifest.execution?.commandTimeoutMs ?? options.processCommandTimeoutMs,
+            maxStderrBytes: manifest.execution?.maxStderrBytes ?? options.processMaxStderrBytes,
+            memoryLimitMb: manifest.execution?.memoryLimitMb ?? options.processMemoryLimitMb,
+            logger,
           }),
         );
         configs.set(manifest.id, config);
@@ -389,6 +593,7 @@ export async function loadExternalPluginsFromEnv(
     | 'cacheBust'
     | 'processCommandTimeoutMs'
     | 'processMaxStderrBytes'
+    | 'processMemoryLimitMb'
     | 'logger'
   > = {},
 ): Promise<ExternalPluginLoadResult> {

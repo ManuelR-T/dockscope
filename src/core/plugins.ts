@@ -85,6 +85,7 @@ export interface PluginManifest {
     isolation?: 'in-process' | 'process';
     commandTimeoutMs?: number;
     maxStderrBytes?: number;
+    memoryLimitMb?: number;
   };
   compatibility?: PluginCompatibility;
 }
@@ -325,6 +326,19 @@ export function validatePluginManifest(raw: unknown): PluginManifest {
   ) {
     throw new PluginManifestError('Plugin execution maxStderrBytes must be 1024..1000000');
   }
+  const memoryLimitMb =
+    execution && 'memoryLimitMb' in execution
+      ? (execution as { memoryLimitMb?: unknown }).memoryLimitMb
+      : undefined;
+  if (
+    memoryLimitMb !== undefined &&
+    (typeof memoryLimitMb !== 'number' ||
+      !Number.isFinite(memoryLimitMb) ||
+      memoryLimitMb < 32 ||
+      memoryLimitMb > 2048)
+  ) {
+    throw new PluginManifestError('Plugin execution memoryLimitMb must be 32..2048');
+  }
   const ui = validatePluginUiExtensions(manifest.ui);
   for (const extension of ui) {
     const requiredCapability = pluginUiSlotCapability(extension.slot);
@@ -353,8 +367,8 @@ export function validatePluginManifest(raw: unknown): PluginManifest {
     secrets,
     commands,
     execution:
-      isolation || commandTimeoutMs || maxStderrBytes
-        ? { isolation, commandTimeoutMs, maxStderrBytes }
+      isolation || commandTimeoutMs || maxStderrBytes || memoryLimitMb
+        ? { isolation, commandTimeoutMs, maxStderrBytes, memoryLimitMb }
         : undefined,
     compatibility,
   };
@@ -917,65 +931,68 @@ export class PluginRegistry {
   }
 
   async getStats(ref: EntityRef) {
-    return this.requireProvider('source.metrics', this.getStatsProviders(), ref).getStats(ref);
-  }
-
-  async getLogs(ref: EntityRef, options?: LogsOptions) {
-    return this.requireProvider('source.logs', this.getLogsProviders(), ref).getLogs(ref, options);
-  }
-
-  streamLogs(ref: EntityRef, onData: (text: string) => void, onError?: (error: Error) => void) {
-    return this.requireProvider('source.logs', this.getLogStreamProviders(), ref).streamLogs(
+    return (await this.requireProvider('source.metrics', this.getStatsProviders(), ref)).getStats(
       ref,
-      onData,
-      onError,
     );
   }
 
-  async runLifecycleAction(ref: EntityRef, action: LifecycleAction) {
-    return this.requireProvider(
-      'action.lifecycle',
-      this.getLifecycleProviders(),
-      ref,
-    ).runLifecycleAction(ref, action);
-  }
-
-  async removeEntity(ref: EntityRef, options?: RemoveOptions) {
-    return this.requireProvider('action.lifecycle', this.getLifecycleProviders(), ref).removeEntity(
+  async getLogs(ref: EntityRef, options?: LogsOptions) {
+    return (await this.requireProvider('source.logs', this.getLogsProviders(), ref)).getLogs(
       ref,
       options,
     );
   }
 
+  async streamLogs(
+    ref: EntityRef,
+    onData: (text: string) => void,
+    onError?: (error: Error) => void,
+  ) {
+    return (
+      await this.requireProvider('source.logs', this.getLogStreamProviders(), ref)
+    ).streamLogs(ref, onData, onError);
+  }
+
+  async runLifecycleAction(ref: EntityRef, action: LifecycleAction) {
+    return (
+      await this.requireProvider('action.lifecycle', this.getLifecycleProviders(), ref)
+    ).runLifecycleAction(ref, action);
+  }
+
+  async removeEntity(ref: EntityRef, options?: RemoveOptions) {
+    return (
+      await this.requireProvider('action.lifecycle', this.getLifecycleProviders(), ref)
+    ).removeEntity(ref, options);
+  }
+
   async inspect(ref: EntityRef) {
-    return this.requireProvider('source.inspect', this.getInspectProviders(), ref).inspect(ref);
+    return (await this.requireProvider('source.inspect', this.getInspectProviders(), ref)).inspect(
+      ref,
+    );
   }
 
   async getTop(ref: EntityRef) {
-    return this.requireProvider('action.filesystem', this.getFilesystemProviders(), ref).getTop(
-      ref,
-    );
+    return (
+      await this.requireProvider('action.filesystem', this.getFilesystemProviders(), ref)
+    ).getTop(ref);
   }
 
   async getDiff(ref: EntityRef) {
-    return this.requireProvider('action.filesystem', this.getFilesystemProviders(), ref).getDiff(
-      ref,
-    );
+    return (
+      await this.requireProvider('action.filesystem', this.getFilesystemProviders(), ref)
+    ).getDiff(ref);
   }
 
   async diagnose(ref: EntityRef) {
-    return this.requireProvider(
-      'analysis.diagnostics',
-      this.getDiagnosticProviders(),
-      ref,
+    return (
+      await this.requireProvider('analysis.diagnostics', this.getDiagnosticProviders(), ref)
     ).diagnose(ref);
   }
 
   async createExecSession(ref: EntityRef, command?: string[]) {
-    return this.requireProvider('action.exec', this.getExecProviders(), ref).createExecSession(
-      ref,
-      command,
-    );
+    return (
+      await this.requireProvider('action.exec', this.getExecProviders(), ref)
+    ).createExecSession(ref, command);
   }
 
   async listProjects() {
@@ -994,7 +1011,7 @@ export class PluginRegistry {
   }
 
   async getResourceLogs(resourceId: string, options?: LogsOptions) {
-    return this.requireResourceProvider('source.logs', resourceId).getResourceLogs(
+    return (await this.requireResourceProvider('source.logs', resourceId)).getResourceLogs(
       resourceId,
       options,
     );
@@ -1005,7 +1022,7 @@ export class PluginRegistry {
     action: ResourceAction,
     options?: ResourceActionOptions,
   ) {
-    return this.requireResourceProvider('action.lifecycle', resourceId).runResourceAction(
+    return (await this.requireResourceProvider('action.lifecycle', resourceId)).runResourceAction(
       resourceId,
       action,
       options,
@@ -1194,12 +1211,16 @@ export class PluginRegistry {
     );
   }
 
-  private requireProvider<T extends { canHandle(ref: EntityRef): boolean }>(
-    capability: PluginCapability,
-    providers: readonly T[],
-    ref: EntityRef,
-  ): T {
-    const provider = providers.find((candidate) => candidate.canHandle(ref));
+  private async requireProvider<
+    T extends { canHandle(ref: EntityRef): boolean | Promise<boolean> },
+  >(capability: PluginCapability, providers: readonly T[], ref: EntityRef): Promise<T> {
+    let provider: T | undefined;
+    for (const candidate of providers) {
+      if (await candidate.canHandle(ref)) {
+        provider = candidate;
+        break;
+      }
+    }
     if (!provider) {
       throw new PluginOperationError(
         404,
@@ -1209,13 +1230,17 @@ export class PluginRegistry {
     return provider;
   }
 
-  private requireResourceProvider(
+  private async requireResourceProvider(
     capability: PluginCapability,
     resourceId: string,
-  ): ResourceProvider {
-    const provider = this.getResourceProviders().find((candidate) =>
-      candidate.canHandle(resourceId),
-    );
+  ): Promise<ResourceProvider> {
+    let provider: ResourceProvider | undefined;
+    for (const candidate of this.getResourceProviders()) {
+      if (await candidate.canHandle(resourceId)) {
+        provider = candidate;
+        break;
+      }
+    }
     if (!provider) {
       throw new PluginOperationError(
         404,

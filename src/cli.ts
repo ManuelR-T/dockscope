@@ -461,10 +461,10 @@ program
     }
     if (result.plugins.length === 0 && result.errors.length === 0) {
       console.error('  No plugin manifests found');
-      process.exit(1);
     }
-    if (result.errors.length > 0) {
-      process.exit(1);
+    await Promise.all(result.plugins.map((plugin) => plugin.stop?.()));
+    if (result.errors.length > 0 || result.plugins.length === 0) {
+      process.exitCode = 1;
     }
   });
 

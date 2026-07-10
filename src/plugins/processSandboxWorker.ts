@@ -1,35 +1,145 @@
 import { pathToFileURL } from 'url';
-import { errorMessage } from '../utils.js';
-import type { DockscopePlugin, PluginManifest } from '../core/plugins.js';
-import { validatePluginManifest } from '../core/plugins.js';
-import type { PluginConfig } from '../core/plugin-config.js';
 import type { PluginCommandResult } from '../core/plugin-commands.js';
 import { validatePluginCommandResult } from '../core/plugin-commands.js';
-import { createPluginHostApi } from './hostApi.js';
-import { createPluginSecretStoreFromEnv } from './secretStore.js';
+import type { GraphSourceAdapter } from '../core/model.js';
+import type {
+  EntityDiagnosticProvider,
+  EntityExecProvider,
+  EntityFilesystemProvider,
+  EntityInspectProvider,
+  EntityLifecycleProvider,
+  EntityLogsProvider,
+  EntityLogStreamProvider,
+  EntityStatsProvider,
+  ProjectProvider,
+  ResourceProvider,
+} from '../core/operations.js';
+import type { DockscopePlugin, PluginManifest } from '../core/plugins.js';
+import { validatePluginManifest } from '../core/plugins.js';
+import type { PluginUiExtensionDeclaration } from '../core/plugin-ui.js';
+import { validatePluginUiExtensions } from '../core/plugin-ui.js';
+import { errorMessage } from '../utils.js';
+import type { PluginHostApi } from './hostApi.js';
 import type { PluginFactoryContext } from './loader.js';
-import type { SandboxRequest } from './processSandbox.js';
+import type {
+  SandboxBootstrap,
+  SandboxHostCall,
+  SandboxHostCallMessage,
+  SandboxHostResultMessage,
+  SandboxNotificationOperation,
+  SandboxParentMessage,
+  SandboxPluginDescriptor,
+  SandboxRequestMessage,
+  SandboxRequestOperation,
+  SandboxWorkerMessage,
+} from './processProtocol.js';
 
 type ExternalPluginModule = Record<string, unknown>;
 type PluginFactory = (context: PluginFactoryContext) => DockscopePlugin | Promise<DockscopePlugin>;
+
+interface PendingHostCall {
+  resolve(result: unknown): void;
+  reject(error: Error): void;
+}
+
+let plugin: DockscopePlugin | undefined;
+let hostCallSequence = 0;
+const pendingHostCalls = new Map<string, PendingHostCall>();
+const streamStops = new Map<string, () => void>();
+const execSessions = new Map<
+  string,
+  Awaited<ReturnType<EntityExecProvider['createExecSession']>>
+>();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function isSandboxRequest(value: unknown): value is SandboxRequest {
-  return (
-    isRecord(value) &&
-    (value.type === 'runCommand' ||
-      value.type === 'describeGraphSources' ||
-      value.type === 'collectGraph') &&
-    typeof value.entryPath === 'string' &&
-    isRecord(value.manifest) &&
-    typeof value.pluginDir === 'string' &&
-    isRecord(value.config) &&
-    (value.type !== 'runCommand' || typeof value.commandId === 'string') &&
-    (value.type !== 'collectGraph' || typeof value.sourceId === 'string')
-  );
+function isParentMessage(value: unknown): value is SandboxParentMessage {
+  if (!isRecord(value) || typeof value.type !== 'string') {
+    return false;
+  }
+  if (value.type === 'request') {
+    return typeof value.requestId === 'string' && isRecord(value.operation);
+  }
+  if (value.type === 'notification') {
+    return isRecord(value.operation);
+  }
+  return value.type === 'hostResult' && typeof value.callId === 'string';
+}
+
+function send(message: SandboxWorkerMessage): void {
+  process.send?.(message);
+}
+
+function safeLogValue(value: unknown): unknown {
+  if (
+    value === undefined ||
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  ) {
+    return value;
+  }
+  if (value instanceof Error) {
+    return { name: value.name, message: value.message, stack: value.stack };
+  }
+  try {
+    return JSON.parse(JSON.stringify(value)) as unknown;
+  } catch {
+    return String(value);
+  }
+}
+
+function sandboxLogger(): PluginFactoryContext['logger'] {
+  const write = (level: 'debug' | 'info' | 'warn' | 'error', args: unknown[]) => {
+    send({ type: 'log', level, args: args.map(safeLogValue) });
+  };
+  return {
+    debug: (...args) => write('debug', args),
+    info: (...args) => write('info', args),
+    warn: (...args) => write('warn', args),
+    error: (...args) => write('error', args),
+  };
+}
+
+function callHost<T>(call: SandboxHostCall): Promise<T> {
+  const callId = `host:${++hostCallSequence}`;
+  return new Promise<T>((resolve, reject) => {
+    pendingHostCalls.set(callId, {
+      resolve: (result) => resolve(result as T),
+      reject,
+    });
+    const message: SandboxHostCallMessage = { type: 'hostCall', callId, call };
+    if (!process.send) {
+      pendingHostCalls.delete(callId);
+      reject(new Error('Plugin host IPC is unavailable'));
+      return;
+    }
+    process.send(message, (error) => {
+      if (error) {
+        pendingHostCalls.delete(callId);
+        reject(error);
+      }
+    });
+  });
+}
+
+function createHostProxy(pluginManifest: PluginManifest): PluginHostApi {
+  return {
+    permissions: [...pluginManifest.permissions],
+    readTextFile: (relativePath) => callHost({ method: 'readTextFile', relativePath }),
+    writeTextFile: (relativePath, contents) =>
+      callHost({ method: 'writeTextFile', relativePath, contents }),
+    fetchJson: (url, init) => callHost({ method: 'fetchJson', url, init }),
+    execFile: (command, args = []) => callHost({ method: 'execFile', command, args: [...args] }),
+    readSecret: (key) => callHost({ method: 'readSecret', key }),
+    readStorage: (key) => callHost({ method: 'readStorage', key }),
+    writeStorage: (key, value) => callHost({ method: 'writeStorage', key, value }),
+    deleteStorage: (key) => callHost({ method: 'deleteStorage', key }),
+    publishEvent: (eventType, payload) => callHost({ method: 'publishEvent', eventType, payload }),
+  };
 }
 
 function pluginFactoryFromModule(module: ExternalPluginModule): PluginFactory | DockscopePlugin {
@@ -44,99 +154,382 @@ function isPluginFactory(value: PluginFactory | DockscopePlugin): value is Plugi
   return typeof value === 'function';
 }
 
-async function instantiatePlugin(
-  module: ExternalPluginModule,
-  manifest: PluginManifest,
-  pluginDir: string,
-  config: PluginConfig,
-): Promise<DockscopePlugin> {
-  const host = createPluginHostApi({
-    pluginId: manifest.id,
-    pluginDir,
-    capabilities: manifest.capabilities,
-    permissions: manifest.permissions,
-    secrets: manifest.secrets,
-    secretStore: createPluginSecretStoreFromEnv(process.env),
-    publishEvent: async (type, payload) => {
-      process.send?.({ type: 'event', eventType: type, payload });
-      return {
-        id: `${Date.now()}-sandbox`,
-        pluginId: manifest.id,
-        type,
-        payload,
-        time: Date.now(),
-      };
-    },
-  });
+async function instantiatePlugin(bootstrap: SandboxBootstrap): Promise<DockscopePlugin> {
+  const validatedManifest = validatePluginManifest(bootstrap.manifest);
+  const module = (await import(pathToFileURL(bootstrap.entryPath).href)) as ExternalPluginModule;
   const candidate = pluginFactoryFromModule(module);
-  const plugin = isPluginFactory(candidate)
-    ? await candidate({ manifest, pluginDir, config, host, logger: console })
-    : candidate;
-  if (!plugin || typeof plugin !== 'object') {
+  const context: PluginFactoryContext = {
+    manifest: validatedManifest,
+    pluginDir: bootstrap.pluginDir,
+    config: bootstrap.config,
+    host: createHostProxy(validatedManifest),
+    logger: sandboxLogger(),
+  };
+  const instance = isPluginFactory(candidate) ? await candidate(context) : candidate;
+  if (!instance || typeof instance !== 'object') {
     throw new Error('Plugin module did not return a plugin object');
   }
-  const validatedManifest = validatePluginManifest(plugin.manifest);
-  if (validatedManifest.id !== manifest.id) {
+  const instanceManifest = validatePluginManifest(instance.manifest);
+  if (instanceManifest.id !== validatedManifest.id) {
     throw new Error(
-      `Plugin module manifest id "${validatedManifest.id}" does not match plugin.json id "${manifest.id}"`,
+      `Plugin module manifest id "${instanceManifest.id}" does not match plugin.json id "${validatedManifest.id}"`,
     );
   }
-  return { ...plugin, manifest: validatedManifest };
+  return { ...instance, manifest: instanceManifest };
 }
 
-async function loadPlugin(request: SandboxRequest): Promise<DockscopePlugin> {
-  const manifest = validatePluginManifest(request.manifest);
-  const module = (await import(pathToFileURL(request.entryPath).href)) as ExternalPluginModule;
-  return instantiatePlugin(module, manifest, request.pluginDir, request.config);
-}
-
-async function runCommand(request: SandboxRequest): Promise<PluginCommandResult> {
-  if (request.type !== 'runCommand') {
-    throw new Error('Invalid command request');
+function requirePlugin(): DockscopePlugin {
+  if (!plugin) {
+    throw new Error('Plugin process is not initialized');
   }
-  const plugin = await loadPlugin(request);
-  if (!plugin.runCommand) {
-    throw new Error(`Plugin does not implement commands: ${plugin.manifest.id}`);
-  }
-  return validatePluginCommandResult(await plugin.runCommand(request.commandId, request.input));
+  return plugin;
 }
 
-async function describeGraphSources(request: SandboxRequest) {
-  const plugin = await loadPlugin(request);
-  return (plugin.getGraphSources?.() ?? []).map((source) => source.describe());
+function itemAt<T>(items: readonly T[], index: number, kind: string): T {
+  const item = items[index];
+  if (!item) {
+    throw new Error(`Plugin ${kind} provider not found at index ${index}`);
+  }
+  return item;
 }
 
-async function collectGraph(request: SandboxRequest) {
-  if (request.type !== 'collectGraph') {
-    throw new Error('Invalid graph collect request');
-  }
-  const plugin = await loadPlugin(request);
-  const source = (plugin.getGraphSources?.() ?? []).find(
-    (candidate) => candidate.describe().id === request.sourceId,
+function graphSources(): readonly GraphSourceAdapter[] {
+  return requirePlugin().getGraphSources?.() ?? [];
+}
+
+function statsProviders(): readonly EntityStatsProvider[] {
+  return requirePlugin().getStatsProviders?.() ?? [];
+}
+
+function logsProviders(): readonly EntityLogsProvider[] {
+  return requirePlugin().getLogsProviders?.() ?? [];
+}
+
+function logStreamProviders(): readonly EntityLogStreamProvider[] {
+  return requirePlugin().getLogStreamProviders?.() ?? [];
+}
+
+function lifecycleProviders(): readonly EntityLifecycleProvider[] {
+  return requirePlugin().getLifecycleProviders?.() ?? [];
+}
+
+function inspectProviders(): readonly EntityInspectProvider[] {
+  return requirePlugin().getInspectProviders?.() ?? [];
+}
+
+function filesystemProviders(): readonly EntityFilesystemProvider[] {
+  return requirePlugin().getFilesystemProviders?.() ?? [];
+}
+
+function diagnosticProviders(): readonly EntityDiagnosticProvider[] {
+  return requirePlugin().getDiagnosticProviders?.() ?? [];
+}
+
+function execProviders(): readonly EntityExecProvider[] {
+  return requirePlugin().getExecProviders?.() ?? [];
+}
+
+function projectProviders(): readonly ProjectProvider[] {
+  return requirePlugin().getProjectProviders?.() ?? [];
+}
+
+function resourceProviders(): readonly ResourceProvider[] {
+  return requirePlugin().getResourceProviders?.() ?? [];
+}
+
+function describePlugin(): SandboxPluginDescriptor {
+  const instance = requirePlugin();
+  const ui: PluginUiExtensionDeclaration[] = validatePluginUiExtensions(
+    instance.getUiExtensions?.() ?? [],
   );
-  if (!source) {
-    throw new Error(`Plugin graph source not found: ${request.sourceId}`);
-  }
-  return source.collectGraph();
+  return {
+    manifest: instance.manifest,
+    graphSources: graphSources().map((source) => ({
+      descriptor: source.describe(),
+      supportsEvents: Boolean(source.startEvents),
+    })),
+    providers: {
+      stats: statsProviders().length,
+      logs: logsProviders().length,
+      logStream: logStreamProviders().length,
+      lifecycle: lifecycleProviders().length,
+      inspect: inspectProviders().length,
+      filesystem: filesystemProviders().length,
+      diagnostic: diagnosticProviders().length,
+      exec: execProviders().length,
+      project: projectProviders().length,
+      resource: resourceProviders().length,
+    },
+    commands: [...(instance.getCommands?.() ?? [])],
+    ui,
+  };
 }
 
-process.once('message', (message: unknown) => {
-  void (async () => {
-    try {
-      if (!isSandboxRequest(message)) {
-        throw new Error('Invalid plugin sandbox request');
+async function canHandleEntity(
+  operation: Extract<SandboxRequestOperation, { type: 'canHandleEntity' }>,
+) {
+  switch (operation.provider) {
+    case 'stats':
+      return statsProviders()[operation.providerIndex]?.canHandle(operation.ref) ?? false;
+    case 'logs':
+      return logsProviders()[operation.providerIndex]?.canHandle(operation.ref) ?? false;
+    case 'logStream':
+      return logStreamProviders()[operation.providerIndex]?.canHandle(operation.ref) ?? false;
+    case 'lifecycle':
+      return lifecycleProviders()[operation.providerIndex]?.canHandle(operation.ref) ?? false;
+    case 'inspect':
+      return inspectProviders()[operation.providerIndex]?.canHandle(operation.ref) ?? false;
+    case 'filesystem':
+      return filesystemProviders()[operation.providerIndex]?.canHandle(operation.ref) ?? false;
+    case 'diagnostic':
+      return diagnosticProviders()[operation.providerIndex]?.canHandle(operation.ref) ?? false;
+    case 'exec':
+      return execProviders()[operation.providerIndex]?.canHandle(operation.ref) ?? false;
+  }
+}
+
+function stopStream(streamId: string): void {
+  streamStops.get(streamId)?.();
+  streamStops.delete(streamId);
+  const session = execSessions.get(streamId);
+  if (session) {
+    const destroy = (session.stream as NodeJS.ReadWriteStream & { destroy?: () => void }).destroy;
+    destroy?.call(session.stream);
+    execSessions.delete(streamId);
+  }
+}
+
+function stopAllStreams(): void {
+  for (const streamId of new Set([...streamStops.keys(), ...execSessions.keys()])) {
+    stopStream(streamId);
+  }
+}
+
+async function handleOperation(operation: SandboxRequestOperation): Promise<unknown> {
+  switch (operation.type) {
+    case 'initialize':
+      if (!plugin) {
+        plugin = await instantiatePlugin(operation.bootstrap);
       }
-      const result =
-        message.type === 'runCommand'
-          ? await runCommand(message)
-          : message.type === 'describeGraphSources'
-            ? await describeGraphSources(message)
-            : await collectGraph(message);
-      process.send?.({ type: 'result', result });
-    } catch (error) {
-      process.send?.({ type: 'error', message: errorMessage(error) });
-    } finally {
-      process.disconnect();
+      return describePlugin();
+    case 'configure':
+      await requirePlugin().configure?.(operation.config);
+      return undefined;
+    case 'start':
+      await requirePlugin().start?.();
+      return undefined;
+    case 'stop':
+      stopAllStreams();
+      await requirePlugin().stop?.();
+      return undefined;
+    case 'runCommand': {
+      const instance = requirePlugin();
+      if (!instance.runCommand) {
+        throw new Error(`Plugin does not implement commands: ${instance.manifest.id}`);
+      }
+      return validatePluginCommandResult(
+        await instance.runCommand(operation.commandId, operation.input),
+      ) satisfies PluginCommandResult;
     }
-  })();
+    case 'collectGraph': {
+      const source = graphSources().find(
+        (candidate) => candidate.describe().id === operation.sourceId,
+      );
+      if (!source) {
+        throw new Error(`Plugin graph source not found: ${operation.sourceId}`);
+      }
+      return source.collectGraph();
+    }
+    case 'canHandleEntity':
+      return Boolean(await canHandleEntity(operation));
+    case 'getStats':
+      return itemAt(statsProviders(), operation.providerIndex, 'stats').getStats(operation.ref);
+    case 'getLogs':
+      return itemAt(logsProviders(), operation.providerIndex, 'logs').getLogs(
+        operation.ref,
+        operation.options,
+      );
+    case 'runLifecycleAction':
+      return itemAt(lifecycleProviders(), operation.providerIndex, 'lifecycle').runLifecycleAction(
+        operation.ref,
+        operation.action,
+      );
+    case 'removeEntity':
+      return itemAt(lifecycleProviders(), operation.providerIndex, 'lifecycle').removeEntity(
+        operation.ref,
+        operation.options,
+      );
+    case 'inspect':
+      return itemAt(inspectProviders(), operation.providerIndex, 'inspect').inspect(operation.ref);
+    case 'getTop':
+      return itemAt(filesystemProviders(), operation.providerIndex, 'filesystem').getTop(
+        operation.ref,
+      );
+    case 'getDiff':
+      return itemAt(filesystemProviders(), operation.providerIndex, 'filesystem').getDiff(
+        operation.ref,
+      );
+    case 'diagnose':
+      return itemAt(diagnosticProviders(), operation.providerIndex, 'diagnostic').diagnose(
+        operation.ref,
+      );
+    case 'listProjects':
+      return itemAt(projectProviders(), operation.providerIndex, 'project').listProjects();
+    case 'runProjectAction':
+      return itemAt(projectProviders(), operation.providerIndex, 'project').runProjectAction(
+        operation.project,
+        operation.action,
+      );
+    case 'canHandleResource':
+      return Boolean(
+        await resourceProviders()[operation.providerIndex]?.canHandle(operation.resourceId),
+      );
+    case 'getResourceLogs':
+      return itemAt(resourceProviders(), operation.providerIndex, 'resource').getResourceLogs(
+        operation.resourceId,
+        operation.options,
+      );
+    case 'runResourceAction':
+      return itemAt(resourceProviders(), operation.providerIndex, 'resource').runResourceAction(
+        operation.resourceId,
+        operation.action,
+        operation.options,
+      );
+    case 'startGraphEvents': {
+      const source = graphSources().find(
+        (candidate) => candidate.describe().id === operation.sourceId,
+      );
+      if (!source?.startEvents) {
+        throw new Error(`Plugin graph source does not implement events: ${operation.sourceId}`);
+      }
+      const stop = source.startEvents(
+        (event) =>
+          send({ type: 'stream', streamId: operation.streamId, event: 'data', data: event }),
+        (error) =>
+          send({
+            type: 'stream',
+            streamId: operation.streamId,
+            event: 'error',
+            message: error.message,
+          }),
+        () => send({ type: 'stream', streamId: operation.streamId, event: 'end' }),
+      );
+      streamStops.set(operation.streamId, stop);
+      return true;
+    }
+    case 'startLogStream': {
+      const provider = itemAt(logStreamProviders(), operation.providerIndex, 'log stream');
+      const stop = await provider.streamLogs(
+        operation.ref,
+        (text) => send({ type: 'stream', streamId: operation.streamId, event: 'data', data: text }),
+        (error) =>
+          send({
+            type: 'stream',
+            streamId: operation.streamId,
+            event: 'error',
+            message: error.message,
+          }),
+      );
+      streamStops.set(operation.streamId, stop);
+      return true;
+    }
+    case 'startExecSession': {
+      const session = await itemAt(
+        execProviders(),
+        operation.providerIndex,
+        'exec',
+      ).createExecSession(operation.ref, operation.command);
+      execSessions.set(operation.streamId, session);
+      session.stream.on('data', (chunk: Buffer | string) => {
+        send({
+          type: 'stream',
+          streamId: operation.streamId,
+          event: 'data',
+          data: typeof chunk === 'string' ? chunk : new Uint8Array(chunk),
+        });
+      });
+      session.stream.on('end', () => {
+        execSessions.delete(operation.streamId);
+        send({ type: 'stream', streamId: operation.streamId, event: 'end' });
+      });
+      session.stream.on('error', (error: Error) => {
+        execSessions.delete(operation.streamId);
+        send({
+          type: 'stream',
+          streamId: operation.streamId,
+          event: 'error',
+          message: error.message,
+        });
+      });
+      return true;
+    }
+    case 'inspectExecSession': {
+      const session = execSessions.get(operation.streamId);
+      if (!session) {
+        throw new Error(`Plugin exec session not found: ${operation.streamId}`);
+      }
+      return session.inspect();
+    }
+    case 'stopStream':
+      stopStream(operation.streamId);
+      return undefined;
+  }
+}
+
+function handleNotification(operation: SandboxNotificationOperation): void {
+  if (operation.type === 'stopStream') {
+    stopStream(operation.streamId);
+    return;
+  }
+  const session = execSessions.get(operation.streamId);
+  if (session) {
+    session.stream.write(
+      typeof operation.data === 'string' ? operation.data : Buffer.from(operation.data),
+    );
+  }
+}
+
+function handleHostResult(message: SandboxHostResultMessage): void {
+  const pending = pendingHostCalls.get(message.callId);
+  if (!pending) {
+    return;
+  }
+  pendingHostCalls.delete(message.callId);
+  if (message.error) {
+    pending.reject(new Error(message.error));
+  } else {
+    pending.resolve(message.result);
+  }
+}
+
+async function handleRequest(message: SandboxRequestMessage): Promise<void> {
+  try {
+    const result = await handleOperation(message.operation);
+    send({ type: 'result', requestId: message.requestId, result });
+  } catch (error) {
+    send({ type: 'error', requestId: message.requestId, message: errorMessage(error) });
+  }
+}
+
+process.on('message', (raw: unknown) => {
+  if (!isParentMessage(raw)) {
+    return;
+  }
+  if (raw.type === 'hostResult') {
+    handleHostResult(raw);
+    return;
+  }
+  if (raw.type === 'notification') {
+    handleNotification(raw.operation);
+    return;
+  }
+  void handleRequest(raw);
+});
+
+process.on('disconnect', () => {
+  stopAllStreams();
+  for (const pending of pendingHostCalls.values()) {
+    pending.reject(new Error('Plugin host disconnected'));
+  }
+  pendingHostCalls.clear();
 });

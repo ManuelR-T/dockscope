@@ -43,6 +43,7 @@ describe('plugin API v1 contract', () => {
           isolation: 'process',
           commandTimeoutMs: 5000,
           maxStderrBytes: 32_000,
+          memoryLimitMb: 128,
         },
         ui: [
           {
@@ -60,7 +61,12 @@ describe('plugin API v1 contract', () => {
     ).toMatchObject({
       id: 'contract.v1',
       dockscopeApiVersion: '1',
-      execution: { isolation: 'process', commandTimeoutMs: 5000, maxStderrBytes: 32_000 },
+      execution: {
+        isolation: 'process',
+        commandTimeoutMs: 5000,
+        maxStderrBytes: 32_000,
+        memoryLimitMb: 128,
+      },
     });
   });
 });

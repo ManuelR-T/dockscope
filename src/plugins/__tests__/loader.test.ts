@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, writeFile } from 'fs/promises';
+import { access, mkdir, mkdtemp, readFile, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import path from 'path';
 import { describe, expect, it } from 'vitest';
@@ -293,7 +293,7 @@ describe('external plugin loader', () => {
     });
   });
 
-  it('defers process-isolated plugin imports until command execution', async () => {
+  it('loads process-isolated plugin code outside the main process', async () => {
     const pluginDir = await createPluginDir();
     const markerPath = path.join(pluginDir, 'imported.txt');
     const events: { pluginId: string; type: string; payload: unknown }[] = [];
@@ -306,14 +306,14 @@ describe('external plugin loader', () => {
       }),
       `
         import { writeFileSync } from 'fs';
-        writeFileSync(${JSON.stringify(markerPath)}, 'imported');
+        writeFileSync(${JSON.stringify(markerPath)}, String(process.pid));
 
         export default function createPlugin({ manifest, host }) {
           return {
             manifest,
             async runCommand(commandId, input) {
               await host.publishEvent('ping.ran', { commandId, input });
-              return { ok: true, message: commandId };
+              return { ok: true, message: commandId, data: { pid: process.pid } };
             }
           };
         }
@@ -330,13 +330,14 @@ describe('external plugin loader', () => {
     });
 
     expect(result.errors).toEqual([]);
-    expect(await exists(markerPath)).toBe(false);
+    expect(await exists(markerPath)).toBe(true);
+    const workerPid = Number(await readFile(markerPath, 'utf-8'));
+    expect(workerPid).not.toBe(process.pid);
     await expect(result.plugins[0].runCommand?.('ping', { count: 1 })).resolves.toEqual({
       ok: true,
       message: 'ping',
-      data: undefined,
+      data: { pid: workerPid },
     });
-    expect(await exists(markerPath)).toBe(true);
     expect(events).toEqual([
       {
         pluginId: 'external.demo',
@@ -396,6 +397,106 @@ describe('external plugin loader', () => {
       source: { id: 'isolated-source', pluginId: 'external.demo' },
       graph: { nodes: [], links: [] },
     });
+    await result.plugins[0].stop?.();
+  });
+
+  it('routes resource providers through the plugin process', async () => {
+    const pluginDir = await createPluginDir();
+    await writePlugin(
+      pluginDir,
+      manifest({
+        capabilities: ['source.logs', 'action.lifecycle', 'action.scale'],
+        execution: { isolation: 'process' },
+      }),
+      `
+        export default function createPlugin({ manifest }) {
+          return {
+            manifest,
+            getResourceProviders() {
+              return [{
+                canHandle(resourceId) {
+                  return resourceId.startsWith('pod:');
+                },
+                async getResourceLogs(resourceId, options) {
+                  return resourceId + ':tail=' + String(options?.tail ?? 0);
+                },
+                async runResourceAction(resourceId, action, options) {
+                  if (resourceId !== 'pod:default:api' || action !== 'restart' || options?.minReplicas !== 2) {
+                    throw new Error('unexpected resource action');
+                  }
+                }
+              }];
+            }
+          };
+        }
+      `,
+    );
+
+    const result = await loadExternalPlugins({ paths: [pluginDir], permissions: 'all' });
+    const provider = result.plugins[0].getResourceProviders?.()[0];
+
+    expect(result.errors).toEqual([]);
+    await expect(provider?.canHandle('pod:default:api')).resolves.toBe(true);
+    await expect(provider?.getResourceLogs('pod:default:api', { tail: 25 })).resolves.toBe(
+      'pod:default:api:tail=25',
+    );
+    await expect(
+      provider?.runResourceAction('pod:default:api', 'restart', { minReplicas: 2 }),
+    ).resolves.toBeUndefined();
+    await result.plugins[0].stop?.();
+  });
+
+  it('recovers with a fresh process after an isolated plugin crashes', async () => {
+    const pluginDir = await createPluginDir();
+    const events: { type: string; payload: unknown }[] = [];
+    await writePlugin(
+      pluginDir,
+      manifest({
+        capabilities: ['ui.command'],
+        commands: [
+          { id: 'pid', title: 'PID' },
+          { id: 'crash', title: 'Crash' },
+        ],
+        execution: { isolation: 'process', commandTimeoutMs: 2000 },
+      }),
+      `
+        export default function createPlugin({ manifest }) {
+          return {
+            manifest,
+            async runCommand(commandId) {
+              if (commandId === 'crash') {
+                process.exit(23);
+              }
+              return { ok: true, data: { pid: process.pid } };
+            }
+          };
+        }
+      `,
+    );
+
+    const result = await loadExternalPlugins({
+      paths: [pluginDir],
+      permissions: 'all',
+      publishEvent: (_pluginId, type, payload) => {
+        events.push({ type, payload });
+        return { id: 'event', pluginId: 'external.demo', type, payload, time: Date.now() };
+      },
+    });
+    const first = await result.plugins[0].runCommand?.('pid');
+
+    await expect(result.plugins[0].runCommand?.('crash')).rejects.toThrow('Plugin process exited');
+    const second = await result.plugins[0].runCommand?.('pid');
+
+    expect(first?.data).toEqual(expect.objectContaining({ pid: expect.any(Number) }));
+    expect(second?.data).toEqual(expect.objectContaining({ pid: expect.any(Number) }));
+    expect((first?.data as { pid: number }).pid).not.toBe((second?.data as { pid: number }).pid);
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: 'runtime.crashed',
+        payload: expect.objectContaining({ restartCount: 1 }),
+      }),
+    ]);
+    await result.plugins[0].stop?.();
   });
 
   it('loads from environment options and supports disabling external plugins', async () => {

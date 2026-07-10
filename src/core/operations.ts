@@ -36,7 +36,7 @@ export interface ResourceActionOptions {
 }
 
 export interface EntityProvider {
-  canHandle(ref: EntityRef): boolean;
+  canHandle(ref: EntityRef): boolean | Promise<boolean>;
 }
 
 export interface EntityStatsProvider extends EntityProvider {
@@ -52,7 +52,7 @@ export interface EntityLogStreamProvider extends EntityProvider {
     ref: EntityRef,
     onData: (text: string) => void,
     onError?: (error: Error) => void,
-  ): () => void;
+  ): (() => void) | Promise<() => void>;
 }
 
 export interface EntityLifecycleProvider extends EntityProvider {
@@ -88,7 +88,7 @@ export interface ProjectProvider {
 }
 
 export interface ResourceProvider {
-  canHandle(resourceId: string): boolean;
+  canHandle(resourceId: string): boolean | Promise<boolean>;
   getResourceLogs(resourceId: string, options?: LogsOptions): Promise<string>;
   runResourceAction(
     resourceId: string,

@@ -7,6 +7,12 @@
   "entry": "./plugin.mjs",
   "capabilities": ["source.graph", "source.logs", "action.lifecycle", "action.scale"],
   "permissions": ["kubernetes.api", "process.exec"],
+  "execution": {
+    "isolation": "process",
+    "commandTimeoutMs": 30000,
+    "maxStderrBytes": 64000,
+    "memoryLimitMb": 128
+  },
   "compatibility": {
     "minDockscopeVersion": "0.7.1"
   }

@@ -51,9 +51,9 @@ export function setupWebSocketHandlers(wss: WebSocketServer, opts: WebSocketOpti
   }
 
   const wsHandlers: WSHandlers = {
-    subscribe_logs: (ws, msg) => {
+    subscribe_logs: async (ws, msg) => {
       stopLogStream(ws);
-      const stop = opts.plugins.streamLogs(
+      const stop = await opts.plugins.streamLogs(
         entityRef(msg.data.containerId, msg.data.host),
         (text) => {
           if (ws.readyState === WebSocket.OPEN) {

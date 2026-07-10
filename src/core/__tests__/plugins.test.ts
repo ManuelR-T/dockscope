@@ -689,7 +689,7 @@ describe('PluginRegistry', () => {
     });
   });
 
-  it('routes stream log operations to a matching provider', () => {
+  it('routes stream log operations to a matching provider', async () => {
     const stop = vi.fn();
     const logStreamProvider: EntityLogStreamProvider = {
       canHandle: (ref) => ref.sourceId === 'source-a',
@@ -705,9 +705,9 @@ describe('PluginRegistry', () => {
       }),
     );
 
-    expect(
+    await expect(
       registry.streamLogs({ entityId: 'entity-a', sourceId: 'source-a' }, onData, onError),
-    ).toBe(stop);
+    ).resolves.toBe(stop);
     expect(logStreamProvider.streamLogs).toHaveBeenCalledWith(
       { entityId: 'entity-a', sourceId: 'source-a' },
       onData,

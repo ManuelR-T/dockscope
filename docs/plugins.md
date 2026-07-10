@@ -47,9 +47,10 @@ Every external plugin must include `plugin.json`:
   "capabilities": ["source.graph", "source.events", "ui.toolbarAction", "ui.settings", "ui.command"],
   "permissions": [],
   "execution": {
-    "isolation": "in-process",
+    "isolation": "process",
     "commandTimeoutMs": 30000,
-    "maxStderrBytes": 64000
+    "maxStderrBytes": 64000,
+    "memoryLimitMb": 128
   },
   "config": {
     "fields": [
@@ -200,19 +201,24 @@ GET /api/plugins/events?pluginId=example.plugin&type=refresh.completed&since=178
 
 ## Process Isolation
 
-By default, external plugins run in-process. Command and graph-source plugins can request process-level execution:
+External plugins run in a dedicated child process by default. Use the explicit `in-process` mode only for trusted local development plugins:
 
 ```json
 {
   "execution": {
     "isolation": "process",
     "commandTimeoutMs": 30000,
-    "maxStderrBytes": 64000
+    "maxStderrBytes": 64000,
+    "memoryLimitMb": 128
   }
 }
 ```
 
-For process-isolated plugins, DockScope validates the manifest and creates a proxy without importing the plugin module in the main server process. Commands and graph-source collection run inside forked workers. Other provider APIs still require in-process execution.
+DockScope validates the manifest and imports plugin code only inside a persistent worker. Commands, graph sources and events, entity providers, project providers, resource providers, log streams, and exec sessions are proxied over typed IPC. Permission-checked host calls execute in the parent process, and the worker receives a scrubbed environment instead of DockScope's full environment.
+
+`commandTimeoutMs` applies to each request. `memoryLimitMb` sets the worker's V8 old-generation heap limit, and `maxStderrBytes` terminates a worker that emits excessive stderr. A crash rejects in-flight work without taking down DockScope; the next operation starts a fresh worker. Mutating operations are not retried automatically.
+
+Process isolation is a fault and resource boundary, not a complete operating-system sandbox. Only install signed plugins from catalogs you trust.
 
 ## Packaging and Signing
 
