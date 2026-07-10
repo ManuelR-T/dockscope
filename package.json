@@ -17,7 +17,7 @@
     "dockscope": "dist/cli.js"
   },
   "scripts": {
-    "dev": "DOCKSCOPE_DEV=1 tsx watch src/cli.ts up --no-port-check",
+    "dev": "DOCKSCOPE_DEV=1 tsx watch --exclude \"$HOME/.dockscope/plugins/**\" --exclude \"../../../.dockscope/plugins/**\" --exclude \"/tmp/dockscope-*/**\" --exclude \"../../../../../tmp/dockscope-*/**\" src/cli.ts up --no-port-check",
     "build": "tsc -p tsconfig.server.json && vite build",
     "start": "node dist/cli.js up",
     "typecheck": "tsc --noEmit && svelte-check --tsconfig ./tsconfig.json",

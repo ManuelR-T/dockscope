@@ -502,6 +502,29 @@ export class PluginRegistry {
     this.reloadHandler = handler;
   }
 
+  async startPlugin(pluginId: string): Promise<PluginRuntimeInfo> {
+    if (!this.plugins.has(pluginId) || !this.runtime.has(pluginId)) {
+      throw new PluginOperationError(404, `Plugin not found: ${pluginId}`);
+    }
+    await this.start(pluginId);
+    return cloneRuntimeInfo(this.runtime.get(pluginId)!);
+  }
+
+  async unregisterPlugin(pluginId: string): Promise<{ ok: true }> {
+    const plugin = this.plugins.get(pluginId);
+    if (!plugin) {
+      throw new PluginOperationError(404, `Plugin not found: ${pluginId}`);
+    }
+    if (plugin.manifest.builtin) {
+      throw new PluginOperationError(400, `Built-in plugin cannot be unregistered: ${pluginId}`);
+    }
+    await this.stop(pluginId);
+    this.plugins.delete(pluginId);
+    this.runtime.delete(pluginId);
+    this.configs.delete(pluginId);
+    return { ok: true };
+  }
+
   listPlugins(): PluginRuntimeInfo[] {
     return [...this.runtime.values()].map(cloneRuntimeInfo);
   }

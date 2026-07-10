@@ -97,6 +97,12 @@ export type {
   ResolvedPluginCatalogEntry,
 } from './plugins/catalog.js';
 export { PLUGIN_CATALOG_FORMAT, PluginCatalogError } from './plugins/catalog.js';
+export type { InstalledPlugin } from './plugins/install.js';
+export type {
+  PluginMarketplaceEntry,
+  PluginMarketplaceEntryState,
+  PluginMarketplaceSnapshot,
+} from './plugins/marketplace.js';
 export type {
   Anomaly,
   ContainerDiffEntry,

@@ -222,6 +222,7 @@ program
   .option('--plugin-events <file>', 'Plugin event history JSON file')
   .option('--plugin-approvals <file>', 'Plugin approval JSON file')
   .option('--plugin-catalog <source>', 'Plugin catalog file or URL')
+  .option('--plugin-registry <dir>', 'Local plugin registry directory')
   .option('--no-external-plugins', 'Disable external plugin loading')
   .action(async (opts) => {
     const requestedPort = parseInt(opts.port, 10);
@@ -252,6 +253,7 @@ program
       pluginEvents: opts.pluginEvents,
       pluginApprovals: opts.pluginApprovals,
       pluginCatalog: opts.pluginCatalog,
+      pluginRegistry: opts.pluginRegistry,
       disableExternalPlugins: opts.externalPlugins === false,
     });
 

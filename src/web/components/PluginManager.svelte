@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getJson, requestJson } from '../lib/api';
+  import { apiErrorMessage, deleteJson, getJson, requestJson } from '../lib/api';
   import { addToast } from '../stores/toast.svelte';
   import type {
     PluginConfigSnapshot,
@@ -14,13 +14,10 @@
   import type { PluginCommand, PluginCommandResult } from '../../core/plugin-commands';
   import type { PluginEvent } from '../../core/plugin-events';
   import type { PluginCompatibilityReport } from '../../core/plugin-compatibility';
-  import type { ResolvedPluginCatalogEntry } from '../../plugins/catalog';
-
-  interface PluginCatalogResponse {
-    configured: boolean;
-    name?: string;
-    entries: ResolvedPluginCatalogEntry[];
-  }
+  import type {
+    PluginMarketplaceEntry,
+    PluginMarketplaceSnapshot,
+  } from '../../plugins/marketplace';
 
   interface Props {
     onClose: () => void;
@@ -34,7 +31,7 @@
     | 'commands'
     | 'events'
     | 'review'
-    | 'catalog'
+    | 'marketplace'
     | 'compatibility'
     | 'config'
     | 'secrets'
@@ -46,9 +43,12 @@
   let commands = $state<PluginCommand[]>([]);
   let events = $state<PluginEvent[]>([]);
   let reviews = $state<PluginReviewReport[]>([]);
-  let catalogConfigured = $state(false);
-  let catalogName = $state<string | undefined>();
-  let catalogEntries = $state<ResolvedPluginCatalogEntry[]>([]);
+  let marketplace = $state<PluginMarketplaceSnapshot>({
+    configured: false,
+    registryDir: '',
+    approvals: [],
+    entries: [],
+  });
   let compatibility = $state<PluginCompatibilityReport[]>([]);
   let configs = $state<PluginConfigSnapshot[]>([]);
   let secrets = $state<PluginSecretSnapshot[]>([]);
@@ -58,6 +58,7 @@
   let toggling = $state<string | null>(null);
   let reloading = $state<string | null>(null);
   let runningCommand = $state<string | null>(null);
+  let marketplaceAction = $state<string | null>(null);
 
   const configurable = $derived(
     configs.filter((config) => (config.schema?.fields.length ?? 0) > 0),
@@ -77,7 +78,7 @@
         commandData,
         eventData,
         reviewData,
-        catalogData,
+        marketplaceData,
         compatibilityData,
         configData,
         secretData,
@@ -88,7 +89,7 @@
         getJson<PluginCommand[]>('/api/plugins/commands'),
         getJson<PluginEvent[]>('/api/plugins/events'),
         getJson<PluginReviewReport[]>('/api/plugins/review'),
-        getJson<PluginCatalogResponse>('/api/plugins/catalog'),
+        getJson<PluginMarketplaceSnapshot>('/api/plugins/marketplace'),
         getJson<PluginCompatibilityReport[]>('/api/plugins/compatibility'),
         getJson<PluginConfigSnapshot[]>('/api/plugins/config'),
         getJson<PluginSecretSnapshot[]>('/api/plugins/secrets'),
@@ -99,9 +100,7 @@
       commands = commandData;
       events = eventData;
       reviews = reviewData;
-      catalogConfigured = catalogData.configured;
-      catalogName = catalogData.name;
-      catalogEntries = catalogData.entries;
+      marketplace = marketplaceData;
       compatibility = compatibilityData;
       configs = configData;
       secrets = secretData;
@@ -308,6 +307,37 @@
     }
   }
 
+  async function runMarketplaceAction(
+    entry: PluginMarketplaceEntry,
+    action: 'install' | 'update' | 'uninstall',
+  ) {
+    const key = `${entry.id}:${action}`;
+    if (marketplaceAction) {
+      return;
+    }
+    marketplaceAction = key;
+    try {
+      const encodedId = encodeURIComponent(entry.id);
+      if (action === 'uninstall') {
+        marketplace = await deleteJson<PluginMarketplaceSnapshot>(
+          `/api/plugins/marketplace/${encodedId}`,
+        );
+      } else {
+        marketplace = await requestJson<PluginMarketplaceSnapshot>(
+          `/api/plugins/marketplace/${encodedId}/${action}`,
+          { method: 'POST' },
+        );
+      }
+      await loadPluginState();
+      addToast(`${entry.name}: ${action} complete`, 'success');
+    } catch (error) {
+      const detail = apiErrorMessage(error);
+      addToast(`${entry.name}: ${action} failed${detail ? `: ${detail}` : ''}`, 'error');
+    } finally {
+      marketplaceAction = null;
+    }
+  }
+
   function eventPayload(event: PluginEvent): string {
     try {
       return JSON.stringify(event.payload, null, 2);
@@ -362,6 +392,51 @@
   function shortFingerprint(value: string): string {
     return value.slice(0, 12);
   }
+
+  function marketplaceLabel(entry: PluginMarketplaceEntry): string {
+    if (entry.state === 'update_available') {
+      return 'update';
+    }
+    if (entry.state === 'local') {
+      return 'local';
+    }
+    return entry.state;
+  }
+
+  function marketplaceActionLabel(entry: PluginMarketplaceEntry): string {
+    if (entry.state === 'available') {
+      return 'Install';
+    }
+    if (entry.state === 'update_available') {
+      return 'Update';
+    }
+    return 'Uninstall';
+  }
+
+  function marketplaceActionType(
+    entry: PluginMarketplaceEntry,
+  ): 'install' | 'update' | 'uninstall' {
+    if (entry.state === 'available') {
+      return 'install';
+    }
+    if (entry.state === 'update_available') {
+      return 'update';
+    }
+    return 'uninstall';
+  }
+
+  function marketplaceActionKey(entry: PluginMarketplaceEntry): string {
+    return `${entry.id}:${marketplaceActionType(entry)}`;
+  }
+
+  function marketplaceTrust(entry: PluginMarketplaceEntry): string {
+    if (entry.signature) {
+      return entry.signature.keyId
+        ? `${entry.signature.algorithm}:${entry.signature.keyId}`
+        : entry.signature.algorithm;
+    }
+    return entry.installed?.signatureAlgorithm ?? 'unsigned';
+  }
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -389,8 +464,12 @@
         <button class="tab" class:active={tab === 'review'} onclick={() => (tab = 'review')}>
           Review
         </button>
-        <button class="tab" class:active={tab === 'catalog'} onclick={() => (tab = 'catalog')}>
-          Catalog
+        <button
+          class="tab"
+          class:active={tab === 'marketplace'}
+          onclick={() => (tab = 'marketplace')}
+        >
+          Marketplace
         </button>
         <button
           class="tab"
@@ -647,20 +726,23 @@
             {/each}
           </div>
         {/if}
-      {:else if tab === 'catalog'}
-        {#if !catalogConfigured}
-          <div class="empty-msg">No plugin catalog configured.</div>
-        {:else if catalogEntries.length === 0}
-          <div class="empty-msg">{catalogName ?? 'Plugin catalog'} is empty.</div>
+      {:else if tab === 'marketplace'}
+        {#if !marketplace.configured && marketplace.entries.length === 0}
+          <div class="empty-msg">No plugin marketplace configured.</div>
+        {:else if marketplace.entries.length === 0}
+          <div class="empty-msg">{marketplace.catalogName ?? 'Plugin marketplace'} is empty.</div>
         {:else}
           <div class="summary-row">
-            <span>{catalogName}</span>
-            <span>{catalogEntries.length} entries</span>
+            <span>{marketplace.catalogName ?? 'Local plugins'}</span>
+            <span>{marketplace.entries.length} entries</span>
           </div>
+          <div class="path-line marketplace-registry">{marketplace.registryDir}</div>
           <div class="list">
-            {#each catalogEntries as entry}
+            {#each marketplace.entries as entry}
               <div class="item">
-                <div class="slot-badge">catalog</div>
+                <div class="slot-badge marketplace-{entry.state}">
+                  {marketplaceLabel(entry)}
+                </div>
                 <div class="item-main">
                   <div class="item-title">
                     <span>{entry.name}</span>
@@ -670,14 +752,35 @@
                     <div class="item-desc">{entry.description}</div>
                   {/if}
                   <div class="item-meta">
-                    <span>{entry.signature?.algorithm ?? 'unsigned'}</span>
+                    <span>{marketplaceTrust(entry)}</span>
+                    <span>{entry.capabilities.length} capabilities</span>
+                    <span>{entry.permissions.length} permissions</span>
                     {#if entry.category}
                       <span>{entry.category}</span>
                     {/if}
                     <span>{entry.tags.length} tags</span>
                   </div>
-                  <div class="item-desc">{entry.resolvedPackageUrl}</div>
+                  {#if entry.installed}
+                    <div class="item-desc">
+                      installed v{entry.installed.version}
+                      {#if entry.runtime}
+                        · {entry.runtime.enabled ? 'enabled' : 'disabled'} {entry.runtime.status}
+                      {/if}
+                    </div>
+                  {/if}
+                  <div class="item-desc">
+                    {entry.resolvedPackageUrl ?? entry.installed?.path ?? 'local registry'}
+                  </div>
                 </div>
+                <button
+                  class="save-btn"
+                  disabled={marketplaceAction !== null}
+                  onclick={() => runMarketplaceAction(entry, marketplaceActionType(entry))}
+                >
+                  {marketplaceAction === marketplaceActionKey(entry)
+                    ? 'Working...'
+                    : marketplaceActionLabel(entry)}
+                </button>
               </div>
             {/each}
           </div>
@@ -1051,6 +1154,31 @@
   .slot-badge.risk-high {
     background: rgba(255, 95, 122, 0.12);
     color: #ff5f7a;
+  }
+
+  .slot-badge.marketplace-available {
+    background: rgba(0, 228, 255, 0.1);
+    color: #00e4ff;
+  }
+
+  .slot-badge.marketplace-installed {
+    background: rgba(0, 255, 106, 0.08);
+    color: #00ff6a;
+  }
+
+  .slot-badge.marketplace-update_available {
+    background: rgba(255, 176, 46, 0.1);
+    color: #ffb02e;
+  }
+
+  .slot-badge.marketplace-local {
+    background: rgba(172, 138, 255, 0.12);
+    color: #bda5ff;
+  }
+
+  .marketplace-registry {
+    margin: -4px 0 10px;
+    overflow-wrap: anywhere;
   }
 
   .review-grid {

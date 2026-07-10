@@ -4,7 +4,7 @@ DockScope loads built-in features and external integrations through the same typ
 
 ## Loading
 
-External plugins are disabled unless a plugin path is provided.
+External plugins are loaded from the local plugin registry and any explicit plugin paths.
 
 ```bash
 dockscope up --plugins ./plugins --plugin-permissions all
@@ -22,10 +22,11 @@ DOCKSCOPE_PLUGIN_SECRET_KEY='local encryption key' dockscope up
 DOCKSCOPE_PLUGIN_EVENTS=./plugin-events.json dockscope up
 DOCKSCOPE_PLUGIN_APPROVALS=./plugin-approvals.json dockscope up
 DOCKSCOPE_PLUGIN_CATALOG=./plugin-catalog.json dockscope up
+DOCKSCOPE_PLUGIN_REGISTRY=./installed-plugins dockscope up
 DOCKSCOPE_DISABLE_EXTERNAL_PLUGINS=1 dockscope up
 ```
 
-`DOCKSCOPE_PLUGIN_PATHS` uses the platform path delimiter (`:` on Linux/macOS, `;` on Windows). Each entry can be either a plugin directory containing `plugin.json` or a directory containing multiple plugin directories.
+`DOCKSCOPE_PLUGIN_PATHS` uses the platform path delimiter (`:` on Linux/macOS, `;` on Windows). Each entry can be either a plugin directory containing `plugin.json` or a directory containing multiple plugin directories. The local registry is `~/.dockscope/plugins` by default and is included automatically unless external plugins are disabled.
 
 ## Manifest
 
@@ -119,10 +120,10 @@ dockscope plugin:uninstall example.plugin
 dockscope plugin:catalog:install example.plugin --catalog ./plugin-catalog.json
 ```
 
-Installed plugins are copied into `~/.dockscope/plugins` by default. Load that registry with:
+Installed plugins are copied into `~/.dockscope/plugins` by default and are loaded automatically on `dockscope up`. Use `--plugin-registry` or `DOCKSCOPE_PLUGIN_REGISTRY` to point DockScope at another local registry:
 
 ```bash
-dockscope up --plugins ~/.dockscope/plugins --plugin-permissions all
+dockscope up --plugin-registry ./installed-plugins --plugin-permissions all
 ```
 
 ## UI Extensions
@@ -250,7 +251,14 @@ A plugin catalog is a signed-package index. It can be a local JSON file or an HT
 }
 ```
 
-Use `dockscope plugin:catalog --catalog ./plugin-catalog.json` to inspect a catalog and `dockscope plugin:catalog:install <pluginId> --catalog ./plugin-catalog.json` to install from it.
+Use `dockscope plugin:catalog --catalog ./plugin-catalog.json` to inspect a catalog and `dockscope plugin:catalog:install <pluginId> --catalog ./plugin-catalog.json` to install from it. When DockScope is started with `--plugin-catalog`, the Plugin Manager Marketplace tab can install, update, and uninstall catalog plugins in the configured local registry.
+
+Marketplace API:
+
+- `GET /api/plugins/marketplace`
+- `POST /api/plugins/marketplace/:pluginId/install`
+- `POST /api/plugins/marketplace/:pluginId/update`
+- `DELETE /api/plugins/marketplace/:pluginId`
 
 ## Configuration
 
@@ -410,6 +418,10 @@ Use these endpoints to inspect plugin state:
 - `GET /api/plugins/events` returns recent plugin events.
 - `GET /api/plugins/review` returns permission/capability review reports.
 - `GET /api/plugins/catalog` returns the configured plugin catalog.
+- `GET /api/plugins/marketplace` returns catalog entries merged with local install state.
+- `POST /api/plugins/marketplace/:pluginId/install` installs a catalog plugin.
+- `POST /api/plugins/marketplace/:pluginId/update` updates an installed catalog plugin.
+- `DELETE /api/plugins/marketplace/:pluginId` uninstalls a local marketplace plugin.
 - `GET /api/plugins/approvals` returns persisted plugin approvals.
 - `GET /api/plugins/compatibility` returns version, deprecation, and migration reports.
 - `POST /api/plugins/:pluginId/migrate` runs a declared compatibility migration.

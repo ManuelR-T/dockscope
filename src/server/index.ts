@@ -11,6 +11,10 @@ import type { ServerOptions, ServerHandle, WSMessage } from '../types.js';
 import { setupWebSocketHandlers } from './websocket.js';
 import { createServerMonitor } from './monitor.js';
 import { createPluginRegistry } from '../plugins/internal.js';
+import {
+  createPluginMarketplaceService,
+  pluginRegistryDirFromEnv,
+} from '../plugins/marketplace.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -43,8 +47,21 @@ function pluginEnvironment(opts: ServerOptions): NodeJS.ProcessEnv {
   if (opts.pluginCatalog !== undefined) {
     env.DOCKSCOPE_PLUGIN_CATALOG = opts.pluginCatalog;
   }
+  if (opts.pluginRegistry !== undefined) {
+    env.DOCKSCOPE_PLUGIN_REGISTRY = opts.pluginRegistry;
+  }
   if (opts.disableExternalPlugins) {
     env.DOCKSCOPE_DISABLE_EXTERNAL_PLUGINS = '1';
+  }
+  if (!opts.disableExternalPlugins) {
+    const registryDir = pluginRegistryDirFromEnv(env);
+    const paths = (env.DOCKSCOPE_PLUGIN_PATHS ?? '')
+      .split(path.delimiter)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (!paths.includes(registryDir)) {
+      env.DOCKSCOPE_PLUGIN_PATHS = [registryDir, ...paths].join(path.delimiter);
+    }
   }
   return env;
 }
@@ -54,7 +71,9 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
     initDockerClient(opts.host);
   }
   initHosts(opts.host);
-  const plugins = await createPluginRegistry(pluginEnvironment(opts));
+  const pluginEnv = pluginEnvironment(opts);
+  const plugins = await createPluginRegistry(pluginEnv);
+  const marketplace = createPluginMarketplaceService(pluginEnv, plugins);
   await plugins.startAll();
 
   const app = express();
@@ -85,7 +104,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
   };
 
   const monitor = createServerMonitor({ metricHistory, broadcast, plugins });
-  setupRoutes(app, opts, metricHistory, monitor.getGraph, plugins);
+  setupRoutes(app, opts, metricHistory, monitor.getGraph, plugins, marketplace);
 
   // Frontend: Vite dev server (HMR) or static files (production)
   if (process.env.DOCKSCOPE_DEV === '1') {

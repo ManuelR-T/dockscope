@@ -64,6 +64,7 @@ Opens `http://localhost:4681`.
 | `--plugin-events <file>`             | —           | Plugin event history JSON file                                         |
 | `--plugin-approvals <file>`          | —           | Plugin approval JSON file                                              |
 | `--plugin-catalog <source>`          | —           | Plugin catalog JSON file or URL                                        |
+| `--plugin-registry <dir>`            | `~/.dockscope/plugins` | Local plugin registry directory                              |
 | `--no-external-plugins`              | —           | Disable external plugin loading                                        |
 | `dockscope scan`                     | —           | Output graph as JSON (no UI)                                           |
 | `dockscope plugin:init`              | —           | Scaffold a plugin directory                                            |
@@ -73,6 +74,7 @@ Opens `http://localhost:4681`.
 | `dockscope plugin:pack`              | —           | Create a hash-verified plugin package                                  |
 | `dockscope plugin:install`           | —           | Install a directory or package into the local plugin registry           |
 | `dockscope plugin:catalog`           | —           | List plugins from a catalog                                            |
+| `dockscope plugin:catalog:install`   | —           | Install a signed package from a catalog                                |
 
 ## Features
 
@@ -131,6 +133,10 @@ Opens `http://localhost:4681`.
 | GET    | `/api/plugins/events`                 | Recent plugin event bus entries                                    |
 | GET    | `/api/plugins/review`                 | Plugin permission/capability review reports                        |
 | GET    | `/api/plugins/catalog`                | Configured plugin catalog entries                                  |
+| GET    | `/api/plugins/marketplace`            | Catalog entries merged with local install state                    |
+| POST   | `/api/plugins/marketplace/:pluginId/install` | Install from the configured catalog                         |
+| POST   | `/api/plugins/marketplace/:pluginId/update` | Update an installed catalog plugin                            |
+| DELETE | `/api/plugins/marketplace/:pluginId`  | Uninstall a local marketplace plugin                              |
 | GET    | `/api/plugins/approvals`              | Persisted plugin approvals                                         |
 | GET    | `/api/plugins/compatibility`          | Plugin compatibility warnings and migration metadata               |
 | POST   | `/api/plugins/:pluginId/migrate`      | Run a declared plugin compatibility migration                      |

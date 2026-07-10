@@ -77,6 +77,24 @@ describe('PluginRegistry', () => {
     expect(() => registry.register(plugin())).toThrow('Plugin already registered: test.plugin');
   });
 
+  it('starts and unregisters external plugins at runtime', async () => {
+    const start = vi.fn();
+    const stop = vi.fn();
+    const registry = new PluginRegistry();
+
+    registry.register(plugin({ start, stop }));
+
+    await expect(registry.startPlugin('test.plugin')).resolves.toMatchObject({
+      status: 'started',
+    });
+    expect(start).toHaveBeenCalledOnce();
+
+    await expect(registry.unregisterPlugin('test.plugin')).resolves.toEqual({ ok: true });
+
+    expect(stop).toHaveBeenCalledOnce();
+    expect(registry.listPlugins()).toEqual([]);
+  });
+
   it('validates manifests before registration', () => {
     const manifest = validatePluginManifest({
       id: 'custom.plugin',

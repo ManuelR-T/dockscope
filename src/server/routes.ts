@@ -8,6 +8,7 @@ import { PluginCommandError } from '../core/plugin-commands.js';
 import { PluginEventError } from '../core/plugin-events.js';
 import { PluginCompatibilityError } from '../core/plugin-compatibility.js';
 import { loadPluginCatalog, PluginCatalogError } from '../plugins/catalog.js';
+import type { PluginMarketplaceService } from '../plugins/marketplace.js';
 import type { EntityRef } from '../core/operations.js';
 import type { GraphData, ServerOptions } from '../types.js';
 import { errorMessage, shortId } from '../utils.js';
@@ -95,6 +96,7 @@ export function setupRoutes(
   metricHistory: Map<string, { cpu: number; memory: number; time: number }[]>,
   getGraph: () => GraphData,
   plugins: PluginRegistry,
+  marketplace: PluginMarketplaceService,
 ): void {
   // Validate container ID format
   app.param('id', (req, res, next) => {
@@ -303,6 +305,34 @@ export function setupRoutes(
   app.get('/api/plugins/approvals', (_req, res) => {
     res.json(plugins.listPluginApprovals());
   });
+
+  app.get(
+    '/api/plugins/marketplace',
+    asyncRoute(async (_req, res) => {
+      res.json(await marketplace.list());
+    }),
+  );
+
+  app.post(
+    '/api/plugins/marketplace/:pluginId/install',
+    asyncRoute(async (req, res) => {
+      res.json(await marketplace.install(req.params.pluginId as string));
+    }),
+  );
+
+  app.post(
+    '/api/plugins/marketplace/:pluginId/update',
+    asyncRoute(async (req, res) => {
+      res.json(await marketplace.update(req.params.pluginId as string));
+    }),
+  );
+
+  app.delete(
+    '/api/plugins/marketplace/:pluginId',
+    asyncRoute(async (req, res) => {
+      res.json(await marketplace.uninstall(req.params.pluginId as string));
+    }),
+  );
 
   app.get('/api/plugins/config', (_req, res) => {
     res.json(plugins.listPluginConfigs());
