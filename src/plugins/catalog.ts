@@ -1,3 +1,4 @@
+import { sign, verify } from 'crypto';
 import { mkdtemp, readFile, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import path from 'path';
@@ -6,6 +7,12 @@ import { installPluginFromPath, type InstalledPlugin } from './install.js';
 import { verifyPluginPackage } from './package.js';
 import type { PluginCapability, PluginPermission } from '../core/capabilities.js';
 import { isPluginCapability, isPluginPermission } from '../core/capabilities.js';
+import {
+  pluginCompatibilityWarnings,
+  validatePluginCompatibility,
+  type PluginCompatibility,
+} from '../core/plugin-compatibility.js';
+import { PKG_VERSION } from '../version.js';
 
 export const PLUGIN_CATALOG_FORMAT = 'dockscope-plugin-catalog/v1';
 
@@ -15,6 +22,14 @@ export interface PluginCatalogEntrySignature {
   keyId?: string;
 }
 
+export interface PluginCatalogSignature {
+  algorithm: 'ed25519';
+  value: string;
+  keyId?: string;
+}
+
+export type PluginCatalogEntryStatus = 'active' | 'deprecated' | 'yanked';
+
 export interface PluginCatalogEntry {
   id: string;
   name: string;
@@ -22,8 +37,17 @@ export interface PluginCatalogEntry {
   description?: string;
   author?: string;
   homepage?: string;
+  repositoryUrl?: string;
+  readmeUrl?: string;
+  iconUrl?: string;
+  license?: string;
   category?: string;
+  status: PluginCatalogEntryStatus;
   tags: readonly string[];
+  screenshots: readonly string[];
+  publishedAt?: string;
+  releaseNotes?: string;
+  compatibility?: PluginCompatibility;
   capabilities: readonly PluginCapability[];
   permissions: readonly PluginPermission[];
   packageUrl: string;
@@ -35,6 +59,7 @@ export interface PluginCatalog {
   format: typeof PLUGIN_CATALOG_FORMAT;
   name: string;
   updatedAt?: string;
+  signature?: PluginCatalogSignature;
   entries: readonly PluginCatalogEntry[];
 }
 
@@ -43,6 +68,7 @@ export interface ResolvedPluginCatalogEntry extends PluginCatalogEntry {
 }
 
 export interface ResolvedPluginCatalog extends Omit<PluginCatalog, 'entries'> {
+  signatureVerified?: boolean;
   entries: readonly ResolvedPluginCatalogEntry[];
 }
 
@@ -138,6 +164,36 @@ function validateSignature(raw: unknown): PluginCatalogEntrySignature | undefine
   };
 }
 
+function validateCatalogSignature(raw: unknown): PluginCatalogSignature | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (!isRecord(raw)) {
+    throw new PluginCatalogError('Plugin catalog signature must be an object');
+  }
+  if (raw.algorithm !== 'ed25519') {
+    throw new PluginCatalogError(`Unsupported plugin catalog signature: ${String(raw.algorithm)}`);
+  }
+  if (!isNonEmptyString(raw.value)) {
+    throw new PluginCatalogError('Plugin catalog signature requires a value');
+  }
+  return {
+    algorithm: 'ed25519',
+    value: raw.value,
+    keyId: optionalString(raw.keyId, 'signature.keyId'),
+  };
+}
+
+function validateEntryStatus(raw: unknown): PluginCatalogEntryStatus {
+  if (raw === undefined) {
+    return 'active';
+  }
+  if (raw === 'active' || raw === 'deprecated' || raw === 'yanked') {
+    return raw;
+  }
+  throw new PluginCatalogError(`Unsupported plugin catalog entry status: ${String(raw)}`);
+}
+
 function validateEntry(raw: unknown): PluginCatalogEntry {
   if (!isRecord(raw)) {
     throw new PluginCatalogError('Plugin catalog entries must be objects');
@@ -161,8 +217,17 @@ function validateEntry(raw: unknown): PluginCatalogEntry {
     description: optionalString(raw.description, 'description'),
     author: optionalString(raw.author, 'author'),
     homepage: optionalString(raw.homepage, 'homepage'),
+    repositoryUrl: optionalString(raw.repositoryUrl, 'repositoryUrl'),
+    readmeUrl: optionalString(raw.readmeUrl, 'readmeUrl'),
+    iconUrl: optionalString(raw.iconUrl, 'iconUrl'),
+    license: optionalString(raw.license, 'license'),
     category: optionalString(raw.category, 'category'),
+    status: validateEntryStatus(raw.status),
     tags: stringList(raw.tags, 'tags'),
+    screenshots: stringList(raw.screenshots, 'screenshots'),
+    publishedAt: optionalString(raw.publishedAt, 'publishedAt'),
+    releaseNotes: optionalString(raw.releaseNotes, 'releaseNotes'),
+    compatibility: validatePluginCompatibility(raw.compatibility),
     capabilities: capabilityList(raw.capabilities),
     permissions: permissionList(raw.permissions),
     packageUrl: raw.packageUrl,
@@ -196,8 +261,36 @@ export function validatePluginCatalog(raw: unknown): PluginCatalog {
     format: PLUGIN_CATALOG_FORMAT,
     name: raw.name,
     updatedAt: optionalString(raw.updatedAt, 'updatedAt'),
+    signature: validateCatalogSignature(raw.signature),
     entries,
   };
+}
+
+function catalogPayload(catalog: Omit<PluginCatalog, 'signature'>): string {
+  return JSON.stringify({
+    format: catalog.format,
+    name: catalog.name,
+    updatedAt: catalog.updatedAt,
+    entries: catalog.entries,
+  });
+}
+
+function verifyCatalogSignature(
+  catalog: PluginCatalog,
+  publicKey: string | undefined,
+): boolean | undefined {
+  if (!catalog.signature) {
+    return undefined;
+  }
+  if (!publicKey) {
+    return false;
+  }
+  return verify(
+    null,
+    Buffer.from(catalogPayload(catalog), 'utf-8'),
+    publicKey,
+    Buffer.from(catalog.signature.value, 'base64'),
+  );
 }
 
 function isHttpUrl(value: string): boolean {
@@ -273,7 +366,10 @@ async function readPackageSource(source: string): Promise<Buffer> {
   }
 }
 
-export async function loadPluginCatalog(source: string): Promise<ResolvedPluginCatalog> {
+export async function loadPluginCatalog(
+  source: string,
+  options: { publicKey?: string } = {},
+): Promise<ResolvedPluginCatalog> {
   const text = await readTextSource(source);
   let raw: unknown;
   try {
@@ -282,8 +378,16 @@ export async function loadPluginCatalog(source: string): Promise<ResolvedPluginC
     throw new PluginCatalogError(`Invalid plugin catalog JSON: ${catalogErrorMessage(error)}`);
   }
   const catalog = validatePluginCatalog(raw);
+  const signatureVerified = verifyCatalogSignature(catalog, options.publicKey);
+  if (options.publicKey && catalog.signature && !signatureVerified) {
+    throw new PluginCatalogError('Plugin catalog signature mismatch');
+  }
+  if (options.publicKey && !catalog.signature) {
+    throw new PluginCatalogError('Plugin catalog is not signed');
+  }
   return {
     ...catalog,
+    signatureVerified,
     entries: catalog.entries.map((entry) => ({
       ...entry,
       resolvedPackageUrl: resolveCatalogUrl(source, entry.packageUrl),
@@ -295,11 +399,31 @@ export async function installPluginFromCatalog(options: {
   catalogSource: string;
   pluginId: string;
   registryDir?: string;
+  catalogPublicKey?: string;
+  allowUnsigned?: boolean;
+  dockscopeVersion?: string;
 }): Promise<InstalledPlugin> {
-  const catalog = await loadPluginCatalog(options.catalogSource);
+  const catalog = await loadPluginCatalog(options.catalogSource, {
+    publicKey: options.catalogPublicKey,
+  });
   const entry = catalog.entries.find((candidate) => candidate.id === options.pluginId);
   if (!entry) {
     throw new PluginCatalogError(`Plugin catalog entry not found: ${options.pluginId}`);
+  }
+  if (entry.status === 'yanked') {
+    throw new PluginCatalogError(`Plugin catalog entry is yanked: ${options.pluginId}`);
+  }
+  if (!entry.signature && !options.allowUnsigned) {
+    throw new PluginCatalogError(`Plugin catalog entry is unsigned: ${options.pluginId}`);
+  }
+  const compatibilityWarnings = pluginCompatibilityWarnings(
+    entry.compatibility,
+    options.dockscopeVersion ?? PKG_VERSION,
+  );
+  if (compatibilityWarnings.length > 0) {
+    throw new PluginCatalogError(
+      `Plugin catalog entry is incompatible: ${compatibilityWarnings.join('; ')}`,
+    );
   }
   const packageContents = await readPackageSource(entry.resolvedPackageUrl);
   const tempDir = await mkdtemp(path.join(tmpdir(), 'dockscope-catalog-package-'));
@@ -322,4 +446,33 @@ export async function installPluginFromCatalog(options: {
     );
   }
   return installed;
+}
+
+export async function signPluginCatalogFile(options: {
+  catalogPath: string;
+  privateKey: string;
+  keyId?: string;
+}): Promise<PluginCatalog> {
+  const raw = JSON.parse(await readFile(path.resolve(options.catalogPath), 'utf-8')) as unknown;
+  const catalog = validatePluginCatalog(raw);
+  const unsigned: Omit<PluginCatalog, 'signature'> = {
+    format: catalog.format,
+    name: catalog.name,
+    updatedAt: catalog.updatedAt,
+    entries: catalog.entries,
+  };
+  const signed: PluginCatalog = {
+    ...unsigned,
+    signature: {
+      algorithm: 'ed25519',
+      value: sign(
+        null,
+        Buffer.from(catalogPayload(unsigned), 'utf-8'),
+        options.privateKey,
+      ).toString('base64'),
+      keyId: options.keyId,
+    },
+  };
+  await writeFile(path.resolve(options.catalogPath), JSON.stringify(signed, null, 2), 'utf-8');
+  return signed;
 }

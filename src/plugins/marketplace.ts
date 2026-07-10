@@ -1,3 +1,6 @@
+import { cp, mkdtemp, rm } from 'fs/promises';
+import { tmpdir } from 'os';
+import path from 'path';
 import {
   type PluginApprovalSnapshot,
   PluginOperationError,
@@ -5,6 +8,12 @@ import {
   type PluginRuntimeInfo,
 } from '../core/plugins.js';
 import type { PluginCapability, PluginPermission } from '../core/capabilities.js';
+import {
+  compareVersions,
+  pluginCompatibilityWarnings,
+  type PluginCompatibility,
+} from '../core/plugin-compatibility.js';
+import { PKG_VERSION } from '../version.js';
 import type {
   PluginCatalogEntrySignature,
   ResolvedPluginCatalog,
@@ -14,6 +23,8 @@ import { installPluginFromCatalog, loadPluginCatalog } from './catalog.js';
 import {
   defaultPluginRegistryDir,
   listInstalledPlugins,
+  removeInstalledPluginRecord,
+  saveInstalledPluginRecord,
   uninstallPlugin,
   type InstalledPlugin,
 } from './install.js';
@@ -31,12 +42,23 @@ export interface PluginMarketplaceEntry {
   description?: string;
   author?: string;
   homepage?: string;
+  repositoryUrl?: string;
+  readmeUrl?: string;
+  iconUrl?: string;
+  license?: string;
   category?: string;
+  status: 'active' | 'deprecated' | 'yanked';
+  publishedAt?: string;
+  releaseNotes?: string;
+  compatibility?: PluginCompatibility;
+  compatibilityWarnings: readonly string[];
+  screenshots: readonly string[];
   tags: readonly string[];
   capabilities: readonly PluginCapability[];
   permissions: readonly PluginPermission[];
   packageSha256?: string;
   signature?: PluginCatalogEntrySignature;
+  catalogSignatureVerified?: boolean;
   resolvedPackageUrl?: string;
   installed?: InstalledPlugin;
   runtime?: PluginRuntimeInfo;
@@ -49,7 +71,14 @@ export interface PluginMarketplaceSnapshot {
   catalogName?: string;
   registryDir: string;
   approvals: readonly PluginApprovalSnapshot[];
+  catalogSignatureVerified?: boolean;
   entries: readonly PluginMarketplaceEntry[];
+}
+
+interface InstalledPluginSnapshot {
+  pluginId: string;
+  installed?: InstalledPlugin;
+  backupPath?: string;
 }
 
 function pluginRegistryDir(env: NodeJS.ProcessEnv): string {
@@ -60,6 +89,14 @@ function catalogSource(env: NodeJS.ProcessEnv): string | undefined {
   return env.DOCKSCOPE_PLUGIN_CATALOG?.trim() || undefined;
 }
 
+function catalogPublicKey(env: NodeJS.ProcessEnv): string | undefined {
+  return env.DOCKSCOPE_PLUGIN_CATALOG_PUBLIC_KEY?.trim() || undefined;
+}
+
+function allowUnsignedPackages(env: NodeJS.ProcessEnv): boolean {
+  return env.DOCKSCOPE_PLUGIN_ALLOW_UNSIGNED === '1';
+}
+
 function updateAvailable(
   catalogEntry: ResolvedPluginCatalogEntry,
   installed: InstalledPlugin | undefined,
@@ -67,11 +104,12 @@ function updateAvailable(
   if (!installed) {
     return false;
   }
-  if (installed.version !== catalogEntry.version) {
+  if (compareVersions(catalogEntry.version, installed.version) > 0) {
     return true;
   }
-  return Boolean(
-    catalogEntry.packageSha256 && installed.packageSha256 !== catalogEntry.packageSha256,
+  return (
+    compareVersions(catalogEntry.version, installed.version) === 0 &&
+    Boolean(catalogEntry.packageSha256 && installed.packageSha256 !== catalogEntry.packageSha256)
   );
 }
 
@@ -79,6 +117,7 @@ function catalogMarketplaceEntry(options: {
   catalogEntry: ResolvedPluginCatalogEntry;
   installed?: InstalledPlugin;
   runtime?: PluginRuntimeInfo;
+  catalogSignatureVerified?: boolean;
 }): PluginMarketplaceEntry {
   const hasUpdate = updateAvailable(options.catalogEntry, options.installed);
   return {
@@ -88,12 +127,26 @@ function catalogMarketplaceEntry(options: {
     description: options.catalogEntry.description,
     author: options.catalogEntry.author,
     homepage: options.catalogEntry.homepage,
+    repositoryUrl: options.catalogEntry.repositoryUrl,
+    readmeUrl: options.catalogEntry.readmeUrl,
+    iconUrl: options.catalogEntry.iconUrl,
+    license: options.catalogEntry.license,
     category: options.catalogEntry.category,
+    status: options.catalogEntry.status,
+    publishedAt: options.catalogEntry.publishedAt,
+    releaseNotes: options.catalogEntry.releaseNotes,
+    compatibility: options.catalogEntry.compatibility,
+    compatibilityWarnings: pluginCompatibilityWarnings(
+      options.catalogEntry.compatibility,
+      PKG_VERSION,
+    ),
+    screenshots: [...options.catalogEntry.screenshots],
     tags: [...options.catalogEntry.tags],
     capabilities: [...options.catalogEntry.capabilities],
     permissions: [...options.catalogEntry.permissions],
     packageSha256: options.catalogEntry.packageSha256,
     signature: options.catalogEntry.signature,
+    catalogSignatureVerified: options.catalogSignatureVerified,
     resolvedPackageUrl: options.catalogEntry.resolvedPackageUrl,
     installed: options.installed,
     runtime: options.runtime,
@@ -110,6 +163,9 @@ function localMarketplaceEntry(
     id: installed.id,
     name: installed.name,
     version: installed.version,
+    status: 'active',
+    compatibilityWarnings: [],
+    screenshots: [],
     tags: [],
     capabilities: runtime ? [...runtime.manifest.capabilities] : [],
     permissions: runtime ? [...runtime.manifest.permissions] : [],
@@ -131,29 +187,41 @@ export class PluginMarketplaceService {
 
   async list(): Promise<PluginMarketplaceSnapshot> {
     const source = catalogSource(this.env);
-    const catalog = source ? await loadPluginCatalog(source) : undefined;
+    const catalog = source
+      ? await loadPluginCatalog(source, { publicKey: catalogPublicKey(this.env) })
+      : undefined;
     const installed = await listInstalledPlugins(pluginRegistryDir(this.env));
     return this.snapshot(catalog, installed);
   }
 
   async install(pluginId: string): Promise<PluginMarketplaceSnapshot> {
     const source = this.requireCatalogSource();
+    const entry = await this.requireCatalogEntry(pluginId);
+    this.assertInstallable(entry);
     const runtime = this.runtimePlugin(pluginId);
     if (runtime?.manifest.builtin) {
       throw new PluginOperationError(400, `Built-in plugin cannot be replaced: ${pluginId}`);
     }
     const alreadyInstalled = await this.installedPlugin(pluginId);
-    const installed = await installPluginFromCatalog({
-      catalogSource: source,
-      pluginId,
-      registryDir: pluginRegistryDir(this.env),
-    });
-    await this.registerInstalledPlugin(installed, {
-      enabled: alreadyInstalled
-        ? (runtime?.enabled ?? (await this.stateStore.loadEnabled(pluginId)))
-        : true,
-    });
-    return this.list();
+    const snapshot = await this.snapshotInstalledPlugin(pluginId);
+    try {
+      const installed = await installPluginFromCatalog({
+        catalogSource: source,
+        pluginId,
+        registryDir: pluginRegistryDir(this.env),
+        catalogPublicKey: catalogPublicKey(this.env),
+        allowUnsigned: allowUnsignedPackages(this.env),
+      });
+      await this.registerInstalledPlugin(installed, {
+        enabled: alreadyInstalled
+          ? (runtime?.enabled ?? (await this.stateStore.loadEnabled(pluginId)))
+          : true,
+      });
+      return this.list();
+    } catch (error) {
+      await this.restoreInstalledPluginSnapshot(snapshot);
+      throw error;
+    }
   }
 
   async update(pluginId: string): Promise<PluginMarketplaceSnapshot> {
@@ -161,15 +229,25 @@ export class PluginMarketplaceService {
     if (!installed) {
       throw new PluginOperationError(404, `Plugin is not installed: ${pluginId}`);
     }
+    const entry = await this.requireCatalogEntry(pluginId);
+    this.assertInstallable(entry);
     const enabled =
       this.runtimePlugin(pluginId)?.enabled ?? (await this.stateStore.loadEnabled(pluginId));
-    const updated = await installPluginFromCatalog({
-      catalogSource: this.requireCatalogSource(),
-      pluginId,
-      registryDir: pluginRegistryDir(this.env),
-    });
-    await this.registerInstalledPlugin(updated, { enabled });
-    return this.list();
+    const snapshot = await this.snapshotInstalledPlugin(pluginId);
+    try {
+      const updated = await installPluginFromCatalog({
+        catalogSource: this.requireCatalogSource(),
+        pluginId,
+        registryDir: pluginRegistryDir(this.env),
+        catalogPublicKey: catalogPublicKey(this.env),
+        allowUnsigned: allowUnsignedPackages(this.env),
+      });
+      await this.registerInstalledPlugin(updated, { enabled });
+      return this.list();
+    } catch (error) {
+      await this.restoreInstalledPluginSnapshot(snapshot);
+      throw error;
+    }
   }
 
   async uninstall(pluginId: string): Promise<PluginMarketplaceSnapshot> {
@@ -196,6 +274,7 @@ export class PluginMarketplaceService {
       this.registry.listPlugins().map((runtime) => [runtime.manifest.id, runtime]),
     );
     const entries: PluginMarketplaceEntry[] = [];
+    const catalogSignatureVerified = catalog?.signatureVerified;
 
     for (const catalogEntry of catalog?.entries ?? []) {
       const installedPlugin = installedById.get(catalogEntry.id);
@@ -204,6 +283,7 @@ export class PluginMarketplaceService {
           catalogEntry,
           installed: installedPlugin,
           runtime: runtimeById.get(catalogEntry.id),
+          catalogSignatureVerified,
         }),
       );
       installedById.delete(catalogEntry.id);
@@ -218,6 +298,7 @@ export class PluginMarketplaceService {
       catalogName: catalog?.name,
       registryDir: pluginRegistryDir(this.env),
       approvals: this.registry.listPluginApprovals(),
+      catalogSignatureVerified: catalog?.signatureVerified,
       entries: entries.sort((a, b) => a.id.localeCompare(b.id)),
     };
   }
@@ -238,6 +319,63 @@ export class PluginMarketplaceService {
 
   private runtimePlugin(pluginId: string): PluginRuntimeInfo | undefined {
     return this.registry.listPlugins().find((plugin) => plugin.manifest.id === pluginId);
+  }
+
+  private async requireCatalogEntry(pluginId: string): Promise<ResolvedPluginCatalogEntry> {
+    const catalog = await loadPluginCatalog(this.requireCatalogSource(), {
+      publicKey: catalogPublicKey(this.env),
+    });
+    const entry = catalog.entries.find((candidate) => candidate.id === pluginId);
+    if (!entry) {
+      throw new PluginOperationError(404, `Plugin catalog entry not found: ${pluginId}`);
+    }
+    return entry;
+  }
+
+  private assertInstallable(entry: ResolvedPluginCatalogEntry): void {
+    if (entry.status === 'yanked') {
+      throw new PluginOperationError(400, `Plugin is yanked: ${entry.id}`);
+    }
+    const warnings = pluginCompatibilityWarnings(entry.compatibility, PKG_VERSION);
+    if (warnings.length > 0) {
+      throw new PluginOperationError(
+        400,
+        `Plugin is not compatible with DockScope ${PKG_VERSION}: ${warnings.join('; ')}`,
+      );
+    }
+  }
+
+  private async snapshotInstalledPlugin(pluginId: string): Promise<InstalledPluginSnapshot> {
+    const installed = await this.installedPlugin(pluginId);
+    if (!installed) {
+      return { pluginId };
+    }
+    const backupDir = await mkdtemp(path.join(tmpdir(), 'dockscope-plugin-backup-'));
+    const backupPath = path.join(backupDir, 'plugin');
+    await cp(installed.path, backupPath, { recursive: true });
+    return { pluginId, installed, backupPath };
+  }
+
+  private async restoreInstalledPluginSnapshot(snapshot: InstalledPluginSnapshot): Promise<void> {
+    if (!snapshot.installed) {
+      await this.registry.unregisterPlugin(snapshot.pluginId).catch(() => undefined);
+      await uninstallPlugin(snapshot.pluginId, pluginRegistryDir(this.env)).catch(() => undefined);
+      await removeInstalledPluginRecord(snapshot.pluginId, pluginRegistryDir(this.env));
+      return;
+    }
+    const runtime = this.runtimePlugin(snapshot.installed.id);
+    if (runtime) {
+      await this.registry.unregisterPlugin(snapshot.installed.id).catch(() => undefined);
+    }
+    await rm(snapshot.installed.path, { recursive: true, force: true });
+    if (snapshot.backupPath) {
+      await cp(snapshot.backupPath, snapshot.installed.path, { recursive: true });
+      await rm(path.dirname(snapshot.backupPath), { recursive: true, force: true });
+      await saveInstalledPluginRecord(snapshot.installed, pluginRegistryDir(this.env));
+      await this.registerInstalledPlugin(snapshot.installed, {
+        enabled: await this.stateStore.loadEnabled(snapshot.installed.id),
+      }).catch(() => undefined);
+    }
   }
 
   private async registerInstalledPlugin(

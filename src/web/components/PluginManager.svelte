@@ -23,6 +23,14 @@
     onClose: () => void;
   }
 
+  type MarketplaceAction = 'install' | 'update' | 'uninstall';
+  type MarketplaceFilter = 'all' | 'available' | 'installed' | 'updates' | 'local' | 'deprecated';
+
+  interface MarketplaceReview {
+    entry: PluginMarketplaceEntry;
+    action: MarketplaceAction;
+  }
+
   let { onClose }: Props = $props();
 
   let tab = $state<
@@ -59,9 +67,15 @@
   let reloading = $state<string | null>(null);
   let runningCommand = $state<string | null>(null);
   let marketplaceAction = $state<string | null>(null);
+  let marketplaceReview = $state<MarketplaceReview | null>(null);
+  let marketplaceQuery = $state('');
+  let marketplaceFilter = $state<MarketplaceFilter>('all');
 
   const configurable = $derived(
     configs.filter((config) => (config.schema?.fields.length ?? 0) > 0),
+  );
+  const marketplaceEntries = $derived(
+    marketplace.entries.filter((entry) => marketplaceEntryMatches(entry)),
   );
 
   onMount(() => {
@@ -307,10 +321,7 @@
     }
   }
 
-  async function runMarketplaceAction(
-    entry: PluginMarketplaceEntry,
-    action: 'install' | 'update' | 'uninstall',
-  ) {
+  async function runMarketplaceAction(entry: PluginMarketplaceEntry, action: MarketplaceAction) {
     const key = `${entry.id}:${action}`;
     if (marketplaceAction) {
       return;
@@ -336,6 +347,20 @@
     } finally {
       marketplaceAction = null;
     }
+  }
+
+  function requestMarketplaceAction(entry: PluginMarketplaceEntry) {
+    const action = marketplaceActionType(entry);
+    marketplaceReview = { entry, action };
+  }
+
+  async function confirmMarketplaceReview() {
+    if (!marketplaceReview) {
+      return;
+    }
+    const review = marketplaceReview;
+    marketplaceReview = null;
+    await runMarketplaceAction(review.entry, review.action);
   }
 
   function eventPayload(event: PluginEvent): string {
@@ -413,9 +438,7 @@
     return 'Uninstall';
   }
 
-  function marketplaceActionType(
-    entry: PluginMarketplaceEntry,
-  ): 'install' | 'update' | 'uninstall' {
+  function marketplaceActionType(entry: PluginMarketplaceEntry): MarketplaceAction {
     if (entry.state === 'available') {
       return 'install';
     }
@@ -429,6 +452,15 @@
     return `${entry.id}:${marketplaceActionType(entry)}`;
   }
 
+  function marketplaceActionDisabled(entry: PluginMarketplaceEntry): boolean {
+    const action = marketplaceActionType(entry);
+    return (
+      marketplaceAction !== null ||
+      entry.status === 'yanked' ||
+      (action !== 'uninstall' && entry.compatibilityWarnings.length > 0)
+    );
+  }
+
   function marketplaceTrust(entry: PluginMarketplaceEntry): string {
     if (entry.signature) {
       return entry.signature.keyId
@@ -436,6 +468,82 @@
         : entry.signature.algorithm;
     }
     return entry.installed?.signatureAlgorithm ?? 'unsigned';
+  }
+
+  function marketplaceEntryMatches(entry: PluginMarketplaceEntry): boolean {
+    const query = marketplaceQuery.trim().toLowerCase();
+    const matchesQuery =
+      !query ||
+      [
+        entry.id,
+        entry.name,
+        entry.description,
+        entry.category,
+        entry.author,
+        ...(entry.tags ?? []),
+        ...entry.capabilities,
+        ...entry.permissions,
+      ]
+        .filter((value): value is string => typeof value === 'string')
+        .some((value) => value.toLowerCase().includes(query));
+    if (!matchesQuery) {
+      return false;
+    }
+    if (marketplaceFilter === 'available') {
+      return entry.state === 'available';
+    }
+    if (marketplaceFilter === 'installed') {
+      return entry.state === 'installed';
+    }
+    if (marketplaceFilter === 'updates') {
+      return entry.state === 'update_available';
+    }
+    if (marketplaceFilter === 'local') {
+      return entry.state === 'local';
+    }
+    if (marketplaceFilter === 'deprecated') {
+      return entry.status === 'deprecated' || entry.status === 'yanked';
+    }
+    return true;
+  }
+
+  function formatDate(value: string | undefined): string {
+    if (!value) {
+      return '';
+    }
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString();
+  }
+
+  function marketplaceVersionLine(entry: PluginMarketplaceEntry): string {
+    if (!entry.installed) {
+      return `new install v${entry.version}`;
+    }
+    if (entry.installed.version === entry.version) {
+      return `installed v${entry.installed.version}`;
+    }
+    return `installed v${entry.installed.version} -> catalog v${entry.version}`;
+  }
+
+  function marketplaceCompatibility(entry: PluginMarketplaceEntry): string {
+    const parts = [];
+    if (entry.compatibility?.minDockscopeVersion) {
+      parts.push(`min ${entry.compatibility.minDockscopeVersion}`);
+    }
+    if (entry.compatibility?.maxDockscopeVersion) {
+      parts.push(`max ${entry.compatibility.maxDockscopeVersion}`);
+    }
+    return parts.length > 0 ? parts.join(' · ') : 'not declared';
+  }
+
+  function catalogTrustText(): string {
+    if (marketplace.catalogSignatureVerified === true) {
+      return 'catalog signed';
+    }
+    if (marketplace.catalogSignatureVerified === false) {
+      return 'catalog signature unverified';
+    }
+    return 'catalog unsigned';
   }
 </script>
 
@@ -734,11 +842,32 @@
         {:else}
           <div class="summary-row">
             <span>{marketplace.catalogName ?? 'Local plugins'}</span>
-            <span>{marketplace.entries.length} entries</span>
+            <span
+              >{catalogTrustText()} · {marketplaceEntries.length} / {marketplace.entries.length} entries</span
+            >
           </div>
           <div class="path-line marketplace-registry">{marketplace.registryDir}</div>
+          <div class="marketplace-controls">
+            <input
+              type="text"
+              placeholder="Search marketplace"
+              value={marketplaceQuery}
+              oninput={(event) => (marketplaceQuery = inputValue(event))}
+            />
+            <select
+              value={marketplaceFilter}
+              onchange={(event) => (marketplaceFilter = inputValue(event) as MarketplaceFilter)}
+            >
+              <option value="all">All</option>
+              <option value="available">Available</option>
+              <option value="installed">Installed</option>
+              <option value="updates">Updates</option>
+              <option value="local">Local</option>
+              <option value="deprecated">Deprecated</option>
+            </select>
+          </div>
           <div class="list">
-            {#each marketplace.entries as entry}
+            {#each marketplaceEntries as entry}
               <div class="item">
                 <div class="slot-badge marketplace-{entry.state}">
                   {marketplaceLabel(entry)}
@@ -755,6 +884,12 @@
                     <span>{marketplaceTrust(entry)}</span>
                     <span>{entry.capabilities.length} capabilities</span>
                     <span>{entry.permissions.length} permissions</span>
+                    {#if entry.license}
+                      <span>{entry.license}</span>
+                    {/if}
+                    {#if entry.status !== 'active'}
+                      <span>{entry.status}</span>
+                    {/if}
                     {#if entry.category}
                       <span>{entry.category}</span>
                     {/if}
@@ -768,14 +903,27 @@
                       {/if}
                     </div>
                   {/if}
+                  <div class="marketplace-facts">
+                    <span>{marketplaceVersionLine(entry)}</span>
+                    <span>compat {marketplaceCompatibility(entry)}</span>
+                    {#if entry.publishedAt}
+                      <span>published {formatDate(entry.publishedAt)}</span>
+                    {/if}
+                  </div>
+                  {#if entry.releaseNotes}
+                    <div class="item-desc">{entry.releaseNotes}</div>
+                  {/if}
+                  {#each entry.compatibilityWarnings as warning}
+                    <div class="error-line">{warning}</div>
+                  {/each}
                   <div class="item-desc">
                     {entry.resolvedPackageUrl ?? entry.installed?.path ?? 'local registry'}
                   </div>
                 </div>
                 <button
                   class="save-btn"
-                  disabled={marketplaceAction !== null}
-                  onclick={() => runMarketplaceAction(entry, marketplaceActionType(entry))}
+                  disabled={marketplaceActionDisabled(entry)}
+                  onclick={() => requestMarketplaceAction(entry)}
                 >
                   {marketplaceAction === marketplaceActionKey(entry)
                     ? 'Working...'
@@ -934,6 +1082,72 @@
         </div>
       {/if}
     </div>
+
+    {#if marketplaceReview}
+      <div class="confirm-layer">
+        <div class="confirm-box">
+          <div class="confirm-header">
+            <div>
+              <div class="confirm-title">{marketplaceReview.entry.name}</div>
+              <code>{marketplaceReview.entry.id} v{marketplaceReview.entry.version}</code>
+            </div>
+            <button class="close-btn" onclick={() => (marketplaceReview = null)}>&times;</button>
+          </div>
+
+          <div class="review-grid marketplace-review-grid">
+            <div>
+              <span class="review-label">Action</span>
+              <span>{marketplaceReview.action}</span>
+            </div>
+            <div>
+              <span class="review-label">Version</span>
+              <span>{marketplaceVersionLine(marketplaceReview.entry)}</span>
+            </div>
+            <div>
+              <span class="review-label">Signature</span>
+              <span>{marketplaceTrust(marketplaceReview.entry)}</span>
+            </div>
+            <div>
+              <span class="review-label">Package</span>
+              <code>{shortFingerprint(marketplaceReview.entry.packageSha256 ?? 'unsigned')}</code>
+            </div>
+            <div>
+              <span class="review-label">Capabilities</span>
+              <span>{listText(marketplaceReview.entry.capabilities)}</span>
+            </div>
+            <div>
+              <span class="review-label">Permissions</span>
+              <span>{listText(marketplaceReview.entry.permissions)}</span>
+            </div>
+            <div>
+              <span class="review-label">Compatibility</span>
+              <span>{marketplaceCompatibility(marketplaceReview.entry)}</span>
+            </div>
+            <div>
+              <span class="review-label">Registry</span>
+              <code>{marketplace.registryDir}</code>
+            </div>
+          </div>
+
+          {#if marketplaceReview.entry.releaseNotes}
+            <div class="release-notes">{marketplaceReview.entry.releaseNotes}</div>
+          {/if}
+
+          <div class="confirm-actions">
+            <button class="save-btn" onclick={() => (marketplaceReview = null)}>Cancel</button>
+            <button
+              class="save-btn primary"
+              disabled={marketplaceActionDisabled(marketplaceReview.entry)}
+              onclick={() => void confirmMarketplaceReview()}
+            >
+              {marketplaceAction === marketplaceActionKey(marketplaceReview.entry)
+                ? 'Working...'
+                : marketplaceActionLabel(marketplaceReview.entry)}
+            </button>
+          </div>
+        </div>
+      </div>
+    {/if}
   </div>
 </div>
 
@@ -950,6 +1164,7 @@
   }
 
   .panel {
+    position: relative;
     width: min(760px, calc(100vw - 28px));
     max-height: min(760px, calc(100vh - 28px));
     display: flex;
@@ -1181,6 +1396,91 @@
     overflow-wrap: anywhere;
   }
 
+  .marketplace-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 150px;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+
+  .marketplace-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+    font-size: 10px;
+    color: rgba(226, 232, 240, 0.62);
+  }
+
+  .marketplace-facts span {
+    padding: 3px 6px;
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.035);
+  }
+
+  .confirm-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: grid;
+    place-items: center;
+    padding: 18px;
+    background: rgba(5, 7, 17, 0.78);
+    backdrop-filter: blur(4px);
+  }
+
+  .confirm-box {
+    width: min(620px, 100%);
+    max-height: 100%;
+    overflow: auto;
+    padding: 14px;
+    background: rgba(10, 13, 29, 0.98);
+    border: 1px solid rgba(0, 228, 255, 0.14);
+    border-radius: 8px;
+    box-shadow: 0 18px 60px rgba(0, 0, 0, 0.35);
+  }
+
+  .confirm-header,
+  .confirm-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .confirm-title {
+    margin-bottom: 2px;
+    color: #e2e8f0;
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .marketplace-review-grid {
+    margin-top: 14px;
+  }
+
+  .release-notes {
+    margin-top: 12px;
+    padding: 10px;
+    border-left: 2px solid rgba(0, 228, 255, 0.34);
+    background: rgba(0, 228, 255, 0.04);
+    color: rgba(226, 232, 240, 0.76);
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+  }
+
+  .confirm-actions {
+    margin-top: 14px;
+    justify-content: flex-end;
+  }
+
+  .save-btn.primary {
+    background: rgba(0, 228, 255, 0.14);
+    border-color: rgba(0, 228, 255, 0.32);
+    color: #e2fbff;
+  }
+
   .review-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1325,6 +1625,10 @@
 
     .migration-row,
     .approval-row {
+      grid-template-columns: 1fr;
+    }
+
+    .marketplace-controls {
       grid-template-columns: 1fr;
     }
   }

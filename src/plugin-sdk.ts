@@ -80,7 +80,11 @@ export type {
   PluginCompatibilityReport,
   PluginMigration,
 } from './core/plugin-compatibility.js';
-export { PluginCompatibilityError } from './core/plugin-compatibility.js';
+export {
+  compareVersions,
+  PluginCompatibilityError,
+  pluginCompatibilityWarnings,
+} from './core/plugin-compatibility.js';
 export type {
   PluginSecretDeclaration,
   PluginSecretSnapshot,
@@ -93,10 +97,16 @@ export type {
   PluginCatalog,
   PluginCatalogEntry,
   PluginCatalogEntrySignature,
+  PluginCatalogEntryStatus,
+  PluginCatalogSignature,
   ResolvedPluginCatalog,
   ResolvedPluginCatalogEntry,
 } from './plugins/catalog.js';
-export { PLUGIN_CATALOG_FORMAT, PluginCatalogError } from './plugins/catalog.js';
+export {
+  PLUGIN_CATALOG_FORMAT,
+  PluginCatalogError,
+  signPluginCatalogFile,
+} from './plugins/catalog.js';
 export type { InstalledPlugin } from './plugins/install.js';
 export type {
   PluginMarketplaceEntry,

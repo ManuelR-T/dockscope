@@ -1,8 +1,11 @@
+import { validatePluginConfigSchema, type PluginConfigSchema } from './plugin-config.js';
+
 export interface PluginCommandDeclaration {
   id: string;
   title: string;
   description?: string;
   confirm?: boolean;
+  input?: PluginConfigSchema;
 }
 
 export interface PluginCommand {
@@ -11,6 +14,7 @@ export interface PluginCommand {
   title: string;
   description?: string;
   confirm?: boolean;
+  input?: PluginConfigSchema;
 }
 
 export interface PluginCommandResult {
@@ -46,6 +50,10 @@ function optionalString(value: unknown, field: string): string | undefined {
   return value;
 }
 
+function optionalInputSchema(value: unknown): PluginConfigSchema | undefined {
+  return value === undefined ? undefined : validatePluginConfigSchema(value);
+}
+
 function validatePluginCommand(raw: unknown): PluginCommandDeclaration {
   if (!isRecord(raw)) {
     throw new PluginCommandError('Plugin commands must be objects');
@@ -59,12 +67,17 @@ function validatePluginCommand(raw: unknown): PluginCommandDeclaration {
   if (!isNonEmptyString(raw.title)) {
     throw new PluginCommandError(`Plugin command "${raw.id}" requires a title`);
   }
-  return {
+  const command: PluginCommandDeclaration = {
     id: raw.id,
     title: raw.title,
     description: optionalString(raw.description, `${raw.id}.description`),
     confirm: raw.confirm === true,
   };
+  const input = optionalInputSchema(raw.input);
+  if (input) {
+    command.input = input;
+  }
+  return command;
 }
 
 export function validatePluginCommands(raw: unknown): PluginCommandDeclaration[] {

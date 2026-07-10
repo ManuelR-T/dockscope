@@ -255,6 +255,44 @@ describe('external plugin loader', () => {
     expect(result.plugins[0].manifest.description).toBe('secret-token');
   });
 
+  it('provides per-plugin host storage without filesystem permissions', async () => {
+    const pluginDir = await createPluginDir();
+    await writePlugin(
+      pluginDir,
+      manifest({
+        capabilities: ['ui.command'],
+        commands: [{ id: 'count', title: 'Count' }],
+      }),
+      `
+        export default function createPlugin({ manifest, host }) {
+          return {
+            manifest,
+            async runCommand() {
+              const current = await host.readStorage('counter');
+              const count = Number(current?.count ?? 0) + 1;
+              await host.writeStorage('counter', { count });
+              return { ok: true, data: { count } };
+            }
+          };
+        }
+      `,
+    );
+
+    const result = await loadExternalPlugins({ paths: [pluginDir], permissions: [] });
+
+    expect(result.errors).toEqual([]);
+    await expect(result.plugins[0].runCommand?.('count')).resolves.toEqual({
+      ok: true,
+      data: { count: 1 },
+      message: undefined,
+    });
+    await expect(result.plugins[0].runCommand?.('count')).resolves.toEqual({
+      ok: true,
+      data: { count: 2 },
+      message: undefined,
+    });
+  });
+
   it('defers process-isolated plugin imports until command execution', async () => {
     const pluginDir = await createPluginDir();
     const markerPath = path.join(pluginDir, 'imported.txt');

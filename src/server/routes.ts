@@ -297,6 +297,9 @@ export function setupRoutes(
       }
       const catalog = await loadPluginCatalog(
         opts.pluginCatalog ?? (process.env.DOCKSCOPE_PLUGIN_CATALOG as string),
+        {
+          publicKey: opts.pluginCatalogPublicKey ?? process.env.DOCKSCOPE_PLUGIN_CATALOG_PUBLIC_KEY,
+        },
       );
       res.json({ configured: true, ...catalog });
     }),

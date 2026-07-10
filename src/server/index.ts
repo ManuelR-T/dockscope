@@ -47,8 +47,14 @@ function pluginEnvironment(opts: ServerOptions): NodeJS.ProcessEnv {
   if (opts.pluginCatalog !== undefined) {
     env.DOCKSCOPE_PLUGIN_CATALOG = opts.pluginCatalog;
   }
+  if (opts.pluginCatalogPublicKey !== undefined) {
+    env.DOCKSCOPE_PLUGIN_CATALOG_PUBLIC_KEY = opts.pluginCatalogPublicKey;
+  }
   if (opts.pluginRegistry !== undefined) {
     env.DOCKSCOPE_PLUGIN_REGISTRY = opts.pluginRegistry;
+  }
+  if (opts.allowUnsignedPlugins) {
+    env.DOCKSCOPE_PLUGIN_ALLOW_UNSIGNED = '1';
   }
   if (opts.disableExternalPlugins) {
     env.DOCKSCOPE_DISABLE_EXTERNAL_PLUGINS = '1';

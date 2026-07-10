@@ -22,7 +22,11 @@ import {
   updateInstalledPlugin,
 } from './plugins/install.js';
 import { createPluginPackageFromPath, verifyPluginPackage } from './plugins/package.js';
-import { installPluginFromCatalog, loadPluginCatalog } from './plugins/catalog.js';
+import {
+  installPluginFromCatalog,
+  loadPluginCatalog,
+  signPluginCatalogFile,
+} from './plugins/catalog.js';
 
 function isPortInUse(port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -189,6 +193,10 @@ async function readOptionalTextFile(filePath: string | undefined): Promise<strin
   return filePath ? readFile(path.resolve(filePath), 'utf-8') : undefined;
 }
 
+async function readRequiredTextFile(filePath: string): Promise<string> {
+  return readFile(path.resolve(filePath), 'utf-8');
+}
+
 const program = new Command();
 
 program
@@ -222,7 +230,12 @@ program
   .option('--plugin-events <file>', 'Plugin event history JSON file')
   .option('--plugin-approvals <file>', 'Plugin approval JSON file')
   .option('--plugin-catalog <source>', 'Plugin catalog file or URL')
+  .option(
+    '--plugin-catalog-public-key <file>',
+    'Verify signed plugin catalogs with this public key',
+  )
   .option('--plugin-registry <dir>', 'Local plugin registry directory')
+  .option('--allow-unsigned-plugins', 'Allow marketplace installs from unsigned catalog entries')
   .option('--no-external-plugins', 'Disable external plugin loading')
   .action(async (opts) => {
     const requestedPort = parseInt(opts.port, 10);
@@ -253,7 +266,9 @@ program
       pluginEvents: opts.pluginEvents,
       pluginApprovals: opts.pluginApprovals,
       pluginCatalog: opts.pluginCatalog,
+      pluginCatalogPublicKey: await readOptionalTextFile(opts.pluginCatalogPublicKey),
       pluginRegistry: opts.pluginRegistry,
+      allowUnsignedPlugins: opts.allowUnsignedPlugins === true,
       disableExternalPlugins: opts.externalPlugins === false,
     });
 
@@ -386,6 +401,43 @@ program
   });
 
 program
+  .command('plugin:doctor')
+  .description('Check plugin paths and optional catalog configuration')
+  .option('--plugins <paths>', 'Plugin path list')
+  .option(
+    '--plugin-permissions <permissions>',
+    'Allowed plugin permissions: all or comma-separated',
+  )
+  .option('--catalog <source>', 'Catalog JSON file or URL')
+  .option('--catalog-public-key <file>', 'Verify catalog signature with this public key')
+  .action(async (opts) => {
+    let ok = true;
+    if (opts.plugins) {
+      ok = (await validatePluginPaths(opts)) && ok;
+    }
+    if (opts.catalog) {
+      try {
+        const catalog = await loadPluginCatalog(opts.catalog, {
+          publicKey: await readOptionalTextFile(opts.catalogPublicKey),
+        });
+        console.log(
+          `  catalog ok ${catalog.name} (${catalog.entries.length} entries${catalog.signatureVerified ? ', signed' : ''})`,
+        );
+      } catch (error) {
+        ok = false;
+        console.error(`  catalog error ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    if (!opts.plugins && !opts.catalog) {
+      console.error('  Nothing to check; pass --plugins and/or --catalog');
+      ok = false;
+    }
+    if (!ok) {
+      process.exit(1);
+    }
+  });
+
+program
   .command('plugin:pack')
   .description('Create a DockScope plugin package from a plugin directory')
   .requiredOption('--source <path>', 'Plugin directory to package')
@@ -452,16 +504,79 @@ program
   .command('plugin:catalog')
   .description('List plugins from a DockScope plugin catalog')
   .requiredOption('--catalog <source>', 'Catalog JSON file or URL')
+  .option('--public-key <file>', 'Verify catalog signature with this Ed25519 public key PEM file')
   .action(async (opts) => {
-    const catalog = await loadPluginCatalog(opts.catalog);
-    console.log(`  ${catalog.name}`);
+    const catalog = await loadPluginCatalog(opts.catalog, {
+      publicKey: await readOptionalTextFile(opts.publicKey),
+    });
+    console.log(`  ${catalog.name}${catalog.signatureVerified ? ' (signature verified)' : ''}`);
     for (const entry of catalog.entries) {
-      console.log(`  ${entry.id} v${entry.version}`);
+      console.log(`  ${entry.id} v${entry.version} ${entry.status}`);
       if (entry.description) {
         console.log(`    ${entry.description}`);
       }
+      if (entry.releaseNotes) {
+        console.log(`    release ${entry.releaseNotes}`);
+      }
       console.log(`    package ${entry.resolvedPackageUrl}`);
     }
+  });
+
+program
+  .command('plugin:catalog:sign')
+  .description('Sign a DockScope plugin catalog in place')
+  .requiredOption('--catalog <file>', 'Catalog JSON file to sign')
+  .requiredOption('--private-key <file>', 'Ed25519 private key PEM file')
+  .option('--key-id <id>', 'Optional catalog signing key id')
+  .action(async (opts) => {
+    const signed = await signPluginCatalogFile({
+      catalogPath: opts.catalog,
+      privateKey: await readRequiredTextFile(opts.privateKey),
+      keyId: opts.keyId,
+    });
+    console.log(`  signed ${signed.name}`);
+    console.log(
+      `  signature ${signed.signature?.algorithm}${signed.signature?.keyId ? `:${signed.signature.keyId}` : ''}`,
+    );
+  });
+
+program
+  .command('plugin:catalog:entry')
+  .description('Generate a catalog entry JSON object from a plugin package')
+  .requiredOption('--package <file>', 'DockScope plugin package file')
+  .requiredOption('--public-key <file>', 'Ed25519 package public key PEM file')
+  .option('--key-id <id>', 'Package signing key id')
+  .option('--category <category>', 'Catalog category')
+  .option('--license <license>', 'Plugin license')
+  .option('--release-notes <notes>', 'Release notes')
+  .action(async (opts) => {
+    const publicKey = await readRequiredTextFile(opts.publicKey);
+    const verified = await verifyPluginPackage(opts.package, {
+      publicKey,
+    });
+    const entry = {
+      id: verified.bundle.manifest.id,
+      name: verified.bundle.manifest.name,
+      version: verified.bundle.manifest.version,
+      description: verified.bundle.manifest.description,
+      license: opts.license,
+      category: opts.category,
+      status: 'active',
+      tags: [],
+      publishedAt: new Date().toISOString(),
+      releaseNotes: opts.releaseNotes,
+      compatibility: verified.bundle.manifest.compatibility,
+      capabilities: verified.bundle.manifest.capabilities,
+      permissions: verified.bundle.manifest.permissions,
+      packageUrl: path.basename(path.resolve(opts.package)),
+      packageSha256: verified.bundle.sha256,
+      signature: {
+        algorithm: 'ed25519',
+        publicKey,
+        keyId: opts.keyId ?? verified.bundle.signature?.keyId,
+      },
+    };
+    console.log(JSON.stringify(entry, null, 2));
   });
 
 program
@@ -470,11 +585,15 @@ program
   .argument('<pluginId>', 'Plugin id')
   .requiredOption('--catalog <source>', 'Catalog JSON file or URL')
   .option('--registry-dir <path>', 'Local plugin registry directory')
+  .option('--catalog-public-key <file>', 'Verify catalog signature with this public key')
+  .option('--allow-unsigned', 'Allow installing unsigned catalog entries')
   .action(async (pluginId: string, opts) => {
     const installed = await installPluginFromCatalog({
       catalogSource: opts.catalog,
       pluginId,
       registryDir: opts.registryDir,
+      catalogPublicKey: await readOptionalTextFile(opts.catalogPublicKey),
+      allowUnsigned: opts.allowUnsigned === true,
     });
     console.log(`  installed ${installed.id} v${installed.version}`);
     if (installed.packageSha256) {

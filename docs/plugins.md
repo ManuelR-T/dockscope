@@ -22,11 +22,15 @@ DOCKSCOPE_PLUGIN_SECRET_KEY='local encryption key' dockscope up
 DOCKSCOPE_PLUGIN_EVENTS=./plugin-events.json dockscope up
 DOCKSCOPE_PLUGIN_APPROVALS=./plugin-approvals.json dockscope up
 DOCKSCOPE_PLUGIN_CATALOG=./plugin-catalog.json dockscope up
+DOCKSCOPE_PLUGIN_CATALOG_PUBLIC_KEY="$(cat ./keys/catalog.public.pem)" dockscope up
 DOCKSCOPE_PLUGIN_REGISTRY=./installed-plugins dockscope up
+DOCKSCOPE_PLUGIN_ALLOW_UNSIGNED=1 dockscope up
 DOCKSCOPE_DISABLE_EXTERNAL_PLUGINS=1 dockscope up
 ```
 
 `DOCKSCOPE_PLUGIN_PATHS` uses the platform path delimiter (`:` on Linux/macOS, `;` on Windows). Each entry can be either a plugin directory containing `plugin.json` or a directory containing multiple plugin directories. The local registry is `~/.dockscope/plugins` by default and is included automatically unless external plugins are disabled.
+
+`DOCKSCOPE_PLUGIN_CATALOG_PUBLIC_KEY` contains an Ed25519 public key PEM used to verify the whole catalog file. `DOCKSCOPE_PLUGIN_ALLOW_UNSIGNED=1` is intended for local development only; by default marketplace installs require each catalog entry to include an Ed25519 package signature.
 
 ## Manifest
 
@@ -73,7 +77,17 @@ Every external plugin must include `plugin.json`:
     {
       "id": "refresh",
       "title": "Refresh plugin data",
-      "description": "Runs a plugin-defined backend action"
+      "description": "Runs a plugin-defined backend action",
+      "input": {
+        "fields": [
+          {
+            "key": "force",
+            "label": "Force",
+            "type": "boolean",
+            "default": false
+          }
+        ]
+      }
     }
   ],
   "compatibility": {
@@ -107,6 +121,7 @@ dockscope plugin:init --dir ./plugins/example --id example.plugin --name "Exampl
 dockscope plugin:keys --out-dir ./keys
 dockscope plugin:test --plugins ./plugins --plugin-permissions all
 dockscope plugin:watch --plugins ./plugins --plugin-permissions all
+dockscope plugin:doctor --plugins ./plugins --catalog ./plugin-catalog.json
 dockscope plugin:catalog --catalog ./plugin-catalog.json
 ```
 
@@ -156,15 +171,17 @@ Each slot requires its matching UI capability, such as `ui.toolbarAction` for `t
 
 Plugins can declare backend commands in the manifest and implement `runCommand(commandId, input)`. Commands require the `ui.command` capability.
 
+Command `input` uses the same schema shape as plugin config fields. It is exposed through `GET /api/plugins/commands` so clients can render typed command forms before calling the command endpoint.
+
 ```js
 export default function createPlugin({ manifest, host }) {
   return {
     manifest,
-    async runCommand(commandId) {
+    async runCommand(commandId, input) {
       if (commandId !== 'refresh') {
         return { ok: false, message: `Unknown command: ${commandId}` };
       }
-      await host.publishEvent('refresh.completed', { time: Date.now() });
+      await host.publishEvent('refresh.completed', { force: input?.force === true });
       return { ok: true, message: 'Refresh complete' };
     },
   };
@@ -223,6 +240,12 @@ dockscope plugin:verify --package ./example.dockscope-plugin --public-key ./keys
 dockscope plugin:install --source ./example.dockscope-plugin --public-key ./keys/dockscope-plugin.public.pem
 ```
 
+Generate a catalog entry from a signed package:
+
+```bash
+dockscope plugin:catalog:entry --package ./example.dockscope-plugin --public-key ./keys/dockscope-plugin.public.pem --key-id maintainer-1
+```
+
 ## Catalogs
 
 A plugin catalog is a signed-package index. It can be a local JSON file or an HTTP(S) URL configured with `--plugin-catalog` or `DOCKSCOPE_PLUGIN_CATALOG`.
@@ -231,12 +254,32 @@ A plugin catalog is a signed-package index. It can be a local JSON file or an HT
 {
   "format": "dockscope-plugin-catalog/v1",
   "name": "Official DockScope Plugins",
+  "updatedAt": "2026-07-10T19:00:00.000Z",
+  "signature": {
+    "algorithm": "ed25519",
+    "value": "catalog-signature-base64",
+    "keyId": "catalog-1"
+  },
   "entries": [
     {
       "id": "example.plugin",
       "name": "Example Plugin",
       "version": "1.0.0",
       "description": "Adds an example command",
+      "homepage": "https://github.com/ManuelR-T/dockscope",
+      "repositoryUrl": "https://github.com/ManuelR-T/dockscope",
+      "readmeUrl": "https://github.com/ManuelR-T/dockscope/blob/main/docs/plugins.md",
+      "iconUrl": "https://example.com/icon.png",
+      "license": "MIT",
+      "category": "Utilities",
+      "status": "active",
+      "tags": ["demo"],
+      "screenshots": [],
+      "publishedAt": "2026-07-10T19:00:00.000Z",
+      "releaseNotes": "Initial catalog release.",
+      "compatibility": {
+        "minDockscopeVersion": "0.7.0"
+      },
       "capabilities": ["ui.command"],
       "permissions": [],
       "packageUrl": "./example.dockscope-plugin",
@@ -251,7 +294,16 @@ A plugin catalog is a signed-package index. It can be a local JSON file or an HT
 }
 ```
 
-Use `dockscope plugin:catalog --catalog ./plugin-catalog.json` to inspect a catalog and `dockscope plugin:catalog:install <pluginId> --catalog ./plugin-catalog.json` to install from it. When DockScope is started with `--plugin-catalog`, the Plugin Manager Marketplace tab can install, update, and uninstall catalog plugins in the configured local registry.
+Package signatures and catalog signatures are separate:
+
+- Each entry `signature` verifies the downloaded plugin package.
+- The top-level `signature` verifies the catalog contents and entry metadata.
+- `dockscope plugin:catalog:sign --catalog ./plugin-catalog.json --private-key ./keys/catalog.private.pem --key-id catalog-1` signs the catalog in place.
+- `--plugin-catalog-public-key ./keys/catalog.public.pem` or `DOCKSCOPE_PLUGIN_CATALOG_PUBLIC_KEY` makes catalog verification strict. Unsigned catalogs or mismatched signatures are rejected.
+
+Use `dockscope plugin:catalog --catalog ./plugin-catalog.json --public-key ./keys/catalog.public.pem` to inspect a signed catalog and `dockscope plugin:catalog:install <pluginId> --catalog ./plugin-catalog.json --catalog-public-key ./keys/catalog.public.pem` to install from it. When DockScope is started with `--plugin-catalog`, the Plugin Manager Marketplace tab can install, update, and uninstall catalog plugins in the configured local registry. Install and update actions open a review step with package signature, package hash, capabilities, permissions, compatibility range, target registry, installed version, and release notes.
+
+Marketplace installs reject `yanked` entries, incompatible entries, hash mismatches, and unsigned package entries by default. Use `--allow-unsigned-plugins`, `DOCKSCOPE_PLUGIN_ALLOW_UNSIGNED=1`, or `dockscope plugin:catalog:install --allow-unsigned` only for local development catalogs.
 
 Marketplace API:
 
@@ -393,6 +445,7 @@ Plugin factories receive a restricted `host` API. Host helpers check the plugin'
 - `host.fetchJson()` requires `network.local` for local URLs or `network.http` for remote URLs.
 - `host.execFile()` requires `process.exec` and does not invoke a shell.
 - `host.readSecret()` requires `secrets.read` and only reads declared secrets.
+- `host.readStorage()`, `host.writeStorage()`, and `host.deleteStorage()` persist plugin-private JSON values under the plugin directory and do not require filesystem permissions.
 - `host.publishEvent()` requires `source.events` and writes to the plugin event bus.
 
 Current permissions are:

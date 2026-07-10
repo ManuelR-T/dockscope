@@ -116,6 +116,24 @@ export async function listInstalledPlugins(
   return Object.values(await readIndex(registryDir)).sort((a, b) => a.id.localeCompare(b.id));
 }
 
+export async function saveInstalledPluginRecord(
+  installed: InstalledPlugin,
+  registryDir = defaultPluginRegistryDir(),
+): Promise<void> {
+  const index = await readIndex(registryDir);
+  index[installed.id] = installed;
+  await writeIndex(registryDir, index);
+}
+
+export async function removeInstalledPluginRecord(
+  pluginId: string,
+  registryDir = defaultPluginRegistryDir(),
+): Promise<void> {
+  const index = await readIndex(registryDir);
+  delete index[pluginId];
+  await writeIndex(registryDir, index);
+}
+
 export async function uninstallPlugin(
   pluginId: string,
   registryDir = defaultPluginRegistryDir(),

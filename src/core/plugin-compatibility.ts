@@ -119,7 +119,7 @@ function versionParts(version: string): number[] {
     .map((part) => (Number.isFinite(part) ? part : 0));
 }
 
-function compareVersions(left: string, right: string): number {
+export function compareVersions(left: string, right: string): number {
   const a = versionParts(left);
   const b = versionParts(right);
   for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
@@ -131,11 +131,10 @@ function compareVersions(left: string, right: string): number {
   return 0;
 }
 
-export function createPluginCompatibilityReport(
-  manifest: PluginManifest,
+export function pluginCompatibilityWarnings(
+  compatibility: PluginCompatibility | undefined,
   currentVersion: string,
-): PluginCompatibilityReport {
-  const compatibility = manifest.compatibility;
+): string[] {
   const warnings: string[] = [];
   if (compatibility?.minDockscopeVersion) {
     if (compareVersions(currentVersion, compatibility.minDockscopeVersion) < 0) {
@@ -147,13 +146,21 @@ export function createPluginCompatibilityReport(
       warnings.push(`Validated up to DockScope ${compatibility.maxDockscopeVersion}`);
     }
   }
+  return warnings;
+}
+
+export function createPluginCompatibilityReport(
+  manifest: PluginManifest,
+  currentVersion: string,
+): PluginCompatibilityReport {
+  const compatibility = manifest.compatibility;
   return {
     pluginId: manifest.id,
     name: manifest.name,
     version: manifest.version,
     minDockscopeVersion: compatibility?.minDockscopeVersion,
     maxDockscopeVersion: compatibility?.maxDockscopeVersion,
-    warnings,
+    warnings: pluginCompatibilityWarnings(compatibility, currentVersion),
     deprecations: [...(compatibility?.deprecations ?? [])],
     migrations: (compatibility?.migrations ?? []).map((migration) => ({ ...migration })),
   };
