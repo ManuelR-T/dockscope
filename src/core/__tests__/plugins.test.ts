@@ -466,6 +466,46 @@ describe('PluginRegistry', () => {
     ]);
   });
 
+  it('approves and revokes plugin review fingerprints', async () => {
+    const writer = {
+      save: vi.fn().mockResolvedValue(undefined),
+    };
+    const registry = new PluginRegistry(undefined, undefined, undefined, undefined, [], writer);
+
+    registry.register(
+      plugin({
+        manifest: {
+          id: 'test.approval',
+          name: 'Approval Plugin',
+          version: '1.0.0',
+          dockscopeApiVersion: '1',
+          capabilities: ['source.graph'],
+          permissions: [],
+        },
+      }),
+    );
+
+    expect(registry.listPluginReviews('1.0.0')[0]).toMatchObject({
+      pluginId: 'test.approval',
+      approvalStatus: 'unapproved',
+    });
+
+    const approval = await registry.approvePlugin('test.approval');
+
+    expect(registry.listPluginReviews('1.0.0')[0]).toMatchObject({
+      approvalStatus: 'approved',
+      approvedFingerprint: approval.fingerprint,
+    });
+    expect(writer.save).toHaveBeenCalledWith([approval]);
+
+    await registry.revokePluginApproval('test.approval');
+
+    expect(registry.listPluginReviews('1.0.0')[0]).toMatchObject({
+      approvalStatus: 'unapproved',
+    });
+    expect(writer.save).toHaveBeenLastCalledWith([]);
+  });
+
   it('validates, saves, and applies plugin config updates', async () => {
     const configure = vi.fn();
     const writer: PluginConfigWriter = {

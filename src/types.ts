@@ -165,6 +165,8 @@ export interface ServerOptions {
   pluginSecrets?: string;
   pluginSecretKey?: string;
   pluginEvents?: string;
+  pluginApprovals?: string;
+  pluginCatalog?: string;
   disableExternalPlugins?: boolean;
 }
 

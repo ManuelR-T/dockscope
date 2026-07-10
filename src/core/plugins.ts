@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import type { DataSourceDescriptor, GraphSourceAdapter } from './model.js';
 import type {
   EntityDiagnosticProvider,
@@ -152,6 +153,16 @@ export interface PluginReviewReport {
   compatibilityWarnings: readonly string[];
   riskLevel: 'low' | 'medium' | 'high';
   riskReasons: readonly string[];
+  approvalStatus: 'unapproved' | 'approved' | 'changed';
+  fingerprint: string;
+  approvedAt?: number;
+  approvedFingerprint?: string;
+}
+
+export interface PluginApprovalSnapshot {
+  pluginId: string;
+  fingerprint: string;
+  approvedAt: number;
 }
 
 export interface PluginConfigWriter {
@@ -169,6 +180,10 @@ export interface PluginSecretWriter {
 
 export interface PluginEventWriter {
   save(events: readonly PluginEvent[]): Promise<void>;
+}
+
+export interface PluginApprovalWriter {
+  save(approvals: readonly PluginApprovalSnapshot[]): Promise<void>;
 }
 
 export interface PluginReloadResult {
@@ -436,6 +451,7 @@ export class PluginRegistry {
   private readonly configs = new Map<string, PluginConfig>();
   private readonly loadErrors: PluginLoadError[] = [];
   private readonly events: PluginEventBus;
+  private readonly approvals = new Map<string, PluginApprovalSnapshot>();
   private reloadHandler?: PluginReloadHandler;
 
   constructor(
@@ -444,8 +460,13 @@ export class PluginRegistry {
     private readonly secretWriter?: PluginSecretWriter,
     private readonly eventWriter?: PluginEventWriter,
     initialEvents: readonly PluginEvent[] = [],
+    private readonly approvalWriter?: PluginApprovalWriter,
+    initialApprovals: readonly PluginApprovalSnapshot[] = [],
   ) {
     this.events = new PluginEventBus(500, initialEvents);
+    for (const approval of initialApprovals) {
+      this.approvals.set(approval.pluginId, { ...approval });
+    }
   }
 
   register(
@@ -618,6 +639,10 @@ export class PluginRegistry {
         const runtime = this.runtime.get(plugin.manifest.id);
         const compatibility = createPluginCompatibilityReport(plugin.manifest, currentVersion);
         const riskReasons = this.pluginRiskReasons(plugin, compatibility);
+        const fingerprint = this.pluginApprovalFingerprint(plugin);
+        const approval = this.approvals.get(plugin.manifest.id);
+        const approvalStatus: PluginReviewReport['approvalStatus'] =
+          approval?.fingerprint === fingerprint ? 'approved' : approval ? 'changed' : 'unapproved';
         const riskLevel: PluginReviewReport['riskLevel'] = riskReasons.some((reason) =>
           reason.startsWith('high:'),
         )
@@ -642,9 +667,41 @@ export class PluginRegistry {
           compatibilityWarnings: compatibility.warnings,
           riskLevel,
           riskReasons: riskReasons.map((reason) => reason.replace(/^(high|medium):/, '')),
+          approvalStatus,
+          fingerprint,
+          approvedAt: approval?.approvedAt,
+          approvedFingerprint: approval?.fingerprint,
         };
       })
       .sort((a, b) => a.pluginId.localeCompare(b.pluginId));
+  }
+
+  listPluginApprovals(): PluginApprovalSnapshot[] {
+    return [...this.approvals.values()].map((approval) => ({ ...approval }));
+  }
+
+  async approvePlugin(pluginId: string): Promise<PluginApprovalSnapshot> {
+    const plugin = this.plugins.get(pluginId);
+    if (!plugin) {
+      throw new PluginOperationError(404, `Plugin not found: ${pluginId}`);
+    }
+    if (plugin.manifest.builtin) {
+      throw new PluginOperationError(400, `Built-in plugin does not need approval: ${pluginId}`);
+    }
+    const approval: PluginApprovalSnapshot = {
+      pluginId,
+      fingerprint: this.pluginApprovalFingerprint(plugin),
+      approvedAt: Date.now(),
+    };
+    this.approvals.set(pluginId, approval);
+    await this.approvalWriter?.save(this.listPluginApprovals());
+    return { ...approval };
+  }
+
+  async revokePluginApproval(pluginId: string): Promise<{ ok: true }> {
+    this.approvals.delete(pluginId);
+    await this.approvalWriter?.save(this.listPluginApprovals());
+    return { ok: true };
   }
 
   listPluginConfigs(): PluginConfigSnapshot[] {
@@ -1073,6 +1130,39 @@ export class PluginRegistry {
       reasons.push(`medium:${warning}`);
     }
     return reasons;
+  }
+
+  private pluginApprovalFingerprint(plugin: DockscopePlugin): string {
+    return createHash('sha256')
+      .update(
+        JSON.stringify({
+          id: plugin.manifest.id,
+          version: plugin.manifest.version,
+          dockscopeApiVersion: plugin.manifest.dockscopeApiVersion,
+          capabilities: [...plugin.manifest.capabilities].sort(),
+          permissions: [...plugin.manifest.permissions].sort(),
+          secrets: (plugin.manifest.secrets ?? []).map((secret) => ({
+            key: secret.key,
+            required: secret.required === true,
+          })),
+          commands: this.pluginCommands(plugin).map((command) => ({
+            id: command.id,
+            confirm: command.confirm === true,
+          })),
+          ui: (plugin.manifest.ui ?? []).map((extension) => ({
+            id: extension.id,
+            slot: extension.slot,
+            action: extension.action,
+          })),
+          config: (plugin.manifest.config?.fields ?? []).map((field) => ({
+            key: field.key,
+            type: field.type,
+            required: field.required === true,
+          })),
+          execution: plugin.manifest.execution ?? {},
+        }),
+      )
+      .digest('hex');
   }
 
   private activePlugins(): DockscopePlugin[] {

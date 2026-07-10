@@ -14,6 +14,13 @@
   import type { PluginCommand, PluginCommandResult } from '../../core/plugin-commands';
   import type { PluginEvent } from '../../core/plugin-events';
   import type { PluginCompatibilityReport } from '../../core/plugin-compatibility';
+  import type { ResolvedPluginCatalogEntry } from '../../plugins/catalog';
+
+  interface PluginCatalogResponse {
+    configured: boolean;
+    name?: string;
+    entries: ResolvedPluginCatalogEntry[];
+  }
 
   interface Props {
     onClose: () => void;
@@ -27,6 +34,7 @@
     | 'commands'
     | 'events'
     | 'review'
+    | 'catalog'
     | 'compatibility'
     | 'config'
     | 'secrets'
@@ -38,6 +46,9 @@
   let commands = $state<PluginCommand[]>([]);
   let events = $state<PluginEvent[]>([]);
   let reviews = $state<PluginReviewReport[]>([]);
+  let catalogConfigured = $state(false);
+  let catalogName = $state<string | undefined>();
+  let catalogEntries = $state<ResolvedPluginCatalogEntry[]>([]);
   let compatibility = $state<PluginCompatibilityReport[]>([]);
   let configs = $state<PluginConfigSnapshot[]>([]);
   let secrets = $state<PluginSecretSnapshot[]>([]);
@@ -66,6 +77,7 @@
         commandData,
         eventData,
         reviewData,
+        catalogData,
         compatibilityData,
         configData,
         secretData,
@@ -76,6 +88,7 @@
         getJson<PluginCommand[]>('/api/plugins/commands'),
         getJson<PluginEvent[]>('/api/plugins/events'),
         getJson<PluginReviewReport[]>('/api/plugins/review'),
+        getJson<PluginCatalogResponse>('/api/plugins/catalog'),
         getJson<PluginCompatibilityReport[]>('/api/plugins/compatibility'),
         getJson<PluginConfigSnapshot[]>('/api/plugins/config'),
         getJson<PluginSecretSnapshot[]>('/api/plugins/secrets'),
@@ -86,6 +99,9 @@
       commands = commandData;
       events = eventData;
       reviews = reviewData;
+      catalogConfigured = catalogData.configured;
+      catalogName = catalogData.name;
+      catalogEntries = catalogData.entries;
       compatibility = compatibilityData;
       configs = configData;
       secrets = secretData;
@@ -258,6 +274,40 @@
     }
   }
 
+  async function approvePlugin(pluginId: string) {
+    if (saving) {
+      return;
+    }
+    saving = `${pluginId}:approval`;
+    try {
+      await requestJson(`/api/plugins/${encodeURIComponent(pluginId)}/approve`, { method: 'POST' });
+      await loadPluginState();
+      addToast(`${pluginId}: approved`, 'success');
+    } catch {
+      addToast(`${pluginId}: approval failed`, 'error');
+    } finally {
+      saving = null;
+    }
+  }
+
+  async function revokeApproval(pluginId: string) {
+    if (saving) {
+      return;
+    }
+    saving = `${pluginId}:approval`;
+    try {
+      await requestJson(`/api/plugins/${encodeURIComponent(pluginId)}/revoke-approval`, {
+        method: 'POST',
+      });
+      await loadPluginState();
+      addToast(`${pluginId}: approval revoked`, 'success');
+    } catch {
+      addToast(`${pluginId}: revoke failed`, 'error');
+    } finally {
+      saving = null;
+    }
+  }
+
   function eventPayload(event: PluginEvent): string {
     try {
       return JSON.stringify(event.payload, null, 2);
@@ -308,6 +358,10 @@
   function listText(values: readonly string[]): string {
     return values.length > 0 ? values.join(', ') : 'none';
   }
+
+  function shortFingerprint(value: string): string {
+    return value.slice(0, 12);
+  }
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -334,6 +388,9 @@
         </button>
         <button class="tab" class:active={tab === 'review'} onclick={() => (tab = 'review')}>
           Review
+        </button>
+        <button class="tab" class:active={tab === 'catalog'} onclick={() => (tab = 'catalog')}>
+          Catalog
         </button>
         <button
           class="tab"
@@ -526,6 +583,7 @@
                     <span>{review.enabled ? 'enabled' : 'disabled'}</span>
                     <span>{review.status}</span>
                     <span>{review.executionIsolation}</span>
+                    <span>{review.approvalStatus}</span>
                   </div>
                   <div class="review-grid">
                     <div>
@@ -561,6 +619,64 @@
                   {#each review.compatibilityWarnings as warning}
                     <div class="error-line">{warning}</div>
                   {/each}
+                  <div class="approval-row">
+                    <code>{shortFingerprint(review.fingerprint)}</code>
+                    {#if review.approvedAt}
+                      <span>approved {new Date(review.approvedAt).toLocaleString()}</span>
+                    {/if}
+                    {#if review.approvalStatus !== 'approved'}
+                      <button
+                        class="save-btn"
+                        disabled={saving !== null}
+                        onclick={() => approvePlugin(review.pluginId)}
+                      >
+                        {saving === `${review.pluginId}:approval` ? 'Saving...' : 'Approve'}
+                      </button>
+                    {:else}
+                      <button
+                        class="save-btn"
+                        disabled={saving !== null}
+                        onclick={() => revokeApproval(review.pluginId)}
+                      >
+                        {saving === `${review.pluginId}:approval` ? 'Saving...' : 'Revoke'}
+                      </button>
+                    {/if}
+                  </div>
+                </div>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      {:else if tab === 'catalog'}
+        {#if !catalogConfigured}
+          <div class="empty-msg">No plugin catalog configured.</div>
+        {:else if catalogEntries.length === 0}
+          <div class="empty-msg">{catalogName ?? 'Plugin catalog'} is empty.</div>
+        {:else}
+          <div class="summary-row">
+            <span>{catalogName}</span>
+            <span>{catalogEntries.length} entries</span>
+          </div>
+          <div class="list">
+            {#each catalogEntries as entry}
+              <div class="item">
+                <div class="slot-badge">catalog</div>
+                <div class="item-main">
+                  <div class="item-title">
+                    <span>{entry.name}</span>
+                    <code>{entry.id} v{entry.version}</code>
+                  </div>
+                  {#if entry.description}
+                    <div class="item-desc">{entry.description}</div>
+                  {/if}
+                  <div class="item-meta">
+                    <span>{entry.signature?.algorithm ?? 'unsigned'}</span>
+                    {#if entry.category}
+                      <span>{entry.category}</span>
+                    {/if}
+                    <span>{entry.tags.length} tags</span>
+                  </div>
+                  <div class="item-desc">{entry.resolvedPackageUrl}</div>
                 </div>
               </div>
             {/each}
@@ -969,6 +1085,16 @@
     color: rgba(226, 232, 240, 0.7);
   }
 
+  .approval-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: center;
+    margin-top: 10px;
+    font-size: 11px;
+    color: rgba(226, 232, 240, 0.7);
+  }
+
   .content-preview {
     margin: 8px 0 0;
     white-space: pre-wrap;
@@ -1069,7 +1195,8 @@
       grid-template-columns: 1fr;
     }
 
-    .migration-row {
+    .migration-row,
+    .approval-row {
       grid-template-columns: 1fr;
     }
   }

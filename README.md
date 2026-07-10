@@ -62,6 +62,8 @@ Opens `http://localhost:4681`.
 | `--plugin-secrets <file>`            | —           | Plugin secrets JSON file                                               |
 | `--plugin-secret-key <key>`          | —           | Encrypt plugin secrets with a local key                                |
 | `--plugin-events <file>`             | —           | Plugin event history JSON file                                         |
+| `--plugin-approvals <file>`          | —           | Plugin approval JSON file                                              |
+| `--plugin-catalog <source>`          | —           | Plugin catalog JSON file or URL                                        |
 | `--no-external-plugins`              | —           | Disable external plugin loading                                        |
 | `dockscope scan`                     | —           | Output graph as JSON (no UI)                                           |
 | `dockscope plugin:init`              | —           | Scaffold a plugin directory                                            |
@@ -70,6 +72,7 @@ Opens `http://localhost:4681`.
 | `dockscope plugin:test`              | —           | Validate and import external plugins                                   |
 | `dockscope plugin:pack`              | —           | Create a hash-verified plugin package                                  |
 | `dockscope plugin:install`           | —           | Install a directory or package into the local plugin registry           |
+| `dockscope plugin:catalog`           | —           | List plugins from a catalog                                            |
 
 ## Features
 
@@ -127,8 +130,12 @@ Opens `http://localhost:4681`.
 | POST   | `/api/plugins/:pluginId/commands/:id` | Run a plugin command                                               |
 | GET    | `/api/plugins/events`                 | Recent plugin event bus entries                                    |
 | GET    | `/api/plugins/review`                 | Plugin permission/capability review reports                        |
+| GET    | `/api/plugins/catalog`                | Configured plugin catalog entries                                  |
+| GET    | `/api/plugins/approvals`              | Persisted plugin approvals                                         |
 | GET    | `/api/plugins/compatibility`          | Plugin compatibility warnings and migration metadata               |
 | POST   | `/api/plugins/:pluginId/migrate`      | Run a declared plugin compatibility migration                      |
+| POST   | `/api/plugins/:pluginId/approve`      | Approve the current plugin fingerprint                             |
+| POST   | `/api/plugins/:pluginId/revoke-approval` | Revoke plugin approval                                          |
 | GET    | `/api/plugins/config`                 | Plugin config schemas and values                                   |
 | PUT    | `/api/plugins/:pluginId/config`       | Update plugin config                                               |
 | POST   | `/api/plugins/:pluginId/reload`       | Reload an external plugin from disk                                |

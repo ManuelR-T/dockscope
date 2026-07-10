@@ -7,6 +7,7 @@ import { PluginConfigError } from '../core/plugin-config.js';
 import { PluginCommandError } from '../core/plugin-commands.js';
 import { PluginEventError } from '../core/plugin-events.js';
 import { PluginCompatibilityError } from '../core/plugin-compatibility.js';
+import { loadPluginCatalog, PluginCatalogError } from '../plugins/catalog.js';
 import type { EntityRef } from '../core/operations.js';
 import type { GraphData, ServerOptions } from '../types.js';
 import { errorMessage, shortId } from '../utils.js';
@@ -39,7 +40,8 @@ function asyncRoute(handler: (req: Request, res: Response) => Promise<void>) {
           : err instanceof PluginConfigError ||
               err instanceof PluginCommandError ||
               err instanceof PluginEventError ||
-              err instanceof PluginCompatibilityError
+              err instanceof PluginCompatibilityError ||
+              err instanceof PluginCatalogError
             ? 400
             : 500;
       res.status(status).json({ error: errorMessage(err) });
@@ -284,6 +286,24 @@ export function setupRoutes(
     res.json(plugins.listPluginReviews(PKG_VERSION));
   });
 
+  app.get(
+    '/api/plugins/catalog',
+    asyncRoute(async (_req, res) => {
+      if (!opts.pluginCatalog && !process.env.DOCKSCOPE_PLUGIN_CATALOG) {
+        res.json({ configured: false, entries: [] });
+        return;
+      }
+      const catalog = await loadPluginCatalog(
+        opts.pluginCatalog ?? (process.env.DOCKSCOPE_PLUGIN_CATALOG as string),
+      );
+      res.json({ configured: true, ...catalog });
+    }),
+  );
+
+  app.get('/api/plugins/approvals', (_req, res) => {
+    res.json(plugins.listPluginApprovals());
+  });
+
   app.get('/api/plugins/config', (_req, res) => {
     res.json(plugins.listPluginConfigs());
   });
@@ -367,6 +387,20 @@ export function setupRoutes(
         return;
       }
       res.json(await plugins.runPluginMigration(req.params.pluginId as string, from, to, input));
+    }),
+  );
+
+  app.post(
+    '/api/plugins/:pluginId/approve',
+    asyncRoute(async (req, res) => {
+      res.json(await plugins.approvePlugin(req.params.pluginId as string));
+    }),
+  );
+
+  app.post(
+    '/api/plugins/:pluginId/revoke-approval',
+    asyncRoute(async (req, res) => {
+      res.json(await plugins.revokePluginApproval(req.params.pluginId as string));
     }),
   );
 

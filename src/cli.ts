@@ -22,6 +22,7 @@ import {
   updateInstalledPlugin,
 } from './plugins/install.js';
 import { createPluginPackageFromPath, verifyPluginPackage } from './plugins/package.js';
+import { installPluginFromCatalog, loadPluginCatalog } from './plugins/catalog.js';
 
 function isPortInUse(port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -219,6 +220,8 @@ program
   .option('--plugin-secrets <file>', 'Plugin secrets JSON file')
   .option('--plugin-secret-key <key>', 'Encrypt plugin secrets with this local key')
   .option('--plugin-events <file>', 'Plugin event history JSON file')
+  .option('--plugin-approvals <file>', 'Plugin approval JSON file')
+  .option('--plugin-catalog <source>', 'Plugin catalog file or URL')
   .option('--no-external-plugins', 'Disable external plugin loading')
   .action(async (opts) => {
     const requestedPort = parseInt(opts.port, 10);
@@ -247,6 +250,8 @@ program
       pluginSecrets: opts.pluginSecrets,
       pluginSecretKey: opts.pluginSecretKey,
       pluginEvents: opts.pluginEvents,
+      pluginApprovals: opts.pluginApprovals,
+      pluginCatalog: opts.pluginCatalog,
       disableExternalPlugins: opts.externalPlugins === false,
     });
 
@@ -433,6 +438,41 @@ program
       registryDir: opts.registryDir,
       signingKey: opts.signingKey,
       publicKey: await readOptionalTextFile(opts.publicKey),
+    });
+    console.log(`  installed ${installed.id} v${installed.version}`);
+    if (installed.packageSha256) {
+      console.log(`  package ${installed.packageSha256}`);
+    }
+    console.log(`  path ${installed.path}`);
+  });
+
+program
+  .command('plugin:catalog')
+  .description('List plugins from a DockScope plugin catalog')
+  .requiredOption('--catalog <source>', 'Catalog JSON file or URL')
+  .action(async (opts) => {
+    const catalog = await loadPluginCatalog(opts.catalog);
+    console.log(`  ${catalog.name}`);
+    for (const entry of catalog.entries) {
+      console.log(`  ${entry.id} v${entry.version}`);
+      if (entry.description) {
+        console.log(`    ${entry.description}`);
+      }
+      console.log(`    package ${entry.resolvedPackageUrl}`);
+    }
+  });
+
+program
+  .command('plugin:catalog:install')
+  .description('Install a plugin package from a DockScope plugin catalog')
+  .argument('<pluginId>', 'Plugin id')
+  .requiredOption('--catalog <source>', 'Catalog JSON file or URL')
+  .option('--registry-dir <path>', 'Local plugin registry directory')
+  .action(async (pluginId: string, opts) => {
+    const installed = await installPluginFromCatalog({
+      catalogSource: opts.catalog,
+      pluginId,
+      registryDir: opts.registryDir,
     });
     console.log(`  installed ${installed.id} v${installed.version}`);
     if (installed.packageSha256) {

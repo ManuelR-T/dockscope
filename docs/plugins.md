@@ -20,6 +20,8 @@ DOCKSCOPE_PLUGIN_CONFIG=./plugin-config.json dockscope up
 DOCKSCOPE_PLUGIN_SECRETS=./plugin-secrets.json dockscope up
 DOCKSCOPE_PLUGIN_SECRET_KEY='local encryption key' dockscope up
 DOCKSCOPE_PLUGIN_EVENTS=./plugin-events.json dockscope up
+DOCKSCOPE_PLUGIN_APPROVALS=./plugin-approvals.json dockscope up
+DOCKSCOPE_PLUGIN_CATALOG=./plugin-catalog.json dockscope up
 DOCKSCOPE_DISABLE_EXTERNAL_PLUGINS=1 dockscope up
 ```
 
@@ -104,6 +106,7 @@ dockscope plugin:init --dir ./plugins/example --id example.plugin --name "Exampl
 dockscope plugin:keys --out-dir ./keys
 dockscope plugin:test --plugins ./plugins --plugin-permissions all
 dockscope plugin:watch --plugins ./plugins --plugin-permissions all
+dockscope plugin:catalog --catalog ./plugin-catalog.json
 ```
 
 Install a plugin into the local registry:
@@ -113,6 +116,7 @@ dockscope plugin:install --source ./plugins/example
 dockscope plugin:list
 dockscope plugin:update example.plugin
 dockscope plugin:uninstall example.plugin
+dockscope plugin:catalog:install example.plugin --catalog ./plugin-catalog.json
 ```
 
 Installed plugins are copied into `~/.dockscope/plugins` by default. Load that registry with:
@@ -218,6 +222,36 @@ dockscope plugin:verify --package ./example.dockscope-plugin --public-key ./keys
 dockscope plugin:install --source ./example.dockscope-plugin --public-key ./keys/dockscope-plugin.public.pem
 ```
 
+## Catalogs
+
+A plugin catalog is a signed-package index. It can be a local JSON file or an HTTP(S) URL configured with `--plugin-catalog` or `DOCKSCOPE_PLUGIN_CATALOG`.
+
+```json
+{
+  "format": "dockscope-plugin-catalog/v1",
+  "name": "Official DockScope Plugins",
+  "entries": [
+    {
+      "id": "example.plugin",
+      "name": "Example Plugin",
+      "version": "1.0.0",
+      "description": "Adds an example command",
+      "capabilities": ["ui.command"],
+      "permissions": [],
+      "packageUrl": "./example.dockscope-plugin",
+      "packageSha256": "package-bundle-sha256-from-plugin-pack",
+      "signature": {
+        "algorithm": "ed25519",
+        "publicKey": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----\n",
+        "keyId": "maintainer-1"
+      }
+    }
+  ]
+}
+```
+
+Use `dockscope plugin:catalog --catalog ./plugin-catalog.json` to inspect a catalog and `dockscope plugin:catalog:install <pluginId> --catalog ./plugin-catalog.json` to install from it.
+
 ## Configuration
 
 Plugins can expose a typed config schema in `plugin.json`. DockScope persists config in `~/.dockscope/plugin-config.json` by default, or in the file passed to `--plugin-config`.
@@ -242,6 +276,9 @@ The Plugin Manager Review tab summarizes each external plugin before and while e
 - execution isolation
 - compatibility warnings
 - risk level derived from permissions and execution mode
+- approval state based on a hash of the security-relevant manifest surface
+
+Approvals are persisted in `~/.dockscope/plugin-approvals.json` by default. If a plugin changes capabilities, permissions, secrets, commands, UI actions, config fields, or execution policy, the Review tab marks the approval as `changed`.
 
 Compatibility migrations become executable when a migration declares `commandId`:
 
@@ -372,8 +409,12 @@ Use these endpoints to inspect plugin state:
 - `POST /api/plugins/:pluginId/commands/:commandId` runs a plugin command.
 - `GET /api/plugins/events` returns recent plugin events.
 - `GET /api/plugins/review` returns permission/capability review reports.
+- `GET /api/plugins/catalog` returns the configured plugin catalog.
+- `GET /api/plugins/approvals` returns persisted plugin approvals.
 - `GET /api/plugins/compatibility` returns version, deprecation, and migration reports.
 - `POST /api/plugins/:pluginId/migrate` runs a declared compatibility migration.
+- `POST /api/plugins/:pluginId/approve` approves the current plugin fingerprint.
+- `POST /api/plugins/:pluginId/revoke-approval` revokes approval.
 - `GET /api/plugins/config` returns config schemas and current values.
 - `PUT /api/plugins/:pluginId/config` updates plugin config.
 - `GET /api/plugins/secrets` returns declared secret status without values.

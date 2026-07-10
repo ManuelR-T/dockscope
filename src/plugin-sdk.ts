@@ -14,6 +14,7 @@ export type {
   PluginStatus,
   PluginConfigSnapshot,
   PluginReviewReport,
+  PluginApprovalSnapshot,
   PluginReloadHandler,
   PluginReloadResult,
 } from './core/plugins.js';
@@ -88,6 +89,14 @@ export type {
 export { PluginSecretError } from './core/plugin-secrets.js';
 export type { PluginFactoryContext } from './plugins/loader.js';
 export type { PluginHostApi, PluginHostExecResult } from './plugins/hostApi.js';
+export type {
+  PluginCatalog,
+  PluginCatalogEntry,
+  PluginCatalogEntrySignature,
+  ResolvedPluginCatalog,
+  ResolvedPluginCatalogEntry,
+} from './plugins/catalog.js';
+export { PLUGIN_CATALOG_FORMAT, PluginCatalogError } from './plugins/catalog.js';
 export type {
   Anomaly,
   ContainerDiffEntry,

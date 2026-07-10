@@ -2,6 +2,7 @@ import { PluginRegistry } from '../core/plugins.js';
 import { createComposePlugin } from '../docker/composePlugin.js';
 import { createKubernetesPlugin } from '../docker/kubernetesPlugin.js';
 import { createDockerPlugin } from '../docker/plugin.js';
+import { createPluginApprovalStoreFromEnv } from './approvalStore.js';
 import { createPluginConfigStoreFromEnv } from './configStore.js';
 import { createPluginEventStoreFromEnv } from './eventStore.js';
 import { loadExternalPluginsFromEnv } from './loader.js';
@@ -22,8 +23,17 @@ export async function createPluginRegistry(
   const stateStore = createPluginStateStoreFromEnv(env);
   const secretStore = createPluginSecretStoreFromEnv(env);
   const eventStore = createPluginEventStoreFromEnv(env);
+  const approvalStore = createPluginApprovalStoreFromEnv(env);
   const registry = createInternalPluginRegistry(
-    new PluginRegistry(configStore, stateStore, secretStore, eventStore, await eventStore.load()),
+    new PluginRegistry(
+      configStore,
+      stateStore,
+      secretStore,
+      eventStore,
+      await eventStore.load(),
+      approvalStore,
+      await approvalStore.load(),
+    ),
   );
   const external = await loadExternalPluginsFromEnv(env, {
     getConfig: (manifest) => configStore.load(manifest.id, manifest.config),

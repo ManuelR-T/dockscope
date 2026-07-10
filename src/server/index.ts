@@ -37,6 +37,12 @@ function pluginEnvironment(opts: ServerOptions): NodeJS.ProcessEnv {
   if (opts.pluginEvents !== undefined) {
     env.DOCKSCOPE_PLUGIN_EVENTS = opts.pluginEvents;
   }
+  if (opts.pluginApprovals !== undefined) {
+    env.DOCKSCOPE_PLUGIN_APPROVALS = opts.pluginApprovals;
+  }
+  if (opts.pluginCatalog !== undefined) {
+    env.DOCKSCOPE_PLUGIN_CATALOG = opts.pluginCatalog;
+  }
   if (opts.disableExternalPlugins) {
     env.DOCKSCOPE_DISABLE_EXTERNAL_PLUGINS = '1';
   }
