@@ -269,6 +269,30 @@ export function setupRoutes(
     res.json(plugins.listUiExtensions());
   });
 
+  app.get(
+    '/api/plugins/:pluginId/frontend',
+    asyncRoute(async (req, res) => {
+      const source = await plugins.getPluginFrontendBundle(req.params.pluginId as string);
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.type('application/javascript').send(source);
+    }),
+  );
+
+  app.post(
+    '/api/plugins/:pluginId/ui/:extensionId/action',
+    asyncRoute(async (req, res) => {
+      const body = req.body as { context?: unknown; input?: unknown } | undefined;
+      res.json(
+        await plugins.runPluginUiAction(
+          req.params.pluginId as string,
+          req.params.extensionId as string,
+          body ?? {},
+        ),
+      );
+    }),
+  );
+
   app.get('/api/plugins/commands', (_req, res) => {
     res.json(plugins.listPluginCommands());
   });

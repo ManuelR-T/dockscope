@@ -338,6 +338,59 @@ body {
   gap: 4px;
   padding: 4px 6px;
 }
+
+.plugin-nav-rail {
+  position: absolute;
+  top: 62px;
+  left: 14px;
+  z-index: 18;
+  display: grid;
+  gap: 4px;
+  width: min(220px, calc(100vw - var(--sidebar-w, 380px) - 40px));
+}
+
+.plugin-nav-rail button {
+  width: fit-content;
+  max-width: 100%;
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border: 1px solid rgba(0, 228, 255, 0.1);
+  border-radius: 6px;
+  background: rgba(6, 8, 18, 0.84);
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  cursor: pointer;
+  backdrop-filter: blur(16px);
+}
+
+.plugin-nav-rail button:hover {
+  border-color: rgba(0, 228, 255, 0.24);
+  color: var(--accent-cyan);
+}
+
+.plugin-nav-rail button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plugin-overlay-stack {
+  position: absolute;
+  top: 66px;
+  right: calc(var(--sidebar-w, 380px) + 16px);
+  z-index: 16;
+  width: min(320px, calc(100vw - var(--sidebar-w, 380px) - 40px));
+  max-height: calc(100vh - var(--statusbar-h, 170px) - 90px);
+  display: grid;
+  gap: 6px;
+  overflow: auto;
+  pointer-events: auto;
+}
 .hud-icon-btn.active {
   color: var(--accent-cyan);
   border-color: rgba(0, 228, 255, 0.2);

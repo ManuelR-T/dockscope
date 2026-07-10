@@ -479,6 +479,39 @@ describe('external plugin loader', () => {
     await result.plugins[0].stop?.();
   });
 
+  it('serves a declared frontend bundle without importing it into the host UI', async () => {
+    const pluginDir = await createPluginDir();
+    await writeFile(
+      path.join(pluginDir, 'frontend.mjs'),
+      'export default function mount(api) { api.root.textContent = api.view; }',
+      'utf-8',
+    );
+    await writePlugin(
+      pluginDir,
+      manifest({
+        capabilities: ['ui.frontend', 'ui.sidebarPanel'],
+        frontend: { entry: './frontend.mjs', slots: ['sidebar'] },
+        ui: [
+          {
+            id: 'overview',
+            slot: 'sidebar',
+            title: 'Overview',
+            frontendView: 'overview',
+          },
+        ],
+      }),
+      'export default function createPlugin({ manifest }) { return { manifest }; }',
+    );
+
+    const result = await loadExternalPlugins({ paths: [pluginDir], permissions: 'all' });
+
+    expect(result.errors).toEqual([]);
+    await expect(result.plugins[0].getFrontendBundle?.()).resolves.toContain(
+      'api.root.textContent = api.view',
+    );
+    await result.plugins[0].stop?.();
+  });
+
   it('recovers with a fresh process after an isolated plugin crashes', async () => {
     const pluginDir = await createPluginDir();
     const events: { type: string; payload: unknown }[] = [];

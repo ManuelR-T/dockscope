@@ -198,6 +198,48 @@ describe('PluginRegistry', () => {
     ).toThrow('requires capability "ui.toolbarAction"');
   });
 
+  it('requires frontend bundles and slots to declare their capabilities', () => {
+    expect(() =>
+      validatePluginManifest({
+        id: 'custom.frontend',
+        name: 'Custom Frontend',
+        version: '1.2.3',
+        capabilities: ['ui.sidebarPanel'],
+        permissions: [],
+        frontend: { entry: './frontend.mjs', slots: ['sidebar'] },
+      }),
+    ).toThrow('Plugin frontend requires capability "ui.frontend"');
+
+    expect(() =>
+      validatePluginManifest({
+        id: 'custom.frontend',
+        name: 'Custom Frontend',
+        version: '1.2.3',
+        capabilities: ['ui.frontend'],
+        permissions: [],
+        frontend: { entry: './frontend.mjs', slots: ['sidebar'] },
+      }),
+    ).toThrow('Plugin frontend slot "sidebar" requires capability "ui.sidebarPanel"');
+
+    expect(() =>
+      validatePluginManifest({
+        id: 'custom.frontend',
+        name: 'Custom Frontend',
+        version: '1.2.3',
+        capabilities: ['ui.sidebarPanel'],
+        permissions: [],
+        ui: [
+          {
+            id: 'overview',
+            slot: 'sidebar',
+            title: 'Overview',
+            frontendView: 'overview',
+          },
+        ],
+      }),
+    ).toThrow('declares frontendView without a frontend bundle');
+  });
+
   it('rejects provider methods that were not declared as capabilities', () => {
     const registry = new PluginRegistry();
 
@@ -312,6 +354,82 @@ describe('PluginRegistry', () => {
         title: 'Open Plugin',
       }),
     ]);
+  });
+
+  it('runs contextual UI actions through their owning plugin command', async () => {
+    const runCommand = vi.fn().mockResolvedValue({ ok: true, message: 'restarted' });
+    const registry = new PluginRegistry();
+    registry.register(
+      plugin({
+        manifest: {
+          id: 'test.context-ui',
+          name: 'Context UI',
+          version: '1.0.0',
+          ...TEST_API_VERSIONS,
+          capabilities: ['source.graph', 'ui.command', 'ui.nodeAction'],
+          permissions: [],
+          commands: [{ id: 'restart', title: 'Restart' }],
+          ui: [
+            {
+              id: 'restart-node',
+              slot: 'nodeAction',
+              title: 'Restart node',
+              context: { runtimes: ['docker'] },
+              action: {
+                type: 'run_command',
+                commandId: 'restart',
+                input: { force: false },
+                passContext: true,
+              },
+            },
+          ],
+        },
+        runCommand,
+      }),
+    );
+
+    await expect(
+      registry.runPluginUiAction('test.context-ui', 'restart-node', {
+        context: {
+          node: {
+            id: 'local:123',
+            name: 'api',
+            sourceId: 'local',
+            entityId: '123',
+            runtime: 'docker',
+            status: 'running',
+          },
+        },
+        input: { force: true },
+      }),
+    ).resolves.toEqual({
+      type: 'command',
+      result: { ok: true, message: 'restarted', data: undefined },
+    });
+    expect(runCommand).toHaveBeenCalledWith('restart', {
+      input: { force: true },
+      context: {
+        node: {
+          id: 'local:123',
+          name: 'api',
+          sourceId: 'local',
+          entityId: '123',
+          runtime: 'docker',
+          status: 'running',
+          kind: undefined,
+          namespace: undefined,
+          project: undefined,
+          host: undefined,
+        },
+      },
+      ui: { extensionId: 'restart-node', slot: 'nodeAction' },
+    });
+
+    await expect(
+      registry.runPluginUiAction('test.context-ui', 'restart-node', {
+        context: { node: { id: 'pod:api', name: 'api', runtime: 'kubernetes' } },
+      }),
+    ).rejects.toThrow('does not match the current context');
   });
 
   it('lists and runs plugin commands with event history', async () => {

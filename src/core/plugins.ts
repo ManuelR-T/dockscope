@@ -34,8 +34,14 @@ import {
 } from './plugin-config.js';
 import {
   hydratePluginUiExtension,
+  pluginUiContextMatches,
   pluginUiSlotCapability,
+  validatePluginFrontendBundle,
+  validatePluginUiContext,
   validatePluginUiExtensions,
+  type PluginFrontendBundleDeclaration,
+  type PluginUiActionResult,
+  type PluginUiContext,
   type PluginUiExtension,
   type PluginUiExtensionDeclaration,
 } from './plugin-ui.js';
@@ -85,6 +91,7 @@ export interface PluginManifest {
   permissions: readonly PluginPermission[];
   config?: PluginConfigSchema;
   ui?: readonly PluginUiExtensionDeclaration[];
+  frontend?: PluginFrontendBundleDeclaration;
   secrets?: readonly PluginSecretDeclaration[];
   commands?: readonly PluginCommandDeclaration[];
   execution?: {
@@ -109,6 +116,7 @@ export interface DockscopePlugin {
     input?: unknown,
   ): Promise<PluginCommandResult> | PluginCommandResult;
   getUiExtensions?(): readonly PluginUiExtensionDeclaration[];
+  getFrontendBundle?(): Promise<string>;
   getGraphSources?(): readonly GraphSourceAdapter[];
   getStatsProviders?(): readonly EntityStatsProvider[];
   getLogsProviders?(): readonly EntityLogsProvider[];
@@ -179,6 +187,7 @@ export interface PluginReviewReport {
   secrets: readonly string[];
   commands: readonly string[];
   uiSlots: readonly string[];
+  frontendSlots: readonly string[];
   configFields: readonly string[];
   executionIsolation: 'in-process' | 'process';
   compatibilityWarnings: readonly string[];
@@ -245,6 +254,10 @@ export class PluginManifestError extends Error {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function optionalString(value: unknown, field: string): string | undefined {
@@ -458,6 +471,30 @@ export function validatePluginManifest(raw: unknown): PluginManifest {
       );
     }
   }
+  const frontend = validatePluginFrontendBundle(manifest.frontend);
+  if (frontend && !capabilities.includes('ui.frontend')) {
+    throw new PluginManifestError('Plugin frontend requires capability "ui.frontend"');
+  }
+  for (const slot of frontend?.slots ?? []) {
+    const requiredCapability = pluginUiSlotCapability(slot);
+    if (!capabilities.includes(requiredCapability)) {
+      throw new PluginManifestError(
+        `Plugin frontend slot "${slot}" requires capability "${requiredCapability}"`,
+      );
+    }
+  }
+  for (const extension of ui.filter((item) => item.frontendView)) {
+    if (!frontend) {
+      throw new PluginManifestError(
+        `Plugin UI extension "${extension.id}" declares frontendView without a frontend bundle`,
+      );
+    }
+    if (!frontend.slots.includes(extension.slot)) {
+      throw new PluginManifestError(
+        `Plugin UI extension "${extension.id}" uses frontend slot "${extension.slot}" outside the frontend declaration`,
+      );
+    }
+  }
   const compatibility = validatePluginCompatibility(manifest.compatibility);
 
   return {
@@ -476,6 +513,7 @@ export function validatePluginManifest(raw: unknown): PluginManifest {
     permissions,
     config,
     ui,
+    frontend,
     secrets,
     commands,
     execution:
@@ -513,7 +551,10 @@ function cloneManifest(manifest: PluginManifest): PluginManifest {
           })),
         }
       : undefined,
-    ui: manifest.ui ? manifest.ui.map((extension) => ({ ...extension })) : undefined,
+    ui: manifest.ui ? manifest.ui.map((extension) => structuredClone(extension)) : undefined,
+    frontend: manifest.frontend
+      ? { entry: manifest.frontend.entry, slots: [...manifest.frontend.slots] }
+      : undefined,
   };
 }
 
@@ -538,6 +579,7 @@ const PLUGIN_METHOD_CAPABILITIES: readonly [keyof DockscopePlugin, readonly Plug
     ['getProjectProviders', ['source.inventory', 'action.deploy']],
     ['getCommands', ['ui.command']],
     ['runCommand', ['ui.command']],
+    ['getFrontendBundle', ['ui.frontend']],
   ];
 
 function requireManifestCapabilities(
@@ -697,6 +739,71 @@ export class PluginRegistry {
       );
   }
 
+  async getPluginFrontendBundle(pluginId: string): Promise<string> {
+    const plugin = this.plugins.get(pluginId);
+    const runtime = this.runtime.get(pluginId);
+    if (!plugin || !runtime) {
+      throw new PluginOperationError(404, `Plugin not found: ${pluginId}`);
+    }
+    if (!runtime.enabled) {
+      throw new PluginOperationError(400, `Plugin is disabled: ${pluginId}`);
+    }
+    if (!plugin.manifest.frontend || !plugin.getFrontendBundle) {
+      throw new PluginOperationError(404, `Plugin frontend not found: ${pluginId}`);
+    }
+    return plugin.getFrontendBundle();
+  }
+
+  async runPluginUiAction(
+    pluginId: string,
+    extensionId: string,
+    payload: { context?: unknown; input?: unknown } = {},
+  ): Promise<PluginUiActionResult> {
+    const extension = this.listUiExtensions().find(
+      (candidate) => candidate.pluginId === pluginId && candidate.id === extensionId,
+    );
+    if (!extension) {
+      throw new PluginOperationError(
+        404,
+        `Plugin UI extension not found: ${pluginId}/${extensionId}`,
+      );
+    }
+    if (!extension.action) {
+      throw new PluginOperationError(
+        400,
+        `Plugin UI extension has no action: ${pluginId}/${extensionId}`,
+      );
+    }
+    const context: PluginUiContext = validatePluginUiContext(payload.context);
+    if (!pluginUiContextMatches(extension, context)) {
+      throw new PluginOperationError(400, `Plugin UI extension does not match the current context`);
+    }
+    if (extension.action.type === 'open_url') {
+      return { type: 'open_url', url: extension.action.url };
+    }
+    const targetPluginId = extension.action.pluginId ?? pluginId;
+    if (targetPluginId !== pluginId) {
+      throw new PluginOperationError(400, 'Plugin UI actions cannot invoke another plugin');
+    }
+    const declaredInput = extension.action.input;
+    const requestedInput = payload.input;
+    const input =
+      isRecord(declaredInput) && isRecord(requestedInput)
+        ? { ...declaredInput, ...requestedInput }
+        : (requestedInput ?? declaredInput);
+    const commandInput = extension.action.passContext
+      ? {
+          input,
+          context,
+          ui: { extensionId: extension.id, slot: extension.slot },
+        }
+      : input;
+    return {
+      type: 'command',
+      result: await this.runPluginCommand(pluginId, extension.action.commandId, commandInput),
+    };
+  }
+
   listPluginCommands(): PluginCommand[] {
     return this.activePlugins()
       .flatMap((plugin) => this.pluginCommands(plugin))
@@ -820,6 +927,7 @@ export class PluginRegistry {
           secrets: (plugin.manifest.secrets ?? []).map((secret) => secret.key),
           commands: this.pluginCommands(plugin).map((command) => command.id),
           uiSlots: (plugin.manifest.ui ?? []).map((extension) => extension.slot),
+          frontendSlots: [...(plugin.manifest.frontend?.slots ?? [])],
           configFields: (plugin.manifest.config?.fields ?? []).map((field) => field.key),
           executionIsolation: plugin.manifest.execution?.isolation ?? 'in-process',
           compatibilityWarnings: compatibility.warnings,
@@ -1287,6 +1395,9 @@ export class PluginRegistry {
     if ((plugin.manifest.execution?.isolation ?? 'in-process') === 'in-process') {
       reasons.push('medium:runs plugin code in the main server process');
     }
+    if (plugin.manifest.frontend) {
+      reasons.push('medium:ships a sandboxed frontend bundle');
+    }
     for (const warning of compatibility.warnings) {
       reasons.push(`medium:${warning}`);
     }
@@ -1316,7 +1427,9 @@ export class PluginRegistry {
             id: extension.id,
             slot: extension.slot,
             action: extension.action,
+            frontendView: extension.frontendView,
           })),
+          frontend: plugin.manifest.frontend ?? null,
           config: (plugin.manifest.config?.fields ?? []).map((field) => ({
             key: field.key,
             type: field.type,

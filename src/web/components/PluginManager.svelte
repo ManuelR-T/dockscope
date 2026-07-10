@@ -5,6 +5,7 @@
   import type {
     PluginConfigSnapshot,
     PluginLoadError,
+    PluginLoadWarning,
     PluginReviewReport,
     PluginRuntimeInfo,
   } from '../../core/plugins';
@@ -14,6 +15,8 @@
   import type { PluginCommand, PluginCommandResult } from '../../core/plugin-commands';
   import type { PluginEvent } from '../../core/plugin-events';
   import type { PluginCompatibilityReport } from '../../core/plugin-compatibility';
+  import PluginExtension from './PluginExtension.svelte';
+  import { clearPluginFrontendCache, invokePluginUiAction } from '../lib/pluginUi';
   import type {
     PluginMarketplaceEntry,
     PluginMarketplaceSnapshot,
@@ -47,6 +50,7 @@
   let loading = $state(true);
   let plugins = $state<PluginRuntimeInfo[]>([]);
   let errors = $state<PluginLoadError[]>([]);
+  let warnings = $state<PluginLoadWarning[]>([]);
   let extensions = $state<PluginUiExtension[]>([]);
   let commands = $state<PluginCommand[]>([]);
   let events = $state<PluginEvent[]>([]);
@@ -78,6 +82,9 @@
   const marketplaceEntries = $derived(
     marketplace.entries.filter((entry) => marketplaceEntryMatches(entry)),
   );
+  const settingsExtensions = $derived(
+    extensions.filter((extension) => extension.slot === 'settings'),
+  );
 
   onMount(() => {
     void loadPluginState();
@@ -89,6 +96,7 @@
       const [
         pluginData,
         errorData,
+        warningData,
         extensionData,
         commandData,
         eventData,
@@ -100,6 +108,7 @@
       ] = await Promise.all([
         getJson<PluginRuntimeInfo[]>('/api/plugins'),
         getJson<PluginLoadError[]>('/api/plugins/errors'),
+        getJson<PluginLoadWarning[]>('/api/plugins/warnings'),
         getJson<PluginUiExtension[]>('/api/plugins/ui'),
         getJson<PluginCommand[]>('/api/plugins/commands'),
         getJson<PluginEvent[]>('/api/plugins/events'),
@@ -111,6 +120,7 @@
       ]);
       plugins = pluginData;
       errors = errorData;
+      warnings = warningData;
       extensions = extensionData;
       commands = commandData;
       events = eventData;
@@ -265,6 +275,8 @@
         { method: 'POST' },
       );
       plugins = plugins.map((item) => (item.manifest.id === updated.manifest.id ? updated : item));
+      clearPluginFrontendCache(plugin.manifest.id);
+      await loadPluginState();
       addToast(`${plugin.manifest.name}: ${action}d`, 'success');
     } catch {
       addToast(`${plugin.manifest.name}: ${action} failed`, 'error');
@@ -284,6 +296,7 @@
         { method: 'POST' },
       );
       plugins = plugins.map((item) => (item.manifest.id === updated.manifest.id ? updated : item));
+      clearPluginFrontendCache(plugin.manifest.id);
       await loadPluginState();
       addToast(`${plugin.manifest.name}: reloaded`, 'success');
     } catch {
@@ -291,6 +304,33 @@
     } finally {
       reloading = null;
     }
+  }
+
+  async function runExtensionAction(extension: PluginUiExtension, input?: unknown) {
+    try {
+      const result = await invokePluginUiAction(extension, {}, input);
+      if (result.type === 'open_url') {
+        window.open(result.url, '_blank', 'noopener,noreferrer');
+      } else {
+        addToast(result.result.message || extension.title, result.result.ok ? 'success' : 'error');
+      }
+    } catch (error) {
+      addToast(apiErrorMessage(error) || `${extension.title}: action failed`, 'error');
+    }
+  }
+
+  function extensionContentPreview(extension: PluginUiExtension): string {
+    const content = extension.content;
+    if (!content) {
+      return '';
+    }
+    if (content.type === 'text' || content.type === 'markdown') {
+      return content.body;
+    }
+    if (content.type === 'metrics' || content.type === 'keyValue') {
+      return content.items.map((item) => `${item.label}: ${item.value}`).join('\n');
+    }
+    return '';
   }
 
   async function runCommand(command: PluginCommand) {
@@ -402,6 +442,7 @@
           { method: 'POST' },
         );
       }
+      clearPluginFrontendCache(entry.id);
       await loadPluginState();
       addToast(`${entry.name}: ${action} complete`, 'success');
     } catch (error) {
@@ -669,6 +710,9 @@
           {#if errors.length > 0}
             <span class="error-count">{errors.length} load errors</span>
           {/if}
+          {#if warnings.length > 0}
+            <span class="warning-count">{warnings.length} warnings</span>
+          {/if}
         </div>
 
         <div class="list">
@@ -736,6 +780,25 @@
             {/each}
           </div>
         {/if}
+        {#if warnings.length > 0}
+          <div class="section-title">Manifest Warnings</div>
+          <div class="list">
+            {#each warnings as warning}
+              <div class="item warning">
+                <div class="item-main">
+                  <div class="item-title">
+                    <span>{warning.id ?? 'unknown plugin'}</span>
+                    <code>{warning.code}</code>
+                  </div>
+                  <div class="warning-line">{warning.message}</div>
+                  {#if warning.path}
+                    <div class="path-line">{warning.path}</div>
+                  {/if}
+                </div>
+              </div>
+            {/each}
+          </div>
+        {/if}
       {:else if tab === 'extensions'}
         {#if extensions.length === 0}
           <div class="empty-msg">No UI extensions registered.</div>
@@ -753,8 +816,19 @@
                     <div class="item-desc">{extension.description}</div>
                   {/if}
                   {#if extension.content}
-                    <pre class="content-preview">{extension.content.body}</pre>
+                    <pre class="content-preview">{extensionContentPreview(extension)}</pre>
                   {/if}
+                  <div class="item-meta">
+                    {#if extension.frontendView}
+                      <span>frontend {extension.frontendView}</span>
+                    {/if}
+                    {#if extension.context?.runtimes?.length}
+                      <span>runtime {extension.context.runtimes.join(', ')}</span>
+                    {/if}
+                    {#if extension.context?.kinds?.length}
+                      <span>kind {extension.context.kinds.join(', ')}</span>
+                    {/if}
+                  </div>
                   {#if extension.action}
                     <div class="item-desc">
                       action {extension.action.type}
@@ -899,6 +973,10 @@
                     <div>
                       <span class="review-label">UI slots</span>
                       <span>{listText(review.uiSlots)}</span>
+                    </div>
+                    <div>
+                      <span class="review-label">Frontend</span>
+                      <span>{listText(review.frontendSlots)}</span>
                     </div>
                     <div>
                       <span class="review-label">Config</span>
@@ -1103,7 +1181,7 @@
             </div>
           {/each}
         </div>
-      {:else if tab === 'config' && configurable.length === 0}
+      {:else if tab === 'config' && configurable.length === 0 && settingsExtensions.length === 0}
         <div class="empty-msg">No configurable plugins.</div>
       {:else if tab === 'config'}
         <div class="config-list">
@@ -1157,6 +1235,9 @@
                 </label>
               {/each}
             </div>
+          {/each}
+          {#each settingsExtensions as extension (extension.pluginId + extension.id)}
+            <PluginExtension {extension} context={{}} onAction={runExtensionAction} />
           {/each}
         </div>
       {:else if secrets.length === 0}
@@ -1386,6 +1467,11 @@
     color: #ff5f7a;
   }
 
+  .warning-count,
+  .warning-line {
+    color: var(--accent-amber);
+  }
+
   .list,
   .config-list {
     display: flex;
@@ -1405,6 +1491,10 @@
 
   .item.error {
     border-color: rgba(255, 95, 122, 0.18);
+  }
+
+  .item.warning {
+    border-color: rgba(255, 138, 43, 0.2);
   }
 
   .item-main {
@@ -1453,6 +1543,7 @@
 
   .item-meta {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
   }
 

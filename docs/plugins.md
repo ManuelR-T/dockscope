@@ -151,29 +151,89 @@ dockscope up --plugin-registry ./installed-plugins --plugin-permissions all
 
 ## UI Extensions
 
-Frontend plugins are data-only. External plugin JavaScript is not loaded into the browser. A plugin declares UI descriptors and DockScope renders them in known slots.
+Plugins can extend the interface with declarative descriptors or an optional sandboxed frontend bundle. Declarative content is rendered by DockScope and should be the default. A frontend bundle is appropriate only when a view needs custom interaction.
 
 Current slots are:
 
 - `toolbar`
+- `navigation`
 - `sidebar`
 - `nodePanel`
+- `nodeAction`
 - `graphOverlay`
 - `settings`
 
-Each slot requires its matching UI capability, such as `ui.toolbarAction` for `toolbar`. Toolbar entries can declare an `open_url` action with an `http` or `https` URL, or a `run_command` action that calls a backend plugin command.
+Each slot requires its matching UI capability, such as `ui.toolbarAction` for `toolbar` and `ui.nodePanel` for `nodePanel`. Entries can contain `text`, `markdown`, `metrics`, or `keyValue` data. Markdown is displayed as text rather than injected HTML. The optional `context` filter limits an entry by node runtime, kind, or status.
 
 ```json
 {
-  "id": "refresh",
-  "slot": "toolbar",
-  "title": "Refresh",
+  "id": "container-health",
+  "slot": "nodePanel",
+  "title": "Container health",
+  "context": {
+    "runtimes": ["docker"],
+    "statuses": ["running"]
+  },
+  "content": {
+    "type": "metrics",
+    "items": [
+      { "label": "Checks", "value": 12, "tone": "success" },
+      { "label": "Failures", "value": 0, "tone": "neutral" }
+    ]
+  },
   "action": {
     "type": "run_command",
-    "commandId": "refresh"
+    "commandId": "refresh-health",
+    "passContext": true
   }
 }
 ```
+
+Actions are restricted to `open_url` with an HTTP(S) URL or `run_command` against a command owned by the same plugin. `passContext` sends a sanitized node context with the command input. Browser-provided action input cannot select another plugin or command.
+
+### Sandboxed Frontend Bundles
+
+A custom frontend declares the `ui.frontend` capability, its single-file ESM entry, and every slot where the bundle may run:
+
+```json
+{
+  "capabilities": ["ui.frontend", "ui.sidebarPanel", "ui.command"],
+  "frontend": {
+    "entry": "./frontend.mjs",
+    "slots": ["sidebar"]
+  },
+  "ui": [
+    {
+      "id": "overview",
+      "slot": "sidebar",
+      "title": "Overview",
+      "height": 180,
+      "frontendView": "overview",
+      "action": {
+        "type": "run_command",
+        "commandId": "refresh"
+      }
+    }
+  ]
+}
+```
+
+The entry exports `mount` or a default mount function. Bundle dependencies into this file because relative and network imports are unavailable.
+
+```js
+/** @type {import('dockscope/plugin-sdk/v1').PluginFrontendMount} */
+export default function mount(api) {
+  const button = document.createElement('button');
+  button.textContent = `Refresh ${api.context.node?.name ?? 'plugin'}`;
+  button.addEventListener('click', () => api.requestAction({ force: true }));
+  api.root.append(button);
+  api.resize(96);
+}
+```
+
+DockScope loads the source into an iframe with an opaque origin and only `allow-scripts`. Its content security policy blocks network connections, forms, fonts, and parent DOM access. The bundle receives only a root element, view id, frozen sanitized context, bounded resize request, and the declared action bridge. Frontend source is limited to 256 KiB and is never imported into the main server process or application page.
+
+`GET /api/plugins/:pluginId/frontend` serves an active plugin bundle. `POST /api/plugins/:pluginId/ui/:extensionId/action` invokes the server-validated action for that exact extension. Disabling, reloading, updating, or uninstalling a plugin invalidates its browser bundle cache.
 
 ## Commands and Events
 
@@ -556,6 +616,8 @@ Use these endpoints to inspect plugin state:
 - `GET /api/plugins/errors` returns external plugin manifest, permission, load, and register failures.
 - `GET /api/plugins/warnings` returns non-blocking manifest deprecation and compatibility warnings.
 - `GET /api/plugins/ui` returns frontend extension descriptors.
+- `GET /api/plugins/:pluginId/frontend` returns a declared sandboxed frontend bundle.
+- `POST /api/plugins/:pluginId/ui/:extensionId/action` runs an extension's declared action.
 - `GET /api/plugins/commands` returns command descriptors.
 - `POST /api/plugins/:pluginId/commands/:commandId` runs a plugin command.
 - `GET /api/plugins/events` returns recent plugin events.

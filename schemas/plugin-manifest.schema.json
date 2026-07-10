@@ -53,11 +53,14 @@
           "analysis.cost",
           "analysis.recommendations",
           "ui.nodePanel",
+          "ui.nodeAction",
           "ui.sidebarPanel",
+          "ui.navigation",
           "ui.graphOverlay",
           "ui.toolbarAction",
           "ui.settings",
           "ui.command",
+          "ui.frontend",
           "integration.export",
           "integration.import",
           "integration.webhook",
@@ -134,13 +137,58 @@
         "required": ["id", "slot", "title"],
         "properties": {
           "id": { "type": "string", "minLength": 1 },
-          "slot": { "enum": ["toolbar", "node-panel", "sidebar", "graph-overlay", "settings"] },
+          "slot": {
+            "enum": [
+              "toolbar",
+              "navigation",
+              "sidebar",
+              "nodePanel",
+              "nodeAction",
+              "graphOverlay",
+              "settings"
+            ]
+          },
           "title": { "type": "string", "minLength": 1 },
           "description": { "type": "string" },
           "icon": { "type": "string" },
           "order": { "type": "number" },
+          "height": { "type": "number", "minimum": 48, "maximum": 640 },
+          "frontendView": { "type": "string", "minLength": 1 },
+          "context": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "runtimes": { "type": "array", "items": { "type": "string" } },
+              "kinds": { "type": "array", "items": { "type": "string" } },
+              "statuses": { "type": "array", "items": { "type": "string" } }
+            }
+          },
           "content": { "type": "object" },
           "action": { "type": "object" }
+        }
+      }
+    },
+    "frontend": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entry", "slots"],
+      "properties": {
+        "entry": { "type": "string", "minLength": 1 },
+        "slots": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "toolbar",
+              "navigation",
+              "sidebar",
+              "nodePanel",
+              "nodeAction",
+              "graphOverlay",
+              "settings"
+            ]
+          }
         }
       }
     },

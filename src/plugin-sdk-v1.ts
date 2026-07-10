@@ -63,11 +63,27 @@ export { PluginConfigError } from './core/plugin-config.js';
 export type {
   PluginUiAction,
   PluginUiContent,
+  PluginUiContext,
+  PluginUiContextFilter,
   PluginUiExtension,
   PluginUiExtensionDeclaration,
+  PluginUiKeyValueContent,
+  PluginUiMetricItem,
+  PluginUiMetricsContent,
+  PluginUiNodeContext,
   PluginUiSlot,
+  PluginUiTone,
+  PluginFrontendBundleDeclaration,
+  PluginFrontendApi,
+  PluginFrontendMount,
+  PluginFrontendRoot,
 } from './core/plugin-ui.js';
-export { PLUGIN_UI_SLOTS, PluginUiError } from './core/plugin-ui.js';
+export {
+  PLUGIN_UI_SLOTS,
+  PluginUiError,
+  pluginUiContextMatches,
+  validatePluginUiContext,
+} from './core/plugin-ui.js';
 export type {
   PluginCommand,
   PluginCommandDeclaration,

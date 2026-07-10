@@ -136,6 +136,8 @@ Opens `http://localhost:4681`.
 | GET    | `/api/plugins/errors`                 | External plugin load/register failures                             |
 | GET    | `/api/plugins/warnings`               | External plugin manifest deprecation warnings                      |
 | GET    | `/api/plugins/ui`                     | Frontend plugin extension descriptors                              |
+| GET    | `/api/plugins/:pluginId/frontend`     | Sandboxed frontend bundle source                                   |
+| POST   | `/api/plugins/:pluginId/ui/:id/action` | Run a declared plugin UI action                                  |
 | GET    | `/api/plugins/commands`               | Plugin command descriptors                                         |
 | POST   | `/api/plugins/:pluginId/commands/:id` | Run a plugin command                                               |
 | GET    | `/api/plugins/events`                 | Recent plugin event bus entries                                    |

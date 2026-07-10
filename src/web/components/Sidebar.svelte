@@ -20,8 +20,11 @@
   import SidebarExec from './sidebar/SidebarExec.svelte';
   import SidebarDiagnostic from './sidebar/SidebarDiagnostic.svelte';
   import SidebarAnomaly from './sidebar/SidebarAnomaly.svelte';
+  import PluginExtension from './PluginExtension.svelte';
   import { getDockerState } from '../stores/docker.svelte';
   import type { ServiceNode, ContainerStats, ContainerInspect, MetricPoint } from '../../types';
+  import { pluginUiContextMatches, type PluginUiExtension } from '../../core/plugin-ui';
+  import { pluginUiContextFromNode } from '../lib/pluginUi';
   import { apiErrorMessage, isAbortError } from '../lib/api';
   import {
     containerActionPastTense,
@@ -50,9 +53,17 @@
     node: ServiceNode | null;
     onClose: () => void;
     colorNetworks?: boolean;
+    extensions?: PluginUiExtension[];
+    onPluginAction?: (extension: PluginUiExtension, input?: unknown) => Promise<void> | void;
   }
 
-  let { node, onClose, colorNetworks = false }: Props = $props();
+  let {
+    node,
+    onClose,
+    colorNetworks = false,
+    extensions = [],
+    onPluginAction = () => {},
+  }: Props = $props();
 
   let stats = $state<ContainerStats | null>(null);
   let inspect = $state<ContainerInspect | null>(null);
@@ -71,6 +82,25 @@
     action: () => Promise<void>;
   } | null>(null);
   let isKubernetesNode = $derived(node?.runtime === 'kubernetes');
+  let pluginContext = $derived(pluginUiContextFromNode(node));
+  let sidebarExtensions = $derived(
+    extensions.filter(
+      (extension) =>
+        extension.slot === 'sidebar' && pluginUiContextMatches(extension, pluginContext),
+    ),
+  );
+  let nodePanelExtensions = $derived(
+    extensions.filter(
+      (extension) =>
+        extension.slot === 'nodePanel' && pluginUiContextMatches(extension, pluginContext),
+    ),
+  );
+  let nodeActionExtensions = $derived(
+    extensions.filter(
+      (extension) =>
+        extension.slot === 'nodeAction' && pluginUiContextMatches(extension, pluginContext),
+    ),
+  );
 
   function toastActionFailure(prefix: string, error: unknown) {
     const detail = apiErrorMessage(error);
@@ -320,6 +350,13 @@
         <div class="legend-line"><span class="line depends"></span> depends_on</div>
         <div class="legend-line"><span class="line network"></span> shared network</div>
       </div>
+      {#if sidebarExtensions.length > 0}
+        <div class="plugin-sidebar-extensions">
+          {#each sidebarExtensions as extension (extension.pluginId + extension.id)}
+            <PluginExtension {extension} context={pluginContext} onAction={onPluginAction} />
+          {/each}
+        </div>
+      {/if}
     </div>
   {:else}
     <SidebarHeader
@@ -331,6 +368,14 @@
       onConfirmAction={openConfirm}
       onHpaDialog={() => showHpaReplicaDialog(node)}
     />
+
+    {#if nodeActionExtensions.length > 0}
+      <div class="plugin-node-actions">
+        {#each nodeActionExtensions as extension (extension.pluginId + extension.id)}
+          <PluginExtension {extension} context={pluginContext} compact onAction={onPluginAction} />
+        {/each}
+      </div>
+    {/if}
 
     <div class="sidebar-tabs">
       <button
@@ -389,6 +434,13 @@
 
     {#if activeTab === 'info'}
       <SidebarInfo {node} {stats} {inspect} {history} {colorNetworks} />
+      {#if nodePanelExtensions.length > 0}
+        <div class="plugin-node-panels">
+          {#each nodePanelExtensions as extension (extension.pluginId + extension.id)}
+            <PluginExtension {extension} context={pluginContext} onAction={onPluginAction} />
+          {/each}
+        </div>
+      {/if}
     {:else if activeTab === 'env'}
       <SidebarEnv {inspect} />
     {:else if activeTab === 'logs'}
@@ -402,6 +454,13 @@
       <SidebarDiff {node} />
     {:else if activeTab === 'exec'}
       <SidebarExec {node} />
+    {/if}
+    {#if sidebarExtensions.length > 0}
+      <div class="plugin-sidebar-extensions selected">
+        {#each sidebarExtensions as extension (extension.pluginId + extension.id)}
+          <PluginExtension {extension} context={pluginContext} onAction={onPluginAction} />
+        {/each}
+      </div>
     {/if}
   {/if}
 </div>
@@ -440,3 +499,25 @@
     }}
   />
 {/if}
+
+<style>
+  .plugin-sidebar-extensions,
+  .plugin-node-panels {
+    display: grid;
+    gap: 6px;
+    padding: 8px 12px 12px;
+  }
+
+  .plugin-sidebar-extensions.selected {
+    padding-top: 0;
+  }
+
+  .plugin-node-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border-subtle);
+    background: rgba(0, 228, 255, 0.02);
+  }
+</style>

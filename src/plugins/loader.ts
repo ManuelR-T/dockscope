@@ -42,6 +42,7 @@ import type { PluginCommandResult } from '../core/plugin-commands.js';
 import type { PluginFactory } from '../core/plugin-api.js';
 
 const PLUGIN_MANIFEST_FILE = 'plugin.json';
+const MAX_PLUGIN_FRONTEND_BYTES = 256 * 1024;
 
 type ExternalPluginModule = Record<string, unknown>;
 
@@ -168,6 +169,41 @@ function resolvePluginEntry(manifestPath: string, manifest: PluginManifest): str
     throw new Error('External plugin entry must stay inside the plugin directory');
   }
   return entryPath;
+}
+
+function resolvePluginFrontendEntry(
+  manifestPath: string,
+  manifest: PluginManifest,
+): string | undefined {
+  if (!manifest.frontend) {
+    return undefined;
+  }
+  const pluginDir = path.dirname(manifestPath);
+  const entryPath = path.resolve(pluginDir, manifest.frontend.entry);
+  const relative = path.relative(pluginDir, entryPath);
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw new Error('Plugin frontend entry must stay inside the plugin directory');
+  }
+  return entryPath;
+}
+
+function withFrontendBundle(
+  plugin: DockscopePlugin,
+  frontendEntry: string | undefined,
+): DockscopePlugin {
+  if (!frontendEntry) {
+    return plugin;
+  }
+  return {
+    ...plugin,
+    async getFrontendBundle() {
+      const source = await readFile(frontendEntry, 'utf-8');
+      if (Buffer.byteLength(source, 'utf-8') > MAX_PLUGIN_FRONTEND_BYTES) {
+        throw new Error(`Plugin frontend bundle exceeds ${MAX_PLUGIN_FRONTEND_BYTES} bytes`);
+      }
+      return source;
+    },
+  };
 }
 
 function pluginFactoryFromModule(module: ExternalPluginModule): PluginFactory | DockscopePlugin {
@@ -496,24 +532,31 @@ export async function loadExternalPlugins(
         : defaultPluginConfig(manifest.config);
       phase = 'load';
       const entryPath = resolvePluginEntry(manifestPath, manifest);
+      const frontendEntry = resolvePluginFrontendEntry(manifestPath, manifest);
+      if (frontendEntry && !(await pathExists(frontendEntry))) {
+        throw new Error(`Plugin frontend entry does not exist: ${frontendEntry}`);
+      }
       const pluginDir = path.dirname(manifestPath);
       if (manifest.execution?.isolation !== 'in-process') {
         plugins.push(
-          await createProcessIsolatedPlugin({
-            manifest,
-            pluginDir,
-            entryPath,
-            config,
-            secretStore: options.secretStore,
-            publishEvent: options.publishEvent,
-            timeoutMs:
-              manifest.execution?.operationTimeoutMs ??
-              manifest.execution?.commandTimeoutMs ??
-              options.processCommandTimeoutMs,
-            maxStderrBytes: manifest.execution?.maxStderrBytes ?? options.processMaxStderrBytes,
-            memoryLimitMb: manifest.execution?.memoryLimitMb ?? options.processMemoryLimitMb,
-            logger,
-          }),
+          withFrontendBundle(
+            await createProcessIsolatedPlugin({
+              manifest,
+              pluginDir,
+              entryPath,
+              config,
+              secretStore: options.secretStore,
+              publishEvent: options.publishEvent,
+              timeoutMs:
+                manifest.execution?.operationTimeoutMs ??
+                manifest.execution?.commandTimeoutMs ??
+                options.processCommandTimeoutMs,
+              maxStderrBytes: manifest.execution?.maxStderrBytes ?? options.processMaxStderrBytes,
+              memoryLimitMb: manifest.execution?.memoryLimitMb ?? options.processMemoryLimitMb,
+              logger,
+            }),
+            frontendEntry,
+          ),
         );
         configs.set(manifest.id, config);
         continue;
@@ -534,7 +577,12 @@ export async function loadExternalPlugins(
           ? (type, payload) => options.publishEvent!(manifest.id, type, payload)
           : undefined,
       });
-      plugins.push(await instantiatePlugin(module, manifest, pluginDir, config, host, logger));
+      plugins.push(
+        withFrontendBundle(
+          await instantiatePlugin(module, manifest, pluginDir, config, host, logger),
+          frontendEntry,
+        ),
+      );
       configs.set(manifest.id, config);
     } catch (error) {
       errors.push({
@@ -582,6 +630,10 @@ export async function validateExternalPluginManifests(options: {
       const entryPath = resolvePluginEntry(manifestPath, manifest);
       if (!(await pathExists(entryPath))) {
         throw new Error(`Plugin entry does not exist: ${entryPath}`);
+      }
+      const frontendEntry = resolvePluginFrontendEntry(manifestPath, manifest);
+      if (frontendEntry && !(await pathExists(frontendEntry))) {
+        throw new Error(`Plugin frontend entry does not exist: ${frontendEntry}`);
       }
       manifests.push(manifest);
     } catch (error) {
