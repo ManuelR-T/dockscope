@@ -261,6 +261,10 @@ export function setupRoutes(
     res.json(plugins.listPluginErrors());
   });
 
+  app.get('/api/plugins/warnings', (_req, res) => {
+    res.json(plugins.listPluginWarnings());
+  });
+
   app.get('/api/plugins/ui', (_req, res) => {
     res.json(plugins.listUiExtensions());
   });

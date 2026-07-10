@@ -88,11 +88,21 @@ async function writePluginScaffold(options: {
   await mkdir(pluginDir, { recursive: true });
   const template = options.template === 'graph' ? 'graph' : 'command';
   const manifest = {
+    $schema:
+      'https://raw.githubusercontent.com/ManuelR-T/dockscope/main/schemas/plugin-manifest.schema.json',
     id: options.id,
     name: options.name,
     version: '0.1.0',
+    manifestVersion: '1',
     dockscopeApiVersion: '1',
+    hostApiVersion: '1',
     entry: './plugin.mjs',
+    execution: {
+      isolation: 'process',
+      operationTimeoutMs: 30_000,
+      maxStderrBytes: 64_000,
+      memoryLimitMb: 128,
+    },
     capabilities:
       template === 'graph'
         ? ['source.graph', 'ui.command', 'source.events']
@@ -123,7 +133,10 @@ async function writePluginScaffold(options: {
   await writeFile(
     path.join(pluginDir, 'plugin.mjs'),
     template === 'graph'
-      ? `const source = {
+      ? `// @ts-check
+
+/** @type {import('dockscope/plugin-sdk/v1').DataSourceDescriptor} */
+const source = {
   id: 'sample',
   label: 'Sample Graph',
   kind: 'plugin',
@@ -132,7 +145,8 @@ async function writePluginScaffold(options: {
   status: 'connected',
 };
 
-export default function createPlugin({ manifest, host }) {
+/** @type {import('dockscope/plugin-sdk/v1').PluginFactory} */
+const createPlugin = ({ manifest, host }) => {
   return {
     manifest,
     getGraphSources() {
@@ -184,21 +198,31 @@ export default function createPlugin({ manifest, host }) {
       return { ok: true, message: 'Refresh event emitted' };
     },
   };
-}
+};
+
+export default createPlugin;
 `
-      : `export default function createPlugin({ manifest, host }) {
+      : `// @ts-check
+
+/** @type {import('dockscope/plugin-sdk/v1').PluginFactory} */
+const createPlugin = ({ manifest, host }) => {
   return {
     manifest,
     async runCommand(commandId, input) {
       if (commandId !== 'hello') {
         return { ok: false, message: \`Unknown command: \${commandId}\` };
       }
-      const name = typeof input?.name === 'string' && input.name.trim() ? input.name : 'DockScope';
+      const values = typeof input === 'object' && input !== null ? input : {};
+      const name = 'name' in values && typeof values.name === 'string' && values.name.trim()
+        ? values.name
+        : 'DockScope';
       await host.publishEvent('hello.ran', { name, time: Date.now() });
       return { ok: true, message: \`Hello, \${name}\` };
     },
   };
-}
+};
+
+export default createPlugin;
 `,
     'utf-8',
   );
@@ -218,6 +242,25 @@ export default function createPlugin({ manifest, host }) {
         peerDependencies: {
           dockscope: `>=${VERSION}`,
         },
+      },
+      null,
+      2,
+    ),
+    'utf-8',
+  );
+  await writeFile(
+    path.join(pluginDir, 'jsconfig.json'),
+    JSON.stringify(
+      {
+        compilerOptions: {
+          allowJs: true,
+          checkJs: true,
+          module: 'NodeNext',
+          moduleResolution: 'NodeNext',
+          noEmit: true,
+          strict: true,
+        },
+        include: ['plugin.mjs'],
       },
       null,
       2,
@@ -259,6 +302,11 @@ async function validatePluginPaths(opts: {
 
   for (const manifest of result.manifests) {
     console.log(`  ok ${manifest.id} v${manifest.version} (api ${manifest.dockscopeApiVersion})`);
+  }
+  for (const warning of result.warnings) {
+    console.warn(
+      `  warning ${warning.id ?? warning.path ?? 'unknown'} [${warning.code}]: ${warning.message}`,
+    );
   }
   for (const error of result.errors) {
     console.error(

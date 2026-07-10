@@ -2,7 +2,11 @@ import { access, mkdir, mkdtemp, readFile, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import path from 'path';
 import { describe, expect, it } from 'vitest';
-import { loadExternalPlugins, loadExternalPluginsFromEnv } from '../loader';
+import {
+  loadExternalPlugins,
+  loadExternalPluginsFromEnv,
+  validateExternalPluginManifests,
+} from '../loader';
 
 async function exists(targetPath: string): Promise<boolean> {
   try {
@@ -34,7 +38,9 @@ function manifest(overrides: Record<string, unknown> = {}): Record<string, unkno
     id: 'external.demo',
     name: 'External Demo',
     version: '1.0.0',
+    manifestVersion: '1',
     dockscopeApiVersion: '1',
+    hostApiVersion: '1',
     entry: './plugin.mjs',
     capabilities: ['source.graph'],
     permissions: [],
@@ -206,6 +212,33 @@ describe('external plugin loader', () => {
         phase: 'manifest',
         message: 'Unsupported plugin capability: source.invalid',
       }),
+    ]);
+  });
+
+  it('reports legacy manifest fields as non-blocking warnings', async () => {
+    const pluginDir = await createPluginDir();
+    await writePlugin(
+      pluginDir,
+      manifest({
+        manifestVersion: undefined,
+        dockscopeApiVersion: undefined,
+        hostApiVersion: undefined,
+        execution: { commandTimeoutMs: 5000 },
+      }),
+      'export default function createPlugin({ manifest }) { return { manifest }; }',
+    );
+
+    const result = await validateExternalPluginManifests({
+      paths: [pluginDir],
+      permissions: 'all',
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.warnings.map((warning) => warning.code)).toEqual([
+      'manifest-version-defaulted',
+      'plugin-api-version-defaulted',
+      'host-api-version-defaulted',
+      'command-timeout-deprecated',
     ]);
   });
 
@@ -457,7 +490,7 @@ describe('external plugin loader', () => {
           { id: 'pid', title: 'PID' },
           { id: 'crash', title: 'Crash' },
         ],
-        execution: { isolation: 'process', commandTimeoutMs: 2000 },
+        execution: { isolation: 'process', operationTimeoutMs: 2000 },
       }),
       `
         export default function createPlugin({ manifest }) {

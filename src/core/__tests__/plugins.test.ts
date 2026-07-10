@@ -18,13 +18,19 @@ import type {
   ResourceProvider,
 } from '../operations';
 
+const TEST_API_VERSIONS = {
+  manifestVersion: '1',
+  dockscopeApiVersion: '1',
+  hostApiVersion: '1',
+} as const;
+
 function plugin(overrides: Partial<DockscopePlugin> = {}): DockscopePlugin {
   return {
     manifest: {
       id: 'test.plugin',
       name: 'Test Plugin',
       version: '1.0.0',
-      dockscopeApiVersion: '1',
+      ...TEST_API_VERSIONS,
       capabilities: ['source.graph'],
       permissions: [],
     },
@@ -42,7 +48,7 @@ function pluginWithCapabilities(
       id: 'test.plugin',
       name: 'Test Plugin',
       version: '1.0.0',
-      dockscopeApiVersion: '1',
+      ...TEST_API_VERSIONS,
       capabilities,
       permissions: [],
     },
@@ -202,7 +208,7 @@ describe('PluginRegistry', () => {
             id: 'test.metrics',
             name: 'Metrics',
             version: '1.0.0',
-            dockscopeApiVersion: '1',
+            ...TEST_API_VERSIONS,
             capabilities: ['source.graph', 'ui.settings'],
             permissions: [],
           },
@@ -235,6 +241,28 @@ describe('PluginRegistry', () => {
     ]);
   });
 
+  it('records plugin manifest warnings without exposing mutable state', () => {
+    const registry = new PluginRegistry();
+    registry.recordLoadWarning({
+      id: 'custom.plugin',
+      path: '/tmp/plugin.json',
+      code: 'host-api-version-defaulted',
+      message: 'hostApiVersion is omitted',
+    });
+
+    const warnings = registry.listPluginWarnings();
+    warnings[0].message = 'changed';
+
+    expect(registry.listPluginWarnings()).toEqual([
+      {
+        id: 'custom.plugin',
+        path: '/tmp/plugin.json',
+        code: 'host-api-version-defaulted',
+        message: 'hostApiVersion is omitted',
+      },
+    ]);
+  });
+
   it('marks failed plugins without aborting registry startup', async () => {
     const registry = new PluginRegistry();
     registry.register(
@@ -261,7 +289,7 @@ describe('PluginRegistry', () => {
           id: 'test.ui',
           name: 'UI Plugin',
           version: '1.0.0',
-          dockscopeApiVersion: '1',
+          ...TEST_API_VERSIONS,
           capabilities: ['source.graph', 'ui.toolbarAction'],
           permissions: [],
           ui: [
@@ -296,7 +324,7 @@ describe('PluginRegistry', () => {
           id: 'test.command',
           name: 'Command Plugin',
           version: '1.0.0',
-          dockscopeApiVersion: '1',
+          ...TEST_API_VERSIONS,
           capabilities: ['source.graph', 'ui.command'],
           permissions: [],
           commands: [{ id: 'sync', title: 'Sync', description: 'Run sync' }],
@@ -343,7 +371,7 @@ describe('PluginRegistry', () => {
           id: 'test.reload',
           name: 'Reload Plugin',
           version: '1.0.0',
-          dockscopeApiVersion: '1',
+          ...TEST_API_VERSIONS,
           capabilities: ['source.graph'],
           permissions: [],
         },
@@ -357,7 +385,7 @@ describe('PluginRegistry', () => {
           id: 'test.reload',
           name: 'Reload Plugin',
           version: '2.0.0',
-          dockscopeApiVersion: '1',
+          ...TEST_API_VERSIONS,
           capabilities: ['source.graph'],
           permissions: [],
         },
@@ -381,7 +409,7 @@ describe('PluginRegistry', () => {
           id: 'test.compat',
           name: 'Compat Plugin',
           version: '1.0.0',
-          dockscopeApiVersion: '1',
+          ...TEST_API_VERSIONS,
           capabilities: ['source.graph'],
           permissions: [],
           compatibility: {
@@ -398,7 +426,7 @@ describe('PluginRegistry', () => {
           id: 'core.compat',
           name: 'Core Compat',
           version: '1.0.0',
-          dockscopeApiVersion: '1',
+          ...TEST_API_VERSIONS,
           builtin: true,
           capabilities: ['source.graph'],
           permissions: [],
@@ -429,7 +457,7 @@ describe('PluginRegistry', () => {
           id: 'test.migration',
           name: 'Migration Plugin',
           version: '1.0.0',
-          dockscopeApiVersion: '1',
+          ...TEST_API_VERSIONS,
           capabilities: ['source.graph', 'ui.command'],
           permissions: [],
           commands: [{ id: 'migrate', title: 'Migrate' }],
@@ -461,7 +489,7 @@ describe('PluginRegistry', () => {
           id: 'test.review',
           name: 'Review Plugin',
           version: '1.0.0',
-          dockscopeApiVersion: '1',
+          ...TEST_API_VERSIONS,
           capabilities: ['source.graph', 'ui.command'],
           permissions: ['process.exec'],
           commands: [{ id: 'run', title: 'Run' }],
@@ -496,7 +524,7 @@ describe('PluginRegistry', () => {
           id: 'test.approval',
           name: 'Approval Plugin',
           version: '1.0.0',
-          dockscopeApiVersion: '1',
+          ...TEST_API_VERSIONS,
           capabilities: ['source.graph'],
           permissions: [],
         },
@@ -537,7 +565,7 @@ describe('PluginRegistry', () => {
           id: 'test.config',
           name: 'Config Plugin',
           version: '1.0.0',
-          dockscopeApiVersion: '1',
+          ...TEST_API_VERSIONS,
           capabilities: ['source.graph', 'ui.settings'],
           permissions: [],
           config: {
@@ -615,7 +643,7 @@ describe('PluginRegistry', () => {
           id: 'test.secret',
           name: 'Secret Plugin',
           version: '1.0.0',
-          dockscopeApiVersion: '1',
+          ...TEST_API_VERSIONS,
           capabilities: ['source.graph'],
           permissions: ['secrets.read'],
           secrets: [{ key: 'token', label: 'API token', required: true }],

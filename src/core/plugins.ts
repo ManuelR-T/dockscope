@@ -61,7 +61,11 @@ import {
 } from './plugin-compatibility.js';
 
 export const DOCKSCOPE_PLUGIN_API_VERSION = '1';
+export const DOCKSCOPE_PLUGIN_HOST_API_VERSION = '1';
+export const DOCKSCOPE_PLUGIN_MANIFEST_VERSION = '1';
 const SUPPORTED_PLUGIN_API_VERSIONS = new Set<string>([DOCKSCOPE_PLUGIN_API_VERSION]);
+const SUPPORTED_PLUGIN_HOST_API_VERSIONS = new Set<string>([DOCKSCOPE_PLUGIN_HOST_API_VERSION]);
+const SUPPORTED_PLUGIN_MANIFEST_VERSIONS = new Set<string>([DOCKSCOPE_PLUGIN_MANIFEST_VERSION]);
 
 export type PluginStatus = 'registered' | 'started' | 'stopped' | 'failed' | 'disabled';
 
@@ -69,7 +73,9 @@ export interface PluginManifest {
   id: string;
   name: string;
   version: string;
+  manifestVersion: string;
   dockscopeApiVersion: string;
+  hostApiVersion: string;
   description?: string;
   entry?: string;
   builtin?: boolean;
@@ -83,6 +89,8 @@ export interface PluginManifest {
   commands?: readonly PluginCommandDeclaration[];
   execution?: {
     isolation?: 'in-process' | 'process';
+    operationTimeoutMs?: number;
+    /** @deprecated Use operationTimeoutMs. */
     commandTimeoutMs?: number;
     maxStderrBytes?: number;
     memoryLimitMb?: number;
@@ -129,6 +137,28 @@ export interface PluginLoadError {
   path?: string;
   phase: 'manifest' | 'permission' | 'config' | 'load' | 'register';
   message: string;
+}
+
+export type PluginManifestWarningCode =
+  | 'manifest-version-defaulted'
+  | 'plugin-api-version-defaulted'
+  | 'host-api-version-defaulted'
+  | 'command-timeout-deprecated'
+  | 'in-process-deprecated';
+
+export interface PluginManifestWarning {
+  code: PluginManifestWarningCode;
+  message: string;
+}
+
+export interface PluginManifestValidationResult {
+  manifest: PluginManifest;
+  warnings: PluginManifestWarning[];
+}
+
+export interface PluginLoadWarning extends PluginManifestWarning {
+  id?: string;
+  path?: string;
 }
 
 export interface PluginConfigSnapshot {
@@ -227,6 +257,55 @@ function optionalString(value: unknown, field: string): string | undefined {
   return value;
 }
 
+export function pluginManifestDeprecationWarnings(raw: unknown): PluginManifestWarning[] {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return [];
+  }
+  const manifest = raw as Record<string, unknown>;
+  const warnings: PluginManifestWarning[] = [];
+  if (manifest.manifestVersion === undefined) {
+    warnings.push({
+      code: 'manifest-version-defaulted',
+      message: `manifestVersion is omitted; DockScope is assuming ${DOCKSCOPE_PLUGIN_MANIFEST_VERSION}`,
+    });
+  }
+  if (manifest.dockscopeApiVersion === undefined) {
+    warnings.push({
+      code: 'plugin-api-version-defaulted',
+      message: `dockscopeApiVersion is omitted; DockScope is assuming ${DOCKSCOPE_PLUGIN_API_VERSION}`,
+    });
+  }
+  if (manifest.hostApiVersion === undefined) {
+    warnings.push({
+      code: 'host-api-version-defaulted',
+      message: `hostApiVersion is omitted; DockScope is assuming ${DOCKSCOPE_PLUGIN_HOST_API_VERSION}`,
+    });
+  }
+  if (manifest.execution && typeof manifest.execution === 'object') {
+    const execution = manifest.execution as Record<string, unknown>;
+    if (execution.commandTimeoutMs !== undefined) {
+      warnings.push({
+        code: 'command-timeout-deprecated',
+        message: 'execution.commandTimeoutMs is deprecated; use execution.operationTimeoutMs',
+      });
+    }
+    if (execution.isolation === 'in-process') {
+      warnings.push({
+        code: 'in-process-deprecated',
+        message: 'in-process execution is intended only for trusted local development plugins',
+      });
+    }
+  }
+  return warnings;
+}
+
+export function validatePluginManifestWithWarnings(raw: unknown): PluginManifestValidationResult {
+  return {
+    manifest: validatePluginManifest(raw),
+    warnings: pluginManifestDeprecationWarnings(raw),
+  };
+}
+
 export function validatePluginManifest(raw: unknown): PluginManifest {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     throw new PluginManifestError('Plugin manifest must be an object');
@@ -244,6 +323,15 @@ export function validatePluginManifest(raw: unknown): PluginManifest {
   if (!isNonEmptyString(manifest.version)) {
     throw new PluginManifestError('Plugin manifest field "version" is required');
   }
+  const manifestVersion = manifest.manifestVersion ?? DOCKSCOPE_PLUGIN_MANIFEST_VERSION;
+  if (!isNonEmptyString(manifestVersion)) {
+    throw new PluginManifestError(
+      'Plugin manifest field "manifestVersion" must be a non-empty string',
+    );
+  }
+  if (!SUPPORTED_PLUGIN_MANIFEST_VERSIONS.has(manifestVersion)) {
+    throw new PluginManifestError(`Unsupported plugin manifest version: ${manifestVersion}`);
+  }
   const dockscopeApiVersion = manifest.dockscopeApiVersion ?? DOCKSCOPE_PLUGIN_API_VERSION;
   if (!isNonEmptyString(dockscopeApiVersion)) {
     throw new PluginManifestError(
@@ -254,6 +342,15 @@ export function validatePluginManifest(raw: unknown): PluginManifest {
     throw new PluginManifestError(
       `Unsupported DockScope plugin API version: ${dockscopeApiVersion}`,
     );
+  }
+  const hostApiVersion = manifest.hostApiVersion ?? DOCKSCOPE_PLUGIN_HOST_API_VERSION;
+  if (!isNonEmptyString(hostApiVersion)) {
+    throw new PluginManifestError(
+      'Plugin manifest field "hostApiVersion" must be a non-empty string',
+    );
+  }
+  if (!SUPPORTED_PLUGIN_HOST_API_VERSIONS.has(hostApiVersion)) {
+    throw new PluginManifestError(`Unsupported DockScope host API version: ${hostApiVersion}`);
   }
   if (!Array.isArray(manifest.capabilities)) {
     throw new PluginManifestError('Plugin manifest field "capabilities" must be an array');
@@ -300,16 +397,29 @@ export function validatePluginManifest(raw: unknown): PluginManifest {
   if (isolation !== undefined && isolation !== 'in-process' && isolation !== 'process') {
     throw new PluginManifestError(`Unsupported plugin execution isolation: ${String(isolation)}`);
   }
-  const commandTimeoutMs =
+  const legacyCommandTimeoutMs =
     execution && 'commandTimeoutMs' in execution
       ? (execution as { commandTimeoutMs?: unknown }).commandTimeoutMs
       : undefined;
+  const operationTimeoutMs =
+    execution && 'operationTimeoutMs' in execution
+      ? (execution as { operationTimeoutMs?: unknown }).operationTimeoutMs
+      : legacyCommandTimeoutMs;
   if (
-    commandTimeoutMs !== undefined &&
-    (typeof commandTimeoutMs !== 'number' ||
-      !Number.isFinite(commandTimeoutMs) ||
-      commandTimeoutMs < 100 ||
-      commandTimeoutMs > 300_000)
+    operationTimeoutMs !== undefined &&
+    (typeof operationTimeoutMs !== 'number' ||
+      !Number.isFinite(operationTimeoutMs) ||
+      operationTimeoutMs < 100 ||
+      operationTimeoutMs > 300_000)
+  ) {
+    throw new PluginManifestError('Plugin execution operationTimeoutMs must be 100..300000');
+  }
+  if (
+    legacyCommandTimeoutMs !== undefined &&
+    (typeof legacyCommandTimeoutMs !== 'number' ||
+      !Number.isFinite(legacyCommandTimeoutMs) ||
+      legacyCommandTimeoutMs < 100 ||
+      legacyCommandTimeoutMs > 300_000)
   ) {
     throw new PluginManifestError('Plugin execution commandTimeoutMs must be 100..300000');
   }
@@ -354,7 +464,9 @@ export function validatePluginManifest(raw: unknown): PluginManifest {
     id: manifest.id,
     name: manifest.name,
     version: manifest.version,
+    manifestVersion,
     dockscopeApiVersion,
+    hostApiVersion,
     description: optionalString(manifest.description, 'description'),
     entry: optionalString(manifest.entry, 'entry'),
     builtin: manifest.builtin === true,
@@ -367,8 +479,8 @@ export function validatePluginManifest(raw: unknown): PluginManifest {
     secrets,
     commands,
     execution:
-      isolation || commandTimeoutMs || maxStderrBytes || memoryLimitMb
-        ? { isolation, commandTimeoutMs, maxStderrBytes, memoryLimitMb }
+      isolation || operationTimeoutMs || maxStderrBytes || memoryLimitMb
+        ? { isolation, operationTimeoutMs, maxStderrBytes, memoryLimitMb }
         : undefined,
     compatibility,
   };
@@ -464,6 +576,7 @@ export class PluginRegistry {
   private readonly runtime = new Map<string, PluginRuntimeInfo>();
   private readonly configs = new Map<string, PluginConfig>();
   private readonly loadErrors: PluginLoadError[] = [];
+  private readonly loadWarnings: PluginLoadWarning[] = [];
   private readonly events: PluginEventBus;
   private readonly approvals = new Map<string, PluginApprovalSnapshot>();
   private reloadHandler?: PluginReloadHandler;
@@ -512,6 +625,10 @@ export class PluginRegistry {
     this.loadErrors.push(error);
   }
 
+  recordLoadWarning(warning: PluginLoadWarning): void {
+    this.loadWarnings.push(warning);
+  }
+
   setReloadHandler(handler: PluginReloadHandler): void {
     this.reloadHandler = handler;
   }
@@ -545,6 +662,10 @@ export class PluginRegistry {
 
   listPluginErrors(): PluginLoadError[] {
     return this.loadErrors.map((error) => ({ ...error }));
+  }
+
+  listPluginWarnings(): PluginLoadWarning[] {
+    return this.loadWarnings.map((warning) => ({ ...warning }));
   }
 
   listUiExtensions(): PluginUiExtension[] {
@@ -1178,7 +1299,9 @@ export class PluginRegistry {
         JSON.stringify({
           id: plugin.manifest.id,
           version: plugin.manifest.version,
+          manifestVersion: plugin.manifest.manifestVersion,
           dockscopeApiVersion: plugin.manifest.dockscopeApiVersion,
+          hostApiVersion: plugin.manifest.hostApiVersion,
           capabilities: [...plugin.manifest.capabilities].sort(),
           permissions: [...plugin.manifest.permissions].sort(),
           secrets: (plugin.manifest.secrets ?? []).map((secret) => ({

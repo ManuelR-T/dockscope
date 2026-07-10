@@ -41,6 +41,9 @@ export async function createPluginRegistry(
   for (const error of external.errors) {
     registry.recordLoadError(error);
   }
+  for (const warning of external.warnings) {
+    registry.recordLoadWarning(warning);
+  }
   for (const plugin of external.plugins) {
     try {
       registry.register(plugin, external.configs.get(plugin.manifest.id), {
@@ -64,6 +67,9 @@ export async function createPluginRegistry(
     });
     for (const error of reloaded.errors) {
       registry.recordLoadError(error);
+    }
+    for (const warning of reloaded.warnings) {
+      registry.recordLoadWarning(warning);
     }
     const plugin = reloaded.plugins.find((candidate) => candidate.manifest.id === pluginId);
     if (!plugin) {

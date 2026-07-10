@@ -11,6 +11,13 @@
     "./plugin-sdk": {
       "types": "./dist/plugin-sdk.d.ts",
       "import": "./dist/plugin-sdk.js"
+    },
+    "./plugin-sdk/v1": {
+      "types": "./dist/plugin-sdk-v1.d.ts",
+      "import": "./dist/plugin-sdk-v1.js"
+    },
+    "./plugin-manifest.schema.json": {
+      "default": "./schemas/plugin-manifest.schema.json"
     }
   },
   "bin": {
@@ -18,13 +25,14 @@
   },
   "scripts": {
     "dev": "DOCKSCOPE_DEV=1 tsx watch --exclude \"$HOME/.dockscope/plugins/**\" --exclude \"../../../.dockscope/plugins/**\" --exclude \"/tmp/dockscope-*/**\" --exclude \"../../../../../tmp/dockscope-*/**\" src/cli.ts up --no-port-check",
-    "build": "tsc -p tsconfig.server.json && vite build",
+    "clean": "node scripts/clean.mjs",
+    "build": "npm run clean && tsc -p tsconfig.server.json && vite build",
     "start": "node dist/cli.js up",
     "typecheck": "tsc --noEmit && svelte-check --tsconfig ./tsconfig.json",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
-    "format": "prettier --write 'src/**/*.{ts,svelte,css}' 'scripts/**/*.mjs' 'plugins/**/*.{mjs,json,md}' '.github/workflows/*.yml'",
-    "format:check": "prettier --check 'src/**/*.{ts,svelte,css}' 'scripts/**/*.mjs' 'plugins/**/*.{mjs,json,md}' '.github/workflows/*.yml'",
+    "format": "prettier --write 'src/**/*.{ts,svelte,css}' 'scripts/**/*.mjs' 'plugins/**/*.{mjs,json,md}' 'schemas/*.json' '.github/workflows/*.yml'",
+    "format:check": "prettier --check 'src/**/*.{ts,svelte,css}' 'scripts/**/*.mjs' 'plugins/**/*.{mjs,json,md}' 'schemas/*.json' '.github/workflows/*.yml'",
     "plugins:catalog": "node scripts/build-plugin-catalog.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -81,7 +89,8 @@
     "vitest": "^4.1.2"
   },
   "files": [
-    "dist/"
+    "dist/",
+    "schemas/"
   ],
   "repository": {
     "type": "git",

@@ -20,7 +20,7 @@ import type { PluginUiExtensionDeclaration } from '../core/plugin-ui.js';
 import { validatePluginUiExtensions } from '../core/plugin-ui.js';
 import { errorMessage } from '../utils.js';
 import type { PluginHostApi } from './hostApi.js';
-import type { PluginFactoryContext } from './loader.js';
+import type { PluginFactory, PluginFactoryContext } from '../core/plugin-api.js';
 import type {
   SandboxBootstrap,
   SandboxHostCall,
@@ -35,7 +35,6 @@ import type {
 } from './processProtocol.js';
 
 type ExternalPluginModule = Record<string, unknown>;
-type PluginFactory = (context: PluginFactoryContext) => DockscopePlugin | Promise<DockscopePlugin>;
 
 interface PendingHostCall {
   resolve(result: unknown): void;

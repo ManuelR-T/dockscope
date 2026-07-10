@@ -1,10 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { PLUGIN_CAPABILITIES, PLUGIN_PERMISSIONS } from '../capabilities';
-import { DOCKSCOPE_PLUGIN_API_VERSION, validatePluginManifest } from '../plugins';
+import {
+  DOCKSCOPE_PLUGIN_API_VERSION,
+  DOCKSCOPE_PLUGIN_HOST_API_VERSION,
+  DOCKSCOPE_PLUGIN_MANIFEST_VERSION,
+  validatePluginManifest,
+} from '../plugins';
 
 describe('plugin API v1 contract', () => {
   it('keeps the current plugin API version stable', () => {
     expect(DOCKSCOPE_PLUGIN_API_VERSION).toBe('1');
+    expect(DOCKSCOPE_PLUGIN_HOST_API_VERSION).toBe('1');
+    expect(DOCKSCOPE_PLUGIN_MANIFEST_VERSION).toBe('1');
   });
 
   it('keeps required v1 capabilities and permissions available', () => {
@@ -33,7 +40,9 @@ describe('plugin API v1 contract', () => {
         id: 'contract.v1',
         name: 'Contract V1',
         version: '1.0.0',
+        manifestVersion: '1',
         dockscopeApiVersion: '1',
+        hostApiVersion: '1',
         entry: './plugin.mjs',
         capabilities: ['source.graph', 'source.events', 'ui.command', 'ui.toolbarAction'],
         permissions: ['secrets.read'],
@@ -41,7 +50,7 @@ describe('plugin API v1 contract', () => {
         commands: [{ id: 'migrate', title: 'Migrate' }],
         execution: {
           isolation: 'process',
-          commandTimeoutMs: 5000,
+          operationTimeoutMs: 5000,
           maxStderrBytes: 32_000,
           memoryLimitMb: 128,
         },
@@ -60,13 +69,35 @@ describe('plugin API v1 contract', () => {
       }),
     ).toMatchObject({
       id: 'contract.v1',
+      manifestVersion: '1',
       dockscopeApiVersion: '1',
+      hostApiVersion: '1',
       execution: {
         isolation: 'process',
-        commandTimeoutMs: 5000,
+        operationTimeoutMs: 5000,
         maxStderrBytes: 32_000,
         memoryLimitMb: 128,
       },
     });
+  });
+
+  it('rejects unsupported manifest and host API versions before loading code', () => {
+    const base = {
+      id: 'contract.unsupported',
+      name: 'Unsupported Contract',
+      version: '1.0.0',
+      manifestVersion: '1',
+      dockscopeApiVersion: '1',
+      hostApiVersion: '1',
+      capabilities: [],
+      permissions: [],
+    };
+
+    expect(() => validatePluginManifest({ ...base, manifestVersion: '2' })).toThrow(
+      'Unsupported plugin manifest version: 2',
+    );
+    expect(() => validatePluginManifest({ ...base, hostApiVersion: '2' })).toThrow(
+      'Unsupported DockScope host API version: 2',
+    );
   });
 });

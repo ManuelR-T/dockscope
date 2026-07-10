@@ -20,8 +20,10 @@ import { defaultPluginConfig, type PluginConfig } from '../core/plugin-config.js
 import {
   type DockscopePlugin,
   type PluginLoadError,
+  type PluginLoadWarning,
   type PluginManifest,
   validatePluginManifest,
+  validatePluginManifestWithWarnings,
 } from '../core/plugins.js';
 import { isPluginPermission, type PluginPermission } from '../core/capabilities.js';
 import { createPluginHostApi, type PluginHostApi } from './hostApi.js';
@@ -37,18 +39,9 @@ import type {
   CrashDiagnostic,
 } from '../types.js';
 import type { PluginCommandResult } from '../core/plugin-commands.js';
+import type { PluginFactory } from '../core/plugin-api.js';
 
 const PLUGIN_MANIFEST_FILE = 'plugin.json';
-
-export interface PluginFactoryContext {
-  manifest: PluginManifest;
-  pluginDir: string;
-  config: PluginConfig;
-  host: PluginHostApi;
-  logger: Pick<Console, 'debug' | 'info' | 'warn' | 'error'>;
-}
-
-type PluginFactory = (context: PluginFactoryContext) => DockscopePlugin | Promise<DockscopePlugin>;
 
 type ExternalPluginModule = Record<string, unknown>;
 
@@ -75,11 +68,13 @@ export interface ExternalPluginLoadResult {
   plugins: DockscopePlugin[];
   configs: Map<string, PluginConfig>;
   errors: PluginLoadError[];
+  warnings: PluginLoadWarning[];
 }
 
 export interface ExternalPluginManifestValidationResult {
   manifests: PluginManifest[];
   errors: PluginLoadError[];
+  warnings: PluginLoadWarning[];
 }
 
 function allowedPermissionSet(
@@ -472,6 +467,7 @@ export async function loadExternalPlugins(
   const plugins: DockscopePlugin[] = [];
   const configs = new Map<string, PluginConfig>();
   const errors: PluginLoadError[] = [];
+  const warnings: PluginLoadWarning[] = [];
   const policy = allowedPermissionSet(options.permissions);
   const logger = options.logger ?? console;
 
@@ -480,8 +476,14 @@ export async function loadExternalPlugins(
     let manifestId: string | undefined;
     try {
       const rawManifest = JSON.parse(await readFile(manifestPath, 'utf-8')) as unknown;
-      const manifest = validatePluginManifest(rawManifest);
+      const validation = validatePluginManifestWithWarnings(rawManifest);
+      const manifest = validation.manifest;
       manifestId = manifest.id;
+      for (const warning of validation.warnings) {
+        const loadWarning = { ...warning, id: manifest.id, path: manifestPath };
+        warnings.push(loadWarning);
+        logger.warn(`Plugin manifest warning (${manifest.id}): ${warning.message}`);
+      }
       const denied = deniedPermissions(manifest, policy);
       if (denied.length > 0) {
         phase = 'permission';
@@ -504,7 +506,10 @@ export async function loadExternalPlugins(
             config,
             secretStore: options.secretStore,
             publishEvent: options.publishEvent,
-            timeoutMs: manifest.execution?.commandTimeoutMs ?? options.processCommandTimeoutMs,
+            timeoutMs:
+              manifest.execution?.operationTimeoutMs ??
+              manifest.execution?.commandTimeoutMs ??
+              options.processCommandTimeoutMs,
             maxStderrBytes: manifest.execution?.maxStderrBytes ?? options.processMaxStderrBytes,
             memoryLimitMb: manifest.execution?.memoryLimitMb ?? options.processMemoryLimitMb,
             logger,
@@ -541,7 +546,7 @@ export async function loadExternalPlugins(
     }
   }
 
-  return { plugins, configs, errors };
+  return { plugins, configs, errors, warnings };
 }
 
 export async function validateExternalPluginManifests(options: {
@@ -550,6 +555,7 @@ export async function validateExternalPluginManifests(options: {
 }): Promise<ExternalPluginManifestValidationResult> {
   const manifests: PluginManifest[] = [];
   const errors: PluginLoadError[] = [];
+  const warnings: PluginLoadWarning[] = [];
   const policy = allowedPermissionSet(options.permissions);
 
   for (const manifestPath of await discoverManifestPaths(options.paths)) {
@@ -557,8 +563,16 @@ export async function validateExternalPluginManifests(options: {
     let manifestId: string | undefined;
     try {
       const rawManifest = JSON.parse(await readFile(manifestPath, 'utf-8')) as unknown;
-      const manifest = validatePluginManifest(rawManifest);
+      const validation = validatePluginManifestWithWarnings(rawManifest);
+      const manifest = validation.manifest;
       manifestId = manifest.id;
+      warnings.push(
+        ...validation.warnings.map((warning) => ({
+          ...warning,
+          id: manifest.id,
+          path: manifestPath,
+        })),
+      );
       const denied = deniedPermissions(manifest, policy);
       if (denied.length > 0) {
         phase = 'permission';
@@ -580,7 +594,7 @@ export async function validateExternalPluginManifests(options: {
     }
   }
 
-  return { manifests, errors };
+  return { manifests, errors, warnings };
 }
 
 export async function loadExternalPluginsFromEnv(
@@ -598,7 +612,7 @@ export async function loadExternalPluginsFromEnv(
   > = {},
 ): Promise<ExternalPluginLoadResult> {
   if (env.DOCKSCOPE_DISABLE_EXTERNAL_PLUGINS === '1') {
-    return { plugins: [], configs: new Map(), errors: [] };
+    return { plugins: [], configs: new Map(), errors: [], warnings: [] };
   }
   return loadExternalPlugins({
     paths: parsePluginPaths(env.DOCKSCOPE_PLUGIN_PATHS),

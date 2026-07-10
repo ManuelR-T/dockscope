@@ -106,7 +106,9 @@ const manifest: PluginManifest = {
   id: 'official.kubernetes',
   name: 'Kubernetes',
   version: '0.1.0',
+  manifestVersion: '1',
   dockscopeApiVersion: '1',
+  hostApiVersion: '1',
   capabilities: ['source.graph', 'source.logs', 'action.lifecycle', 'action.scale'],
   permissions: ['kubernetes.api', 'process.exec'],
 };

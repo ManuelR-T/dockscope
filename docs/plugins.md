@@ -38,17 +38,20 @@ Every external plugin must include `plugin.json`:
 
 ```json
 {
+  "$schema": "https://raw.githubusercontent.com/ManuelR-T/dockscope/main/schemas/plugin-manifest.schema.json",
   "id": "example.static",
   "name": "Static Example",
   "version": "1.0.0",
+  "manifestVersion": "1",
   "dockscopeApiVersion": "1",
+  "hostApiVersion": "1",
   "description": "Adds a static graph source",
   "entry": "./plugin.mjs",
   "capabilities": ["source.graph", "source.events", "ui.toolbarAction", "ui.settings", "ui.command"],
   "permissions": [],
   "execution": {
     "isolation": "process",
-    "commandTimeoutMs": 30000,
+    "operationTimeoutMs": 30000,
     "maxStderrBytes": 64000,
     "memoryLimitMb": 128
   },
@@ -107,7 +110,9 @@ Every external plugin must include `plugin.json`:
 
 The loader validates the manifest before importing plugin code. Plugin ids must be lowercase letters, numbers, dots, or dashes. Capability and permission names must be known to DockScope.
 
-`dockscopeApiVersion` is the SDK/runtime compatibility contract. Current plugins should use `"1"`. Unsupported versions fail manifest validation before plugin code is imported.
+`manifestVersion` versions the JSON shape, `dockscopeApiVersion` versions plugin/provider contracts, and `hostApiVersion` versions permission-checked host methods. Current plugins should set all three to `"1"`. Unsupported versions fail validation before plugin code is imported.
+
+The published schema is available as `dockscope/plugin-manifest.schema.json`. Legacy manifests that omit version fields still load as v1, but `plugin:validate` and `/api/plugins/warnings` report the compatibility assumption. `execution.commandTimeoutMs` remains accepted as a deprecated alias for `execution.operationTimeoutMs`.
 
 Validate manifests without importing plugin code:
 
@@ -207,7 +212,7 @@ External plugins run in a dedicated child process by default. Use the explicit `
 {
   "execution": {
     "isolation": "process",
-    "commandTimeoutMs": 30000,
+    "operationTimeoutMs": 30000,
     "maxStderrBytes": 64000,
     "memoryLimitMb": 128
   }
@@ -216,7 +221,7 @@ External plugins run in a dedicated child process by default. Use the explicit `
 
 DockScope validates the manifest and imports plugin code only inside a persistent worker. Commands, graph sources and events, entity providers, project providers, resource providers, log streams, and exec sessions are proxied over typed IPC. Permission-checked host calls execute in the parent process, and the worker receives a scrubbed environment instead of DockScope's full environment.
 
-`commandTimeoutMs` applies to each request. `memoryLimitMb` sets the worker's V8 old-generation heap limit, and `maxStderrBytes` terminates a worker that emits excessive stderr. A crash rejects in-flight work without taking down DockScope; the next operation starts a fresh worker. Mutating operations are not retried automatically.
+`operationTimeoutMs` applies to each request. `memoryLimitMb` sets the worker's V8 old-generation heap limit, and `maxStderrBytes` terminates a worker that emits excessive stderr. A crash rejects in-flight work without taking down DockScope; the next operation starts a fresh worker. Mutating operations are not retried automatically.
 
 Process isolation is a fault and resource boundary, not a complete operating-system sandbox. Only install signed plugins from catalogs you trust.
 
@@ -496,7 +501,27 @@ export default function createPlugin({ manifest, config }) {
 }
 ```
 
-TypeScript plugins can import SDK types from `dockscope/plugin-sdk` after DockScope is built or installed.
+Use the versioned SDK entrypoint so a future latest SDK does not silently change the contract:
+
+```ts
+import { definePluginFactory, definePluginManifest } from 'dockscope/plugin-sdk/v1';
+
+export const manifest = definePluginManifest({
+  id: 'example.typed',
+  name: 'Typed Example',
+  version: '1.0.0',
+  manifestVersion: '1',
+  dockscopeApiVersion: '1',
+  hostApiVersion: '1',
+  entry: './plugin.mjs',
+  capabilities: [],
+  permissions: [],
+});
+
+export default definePluginFactory(({ manifest }) => ({ manifest }));
+```
+
+`dockscope/plugin-sdk` points to the latest stable contract, while `dockscope/plugin-sdk/v1` remains pinned to v1. `plugin:init` creates a `// @ts-check` JavaScript module and `jsconfig.json`, providing the same factory, host, manifest, and provider typing without requiring a compilation step.
 
 ## Permissions
 
@@ -529,6 +554,7 @@ Use these endpoints to inspect plugin state:
 
 - `GET /api/plugins` returns registered plugins and lifecycle status.
 - `GET /api/plugins/errors` returns external plugin manifest, permission, load, and register failures.
+- `GET /api/plugins/warnings` returns non-blocking manifest deprecation and compatibility warnings.
 - `GET /api/plugins/ui` returns frontend extension descriptors.
 - `GET /api/plugins/commands` returns command descriptors.
 - `POST /api/plugins/:pluginId/commands/:commandId` runs a plugin command.

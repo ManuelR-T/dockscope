@@ -2,14 +2,16 @@
   "id": "official.kubernetes",
   "name": "Kubernetes",
   "version": "0.1.0",
+  "manifestVersion": "1",
   "dockscopeApiVersion": "1",
+  "hostApiVersion": "1",
   "description": "Adds Kubernetes graph, logs, restart, delete, and HPA scale actions through kubectl.",
   "entry": "./plugin.mjs",
   "capabilities": ["source.graph", "source.logs", "action.lifecycle", "action.scale"],
   "permissions": ["kubernetes.api", "process.exec"],
   "execution": {
     "isolation": "process",
-    "commandTimeoutMs": 30000,
+    "operationTimeoutMs": 30000,
     "maxStderrBytes": 64000,
     "memoryLimitMb": 128
   },

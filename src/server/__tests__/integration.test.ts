@@ -249,6 +249,12 @@ describe('server integration', () => {
     expect(pluginErrorsResponse.status).toBe(200);
     expect(await pluginErrorsResponse.json()).toEqual([]);
 
+    const pluginWarningsResponse = await fetch(
+      `http://127.0.0.1:${server.port}/api/plugins/warnings`,
+    );
+    expect(pluginWarningsResponse.status).toBe(200);
+    expect(await pluginWarningsResponse.json()).toEqual([]);
+
     const pluginUiResponse = await fetch(`http://127.0.0.1:${server.port}/api/plugins/ui`);
     expect(pluginUiResponse.status).toBe(200);
     expect(await pluginUiResponse.json()).toEqual([]);

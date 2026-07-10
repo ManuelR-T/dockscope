@@ -4,29 +4,14 @@ import { isNativeError } from 'util/types';
 import path from 'path';
 import { promisify } from 'util';
 import type { PluginCapability, PluginPermission } from '../core/capabilities.js';
+import type { PluginHostApi } from '../core/plugin-api.js';
 import type { PluginEvent } from '../core/plugin-events.js';
 import type { PluginSecretDeclaration } from '../core/plugin-secrets.js';
 import type { PluginSecretStore } from './secretStore.js';
 
 const execFileAsync = promisify(execFileCallback);
 
-export interface PluginHostExecResult {
-  stdout: string;
-  stderr: string;
-}
-
-export interface PluginHostApi {
-  readonly permissions: readonly PluginPermission[];
-  readTextFile(relativePath: string): Promise<string>;
-  writeTextFile(relativePath: string, contents: string): Promise<void>;
-  fetchJson(url: string, init?: RequestInit): Promise<unknown>;
-  execFile(command: string, args?: readonly string[]): Promise<PluginHostExecResult>;
-  readSecret(key: string): Promise<string | undefined>;
-  readStorage(key: string): Promise<unknown>;
-  writeStorage(key: string, value: unknown): Promise<void>;
-  deleteStorage(key: string): Promise<void>;
-  publishEvent(type: string, payload?: unknown): Promise<PluginEvent>;
-}
+export type { PluginHostApi, PluginHostExecResult } from '../core/plugin-api.js';
 
 export class PluginPermissionError extends Error {
   constructor(
