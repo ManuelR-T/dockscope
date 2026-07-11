@@ -7,11 +7,11 @@ import { PluginEventError } from '../core/plugin-events.js';
 import { EntityActionError } from '../core/entity-actions.js';
 import { PluginConnectionError } from '../core/plugin-connections.js';
 import { PluginCompatibilityError } from '../core/plugin-compatibility.js';
+import { loadPluginCatalog, PluginCatalogError } from '../plugins/catalog.js';
 import {
-  loadPluginCatalog,
-  parsePluginCatalogTrustStore,
-  PluginCatalogError,
-} from '../plugins/catalog.js';
+  resolvePluginCatalogLoadOptions,
+  resolvePluginCatalogSource,
+} from '../plugins/catalogConfig.js';
 import type { PluginMarketplaceService } from '../plugins/marketplace.js';
 import type { EntityRef } from '../core/operations.js';
 import type { GraphData, ServerOptions, ServiceNode } from '../types.js';
@@ -537,21 +537,22 @@ export function setupRoutes(
   app.get(
     '/api/plugins/catalog',
     asyncRoute(async (_req, res) => {
-      if (!opts.pluginCatalog && !process.env.DOCKSCOPE_PLUGIN_CATALOG) {
+      const configuration = {
+        source: opts.pluginCatalog ?? process.env.DOCKSCOPE_PLUGIN_CATALOG,
+        publicKey: opts.pluginCatalogPublicKey ?? process.env.DOCKSCOPE_PLUGIN_CATALOG_PUBLIC_KEY,
+        serializedTrustStore: opts.pluginCatalogTrust ?? process.env.DOCKSCOPE_PLUGIN_CATALOG_TRUST,
+        disableOfficial:
+          opts.disableOfficialPluginCatalog ||
+          process.env.DOCKSCOPE_DISABLE_OFFICIAL_PLUGIN_CATALOG === '1',
+      };
+      const source = resolvePluginCatalogSource(configuration);
+      if (!source) {
         res.json({ configured: false, entries: [] });
         return;
       }
       const catalog = await loadPluginCatalog(
-        opts.pluginCatalog ?? (process.env.DOCKSCOPE_PLUGIN_CATALOG as string),
-        {
-          publicKey: opts.pluginCatalogPublicKey ?? process.env.DOCKSCOPE_PLUGIN_CATALOG_PUBLIC_KEY,
-          trustStore:
-            (opts.pluginCatalogTrust ?? process.env.DOCKSCOPE_PLUGIN_CATALOG_TRUST)
-              ? parsePluginCatalogTrustStore(
-                  (opts.pluginCatalogTrust ?? process.env.DOCKSCOPE_PLUGIN_CATALOG_TRUST) as string,
-                )
-              : undefined,
-        },
+        source,
+        resolvePluginCatalogLoadOptions(source, configuration),
       );
       res.json({ configured: true, ...catalog });
     }),

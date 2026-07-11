@@ -2,7 +2,7 @@
 
 import { Command } from 'commander';
 import { existsSync } from 'fs';
-import { mkdir, readFile, writeFile } from 'fs/promises';
+import { chmod, mkdir, readFile, writeFile } from 'fs/promises';
 import { generateKeyPairSync } from 'crypto';
 import { createConnection } from 'net';
 import path from 'path';
@@ -370,6 +370,7 @@ program
     '--plugin-catalog-trust <file>',
     'Catalog signer trust store with rotation and revocation policy',
   )
+  .option('--no-official-plugin-catalog', 'Disable the default DockScope plugin catalog')
   .option('--plugin-registry <dir>', 'Local plugin registry directory')
   .option('--allow-unsigned-plugins', 'Allow marketplace installs from unsigned catalog entries')
   .option('--no-external-plugins', 'Disable external plugin loading')
@@ -404,6 +405,7 @@ program
       pluginCatalog: opts.pluginCatalog,
       pluginCatalogPublicKey: await readOptionalTextFile(opts.pluginCatalogPublicKey),
       pluginCatalogTrust: await readOptionalTextFile(opts.pluginCatalogTrust),
+      disableOfficialPluginCatalog: opts.officialPluginCatalog === false,
       pluginRegistry: opts.pluginRegistry,
       allowUnsignedPlugins: opts.allowUnsignedPlugins === true,
       disableExternalPlugins: opts.externalPlugins === false,
@@ -478,11 +480,11 @@ program
     const { privateKey, publicKey } = generateKeyPairSync('ed25519');
     const privatePath = path.join(outDir, `${opts.name}.private.pem`);
     const publicPath = path.join(outDir, `${opts.name}.public.pem`);
-    await writeFile(
-      privatePath,
-      privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
-      'utf-8',
-    );
+    await writeFile(privatePath, privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(), {
+      encoding: 'utf-8',
+      mode: 0o600,
+    });
+    await chmod(privatePath, 0o600);
     await writeFile(
       publicPath,
       publicKey.export({ type: 'spki', format: 'pem' }).toString(),
@@ -568,6 +570,7 @@ program
     '--plugin-catalog-trust <file>',
     'Catalog signer trust store with rotation and revocation policy',
   )
+  .option('--no-official-plugin-catalog', 'Disable the default DockScope plugin catalog')
   .option('--plugin-registry <dir>', 'Local plugin registry directory')
   .option('--allow-unsigned-plugins', 'Allow marketplace installs from unsigned catalog entries')
   .option('--no-open', "Don't open browser automatically")
@@ -591,6 +594,7 @@ program
       pluginCatalog: opts.pluginCatalog,
       pluginCatalogPublicKey: await readOptionalTextFile(opts.pluginCatalogPublicKey),
       pluginCatalogTrust: await readOptionalTextFile(opts.pluginCatalogTrust),
+      disableOfficialPluginCatalog: opts.officialPluginCatalog === false,
       pluginRegistry: opts.pluginRegistry,
       allowUnsignedPlugins: opts.allowUnsignedPlugins === true,
     });

@@ -53,6 +53,9 @@ function pluginEnvironment(opts: ServerOptions): NodeJS.ProcessEnv {
   if (opts.pluginCatalogTrust !== undefined) {
     env.DOCKSCOPE_PLUGIN_CATALOG_TRUST = opts.pluginCatalogTrust;
   }
+  if (opts.disableOfficialPluginCatalog) {
+    env.DOCKSCOPE_DISABLE_OFFICIAL_PLUGIN_CATALOG = '1';
+  }
   if (opts.pluginRegistry !== undefined) {
     env.DOCKSCOPE_PLUGIN_REGISTRY = opts.pluginRegistry;
   }

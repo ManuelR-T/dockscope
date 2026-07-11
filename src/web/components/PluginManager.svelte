@@ -22,6 +22,7 @@
     PluginMarketplaceEntry,
     PluginMarketplaceSnapshot,
   } from '../../plugins/marketplace';
+  import Icon from './Icon.svelte';
 
   interface Props {
     onClose: () => void;
@@ -1069,10 +1070,25 @@
           </div>
         {/if}
       {:else if tab === 'marketplace'}
+        {#if marketplace.catalogError}
+          <div class="marketplace-alert">
+            <span>Catalog unavailable: {marketplace.catalogError}</span>
+            <button
+              class="marketplace-retry"
+              title="Retry catalog"
+              aria-label="Retry catalog"
+              onclick={() => void loadPluginState()}
+            >
+              <Icon name="restart" size={13} />
+            </button>
+          </div>
+        {/if}
         {#if !marketplace.configured && marketplace.entries.length === 0}
           <div class="empty-msg">No plugin marketplace configured.</div>
         {:else if marketplace.entries.length === 0}
-          <div class="empty-msg">{marketplace.catalogName ?? 'Plugin marketplace'} is empty.</div>
+          {#if !marketplace.catalogError}
+            <div class="empty-msg">{marketplace.catalogName ?? 'Plugin marketplace'} is empty.</div>
+          {/if}
         {:else}
           <div class="summary-row">
             <span>{marketplace.catalogName ?? 'Local plugins'}</span>
@@ -1519,6 +1535,41 @@
   .warning-count,
   .warning-line {
     color: var(--accent-amber);
+  }
+
+  .marketplace-alert {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+    padding: 9px 10px;
+    border: 1px solid rgba(255, 95, 122, 0.2);
+    border-radius: 6px;
+    background: rgba(255, 95, 122, 0.06);
+    color: #ff7d92;
+    font-size: 11px;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+
+  .marketplace-retry {
+    display: grid;
+    width: 28px;
+    height: 28px;
+    flex: 0 0 28px;
+    place-items: center;
+    padding: 0;
+    border: 1px solid rgba(255, 125, 146, 0.28);
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.035);
+    color: #ff9aab;
+    cursor: pointer;
+  }
+
+  .marketplace-retry:hover {
+    border-color: rgba(255, 125, 146, 0.5);
+    background: rgba(255, 255, 255, 0.07);
   }
 
   .list,

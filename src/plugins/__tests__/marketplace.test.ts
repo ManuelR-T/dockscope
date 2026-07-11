@@ -2,12 +2,13 @@ import { generateKeyPairSync } from 'crypto';
 import { mkdir, mkdtemp, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import path from 'path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { PluginRegistry } from '../../core/plugins';
 import { PLUGIN_CATALOG_FORMAT, signPluginCatalogFile } from '../catalog';
 import { listInstalledPlugins } from '../install';
 import { createPluginMarketplaceService } from '../marketplace';
 import { createPluginPackageFromPath } from '../package';
+import { OFFICIAL_PLUGIN_CATALOG_NAME } from '../catalogConfig';
 
 async function createPluginDir(
   options: { version?: string; moduleSource?: string } = {},
@@ -281,5 +282,25 @@ describe('plugin marketplace', () => {
     await expect(listInstalledPlugins(registryDir)).resolves.toMatchObject([
       { id: 'marketplace.demo', version: '1.0.0' },
     ]);
+  });
+
+  it('keeps the marketplace available when the default catalog is offline', async () => {
+    const outputDir = await mkdtemp(path.join(tmpdir(), 'dockscope-marketplace-offline-'));
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+    try {
+      const service = createPluginMarketplaceService(
+        { DOCKSCOPE_PLUGIN_REGISTRY: path.join(outputDir, 'registry') },
+        new PluginRegistry(),
+      );
+
+      await expect(service.list()).resolves.toMatchObject({
+        configured: true,
+        catalogName: OFFICIAL_PLUGIN_CATALOG_NAME,
+        catalogError: expect.stringContaining('offline'),
+        entries: [],
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

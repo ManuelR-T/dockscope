@@ -24,6 +24,7 @@ DOCKSCOPE_PLUGIN_APPROVALS=./plugin-approvals.json dockscope up
 DOCKSCOPE_PLUGIN_CATALOG=./plugin-catalog.json dockscope up
 DOCKSCOPE_PLUGIN_CATALOG_PUBLIC_KEY="$(cat ./keys/catalog.public.pem)" dockscope up
 DOCKSCOPE_PLUGIN_CATALOG_TRUST="$(cat ./keys/catalog-trust.json)" dockscope up
+DOCKSCOPE_DISABLE_OFFICIAL_PLUGIN_CATALOG=1 dockscope up
 DOCKSCOPE_PLUGIN_REGISTRY=./installed-plugins dockscope up
 DOCKSCOPE_PLUGIN_ALLOW_UNSIGNED=1 dockscope up
 DOCKSCOPE_DISABLE_EXTERNAL_PLUGINS=1 dockscope up
@@ -31,7 +32,7 @@ DOCKSCOPE_DISABLE_EXTERNAL_PLUGINS=1 dockscope up
 
 `DOCKSCOPE_PLUGIN_PATHS` uses the platform path delimiter (`:` on Linux/macOS, `;` on Windows). Each entry can be either a plugin directory containing `plugin.json` or a directory containing multiple plugin directories. The local registry is `~/.dockscope/plugins` by default and is included automatically unless external plugins are disabled.
 
-`DOCKSCOPE_PLUGIN_CATALOG_PUBLIC_KEY` contains one pinned Ed25519 public key PEM. `DOCKSCOPE_PLUGIN_CATALOG_TRUST` contains a JSON trust store when catalog signing keys need overlap or revocation. Use one mechanism or configure both during migration. `DOCKSCOPE_PLUGIN_ALLOW_UNSIGNED=1` is intended for local development only; by default marketplace installs require each catalog entry to include an Ed25519 package signature.
+DockScope uses its official GitHub Pages catalog by default and pins the `official-catalog-v1` Ed25519 public key in the application. `DOCKSCOPE_PLUGIN_CATALOG` replaces the official URL with a custom catalog. `DOCKSCOPE_PLUGIN_CATALOG_PUBLIC_KEY` contains one custom pinned public key, while `DOCKSCOPE_PLUGIN_CATALOG_TRUST` contains a JSON trust store for key overlap or revocation. Use `--no-official-plugin-catalog` or `DOCKSCOPE_DISABLE_OFFICIAL_PLUGIN_CATALOG=1` for an intentionally catalog-free instance. `DOCKSCOPE_PLUGIN_ALLOW_UNSIGNED=1` is intended for local development only; by default marketplace installs require each catalog entry to include an Ed25519 package signature.
 
 ## Manifest
 
@@ -412,7 +413,7 @@ GitHub Pages must use **GitHub Actions** as its deployment source. Once enabled,
 
 ## Catalogs
 
-A plugin catalog is a signed-package index. It can be a local JSON file or an HTTP(S) URL configured with `--plugin-catalog` or `DOCKSCOPE_PLUGIN_CATALOG`.
+A plugin catalog is a signed-package index. DockScope connects to the pinned official catalog by default. A local JSON file or another HTTP(S) URL configured with `--plugin-catalog` or `DOCKSCOPE_PLUGIN_CATALOG` replaces that default.
 
 ```json
 {
