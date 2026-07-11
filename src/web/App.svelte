@@ -319,7 +319,7 @@
           <path d="M12 17v4M8 21h8" />
         </svg>
       </button>
-      <button class="hud-icon-btn" onclick={() => (showHosts = true)} title="Docker hosts">
+      <button class="hud-icon-btn" onclick={() => (showHosts = true)} title="Connections">
         <svg
           width="12"
           height="12"

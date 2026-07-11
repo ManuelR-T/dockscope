@@ -36,7 +36,7 @@
       </span>
       <button
         class="anomaly-dismiss"
-        onclick={() => onDismiss(`${a.containerId}:${a.metric}`)}
+        onclick={() => onDismiss(`${a.containerId}:${a.analyzerId ?? 'legacy'}:${a.metric}`)}
         title="Dismiss">&times;</button
       >
     </div>

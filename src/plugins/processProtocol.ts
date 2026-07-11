@@ -3,6 +3,9 @@ import type { PluginConfig } from '../core/plugin-config.js';
 import type { PluginManifest } from '../core/plugins.js';
 import type { PluginUiExtensionDeclaration } from '../core/plugin-ui.js';
 import type { DataSourceDescriptor } from '../core/model.js';
+import type { EntityActionInput } from '../core/entity-actions.js';
+import type { MetricAnalysisSample } from '../core/plugin-analysis.js';
+import type { PluginConnectionProviderDeclaration } from '../core/plugin-connections.js';
 import type {
   EntityRef,
   LifecycleAction,
@@ -21,6 +24,8 @@ export interface SandboxBootstrap {
 }
 
 export type SandboxEntityProviderKind =
+  | 'action'
+  | 'metricAnalysis'
   | 'stats'
   | 'logs'
   | 'logStream'
@@ -31,6 +36,8 @@ export type SandboxEntityProviderKind =
   | 'exec';
 
 export interface SandboxProviderCounts {
+  action: number;
+  metricAnalysis: number;
   stats: number;
   logs: number;
   logStream: number;
@@ -41,6 +48,7 @@ export interface SandboxProviderCounts {
   exec: number;
   project: number;
   resource: number;
+  system: number;
 }
 
 export interface SandboxGraphSourceDescriptor {
@@ -54,6 +62,7 @@ export interface SandboxPluginDescriptor {
   providers: SandboxProviderCounts;
   commands: PluginCommandDeclaration[];
   ui: PluginUiExtensionDeclaration[];
+  connectionProviders: PluginConnectionProviderDeclaration[];
 }
 
 export type SandboxRequestOperation =
@@ -63,6 +72,11 @@ export type SandboxRequestOperation =
   | { type: 'stop' }
   | { type: 'runCommand'; commandId: string; input?: unknown }
   | { type: 'collectGraph'; sourceId: string }
+  | { type: 'listSystems'; providerIndex: number }
+  | { type: 'listConnections'; providerIndex: number }
+  | { type: 'addConnection'; providerIndex: number; input: PluginConfig }
+  | { type: 'removeConnection'; providerIndex: number; connectionId: string }
+  | { type: 'refreshConnections'; providerIndex: number }
   | {
       type: 'canHandleEntity';
       provider: SandboxEntityProviderKind;
@@ -70,6 +84,15 @@ export type SandboxRequestOperation =
       ref: EntityRef;
     }
   | { type: 'getStats'; providerIndex: number; ref: EntityRef }
+  | { type: 'analyzeMetric'; providerIndex: number; sample: MetricAnalysisSample }
+  | { type: 'listEntityActions'; providerIndex: number; ref: EntityRef }
+  | {
+      type: 'runEntityAction';
+      providerIndex: number;
+      ref: EntityRef;
+      actionId: string;
+      input?: EntityActionInput;
+    }
   | { type: 'getLogs'; providerIndex: number; ref: EntityRef; options?: LogsOptions }
   | {
       type: 'runLifecycleAction';
@@ -88,6 +111,7 @@ export type SandboxRequestOperation =
   | { type: 'getDiff'; providerIndex: number; ref: EntityRef }
   | { type: 'diagnose'; providerIndex: number; ref: EntityRef }
   | { type: 'listProjects'; providerIndex: number }
+  | { type: 'canHandleProject'; providerIndex: number; project: string }
   | {
       type: 'runProjectAction';
       providerIndex: number;

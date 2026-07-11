@@ -1,10 +1,8 @@
-import { refreshHostStatus } from '../docker/hosts.js';
 import { collectSourceGraphs } from '../core/sources.js';
 import type { PluginRegistry } from '../core/plugins.js';
 import type { GraphSourceAdapter, SourceEvent } from '../core/model.js';
 import type { DockerEvent, GraphData, ServiceNode, WSMessage } from '../types.js';
 import { shortId } from '../utils.js';
-import { checkAnomaly } from './anomaly.js';
 
 interface MonitorOptions {
   metricHistory: Map<string, { cpu: number; memory: number; time: number }[]>;
@@ -50,7 +48,7 @@ export function createServerMonitor(opts: MonitorOptions): ServerMonitor {
   let refreshTimer: ReturnType<typeof setTimeout> | null = null;
   let statsInterval: ReturnType<typeof setInterval> | null = null;
   let graphInterval: ReturnType<typeof setInterval> | null = null;
-  let hostStatusInterval: ReturnType<typeof setInterval> | null = null;
+  let connectionStatusInterval: ReturnType<typeof setInterval> | null = null;
   const eventWatchers = new Map<string, () => void>();
   let statsRefreshInFlight = false;
   const activeAnomalies = new Map<string, Set<string>>();
@@ -74,37 +72,60 @@ export function createServerMonitor(opts: MonitorOptions): ServerMonitor {
     }
   };
 
-  function detectAndBroadcastAnomaly(
-    containerId: string,
-    name: string,
+  async function detectAndBroadcastAnomaly(
+    node: ServiceNode,
     metric: 'cpu' | 'memory',
     value: number,
     history: number[],
-  ) {
-    const result = checkAnomaly(metric, value, history);
-    if (result) {
-      if (!activeAnomalies.has(containerId)) {
-        activeAnomalies.set(containerId, new Set());
+  ): Promise<void> {
+    const findings = await opts.plugins.analyzeMetric({
+      ref: {
+        entityId: node.containerId,
+        sourceId: node.host,
+        nodeId: node.id,
+        context: {
+          nodeId: node.id,
+          name: node.name,
+          runtime: node.runtime,
+          kind: node.kind,
+          status: node.status,
+          health: node.health,
+          metadata: node.metadata,
+        },
+      },
+      metric,
+      value,
+      history,
+    });
+    if (!activeAnomalies.has(node.id)) {
+      activeAnomalies.set(node.id, new Set());
+    }
+    const active = activeAnomalies.get(node.id)!;
+    const findingKeys = new Set(findings.map((finding) => `${finding.pluginId}:${metric}`));
+    for (const key of [...active]) {
+      if (key.endsWith(`:${metric}`) && !findingKeys.has(key)) {
+        active.delete(key);
       }
-      const active = activeAnomalies.get(containerId)!;
-      if (active.has(metric)) {
-        return;
+    }
+    for (const finding of findings) {
+      const key = `${finding.pluginId}:${metric}`;
+      if (active.has(key)) {
+        continue;
       }
-      active.add(metric);
+      active.add(key);
       opts.broadcast({
         type: 'anomaly',
         data: {
-          containerId,
-          containerName: name,
+          analyzerId: finding.pluginId,
+          containerId: node.id,
+          containerName: node.name,
           metric,
           value,
-          average: result.median,
-          threshold: result.threshold,
+          average: finding.average,
+          threshold: finding.threshold,
           time: Date.now(),
         },
       });
-    } else {
-      activeAnomalies.get(containerId)?.delete(metric);
     }
   }
 
@@ -115,9 +136,7 @@ export function createServerMonitor(opts: MonitorOptions): ServerMonitor {
 
     statsRefreshInFlight = true;
     try {
-      const nodes = cachedGraph.nodes.filter(
-        (node) => node.runtime !== 'kubernetes' && node.status === 'running',
-      );
+      const nodes = cachedGraph.nodes.filter((node) => node.status === 'running');
       await runWithConcurrency(nodes, STATS_CONCURRENCY, async (node) => {
         try {
           const stats = await withTimeout(
@@ -125,6 +144,15 @@ export function createServerMonitor(opts: MonitorOptions): ServerMonitor {
               entityId: node.containerId,
               sourceId: node.host || 'local',
               nodeId: node.id,
+              context: {
+                nodeId: node.id,
+                name: node.name,
+                runtime: node.runtime,
+                kind: node.kind,
+                status: node.status,
+                health: node.health,
+                metadata: node.metadata,
+              },
             }),
             STATS_TIMEOUT_MS,
           );
@@ -140,9 +168,8 @@ export function createServerMonitor(opts: MonitorOptions): ServerMonitor {
             history.splice(0, history.length - 100);
           }
 
-          detectAndBroadcastAnomaly(
-            node.id,
-            node.name,
+          await detectAndBroadcastAnomaly(
+            node,
             'cpu',
             stats.cpu,
             history.map((h) => h.cpu),
@@ -151,9 +178,8 @@ export function createServerMonitor(opts: MonitorOptions): ServerMonitor {
           const hasMemLimit = stats.memoryLimit > 0;
           if (hasMemLimit) {
             const memPct = (stats.memory / stats.memoryLimit) * 100;
-            detectAndBroadcastAnomaly(
-              node.id,
-              node.name,
+            await detectAndBroadcastAnomaly(
+              node,
               'memory',
               memPct,
               history.map((h) => (h.memory / stats.memoryLimit) * 100),
@@ -168,8 +194,9 @@ export function createServerMonitor(opts: MonitorOptions): ServerMonitor {
     }
   };
 
-  function findDockerNode(event: DockerEvent): ServiceNode | undefined {
-    const rawId = event.containerId || event.id;
+  function findEventNode(event: DockerEvent): ServiceNode | undefined {
+    const rawId = event.entityId || event.containerId || event.id;
+    const sourceId = event.sourceId || event.host;
     const sid = shortId(rawId.includes(':') ? rawId.split(':').at(-1) || rawId : rawId);
     const direct = cachedGraph.nodes.find((node) => node.id === event.id);
     if (direct) {
@@ -177,8 +204,7 @@ export function createServerMonitor(opts: MonitorOptions): ServerMonitor {
     }
     const candidates = cachedGraph.nodes.filter(
       (node) =>
-        node.runtime !== 'kubernetes' &&
-        (!event.host || node.host === event.host) &&
+        (!sourceId || node.host === sourceId) &&
         (node.containerId === rawId || shortId(node.containerId) === sid),
     );
     return candidates.find((node) => node.host === 'local') || candidates[0];
@@ -248,9 +274,10 @@ export function createServerMonitor(opts: MonitorOptions): ServerMonitor {
   const handleSourceEvent = (sourceEvent: SourceEvent) => {
     const event: DockerEvent = {
       ...sourceEvent.event,
+      sourceId: sourceEvent.event.sourceId || sourceEvent.source.id,
       host: sourceEvent.event.host || sourceEvent.source.id,
     };
-    const node = findDockerNode(event);
+    const node = findEventNode(event);
     const graphEvent = {
       ...event,
       id: node?.id || event.id,
@@ -262,8 +289,8 @@ export function createServerMonitor(opts: MonitorOptions): ServerMonitor {
     if (event.action === 'die') {
       opts.plugins
         .diagnose({
-          entityId: event.containerId || event.id,
-          sourceId: event.host || node?.host || sourceEvent.source.id,
+          entityId: event.entityId || event.containerId || event.id,
+          sourceId: event.sourceId || event.host || node?.host || sourceEvent.source.id,
           nodeId: node?.id,
         })
         .then((diag) => {
@@ -289,12 +316,14 @@ export function createServerMonitor(opts: MonitorOptions): ServerMonitor {
           .then(syncEventWatchers)
           .catch(() => {});
       }, 10000);
-      hostStatusInterval = setInterval(() => {
-        refreshHostStatus()
+      connectionStatusInterval = setInterval(() => {
+        opts.plugins
+          .refreshConnections()
           .then(syncEventWatchers)
           .catch(() => {});
       }, 10000);
-      refreshHostStatus()
+      opts.plugins
+        .refreshConnections()
         .then(syncEventWatchers)
         .catch(() => {});
     },
@@ -309,8 +338,8 @@ export function createServerMonitor(opts: MonitorOptions): ServerMonitor {
       if (graphInterval) {
         clearInterval(graphInterval);
       }
-      if (hostStatusInterval) {
-        clearInterval(hostStatusInterval);
+      if (connectionStatusInterval) {
+        clearInterval(connectionStatusInterval);
       }
       for (const stop of eventWatchers.values()) {
         stop();

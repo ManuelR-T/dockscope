@@ -1,45 +1,37 @@
 <script lang="ts">
-  import Icon from './Icon.svelte';
+  import type { EntityAction } from '../../core/entity-actions';
   import type { ServiceNode } from '../../types';
-  import type { ContainerUiAction } from '../lib/sidebarApi';
-  import type { ConfirmKind } from '../lib/sidebarActions';
+  import { ICONS, type IconName } from '../lib/icons';
+  import Icon from './Icon.svelte';
 
   interface Props {
     node: ServiceNode;
+    actions: EntityAction[];
     actionPending: boolean;
-    /** Hide all actions (replay mode shows historical state) */
     hideActions?: boolean;
     onClose: () => void;
-    /** Run an action that needs no confirmation (pause, unpause, restart, start) */
-    onDirect: (action: ContainerUiAction) => void;
-    /** Ask the parent to confirm and run a destructive action */
-    onConfirmAction: (kind: ConfirmKind) => void;
-    onHpaDialog: () => void;
+    onAction: (action: EntityAction) => void;
   }
 
-  let {
-    node,
-    actionPending,
-    hideActions = false,
-    onClose,
-    onDirect,
-    onConfirmAction,
-    onHpaDialog,
-  }: Props = $props();
+  let { node, actions, actionPending, hideActions = false, onClose, onAction }: Props = $props();
 
   let showMore = $state(false);
   let moreBtn = $state<HTMLElement | null>(null);
-  let isKubernetes = $derived(node.runtime === 'kubernetes');
+  let primaryActions = $derived(actions.filter((action) => action.placement === 'primary'));
+  let menuActions = $derived(actions.filter((action) => action.placement !== 'primary'));
 
-  // Close the actions menu when the selected node changes
   $effect(() => {
     void node.id;
     showMore = false;
   });
 
-  function pick(kind: ConfirmKind) {
+  function iconName(action: EntityAction): IconName {
+    return action.icon && action.icon in ICONS ? (action.icon as IconName) : 'plug';
+  }
+
+  function run(action: EntityAction): void {
     showMore = false;
-    onConfirmAction(kind);
+    onAction(action);
   }
 </script>
 
@@ -58,83 +50,34 @@
   </div>
   <div class="header-right">
     {#if !hideActions}
-      {#if isKubernetes}
+      {#each primaryActions as action (action.pluginId + action.id)}
         <button
           class="act-icon"
-          class:spinning={actionPending}
-          title="Restart backing pods"
-          onclick={() => pick('k8sRestart')}
+          class:success={action.tone === 'success'}
+          class:warning={action.tone === 'warning'}
+          class:danger={action.tone === 'danger'}
+          class:spinning={actionPending && action.icon === 'restart'}
+          title={action.description ?? action.title}
+          onclick={() => run(action)}
           disabled={actionPending}
         >
-          <Icon name="restart" />
+          <Icon name={iconName(action)} size={11} />
         </button>
-      {:else if node.status === 'running'}
-        <button
-          class="act-icon warning"
-          title="Pause"
-          onclick={() => onDirect('pause')}
-          disabled={actionPending}
-        >
-          <Icon name="pause" size={11} />
-        </button>
+      {/each}
+
+      {#if menuActions.length > 0}
         <button
           class="act-icon"
-          class:spinning={actionPending}
-          title="Restart"
-          onclick={() => onDirect('restart')}
+          title="More actions"
+          onclick={(event) => {
+            moreBtn = event.currentTarget as HTMLElement;
+            showMore = !showMore;
+          }}
           disabled={actionPending}
         >
-          <Icon name="restart" />
-        </button>
-        <button
-          class="act-icon danger"
-          title="Stop"
-          onclick={() => pick('stop')}
-          disabled={actionPending}
-        >
-          <Icon name="stop" size={11} />
-        </button>
-      {:else if node.status === 'paused'}
-        <button
-          class="act-icon success"
-          title="Unpause"
-          onclick={() => onDirect('unpause')}
-          disabled={actionPending}
-        >
-          <Icon name="play" />
-        </button>
-        <button
-          class="act-icon"
-          class:spinning={actionPending}
-          title="Restart"
-          onclick={() => onDirect('restart')}
-          disabled={actionPending}
-        >
-          <Icon name="restart" />
-        </button>
-      {:else}
-        <button
-          class="act-icon success"
-          title="Start"
-          onclick={() => onDirect('start')}
-          disabled={actionPending}
-        >
-          <Icon name="play" />
+          <Icon name="dots" />
         </button>
       {/if}
-
-      <!-- More actions trigger -->
-      <button
-        class="act-icon"
-        title="More actions"
-        onclick={(e) => {
-          moreBtn = e.currentTarget as HTMLElement;
-          showMore = !showMore;
-        }}
-        disabled={actionPending}
-      >
-        <Icon name="dots" />
-      </button>
     {/if}
 
     <span class="header-sep"></span>
@@ -150,26 +93,10 @@
     style="top: {moreBtn.getBoundingClientRect().bottom + 4}px; right: {window.innerWidth -
       moreBtn.getBoundingClientRect().right}px;"
   >
-    {#if isKubernetes}
-      <button class="more-item" onclick={() => pick('k8sRestart')}>Restart</button>
-      {#if node.kind === 'hpa'}
-        <button
-          class="more-item"
-          onclick={() => {
-            showMore = false;
-            onHpaDialog();
-          }}>Set replica bounds</button
-        >
-      {/if}
-      <button class="more-item danger" onclick={() => pick('k8sDelete')}>Delete</button>
-    {:else if node.status === 'running' || node.status === 'paused'}
-      <button class="more-item" onclick={() => pick('kill')}>Kill</button>
-    {/if}
-    {#if !isKubernetes}
-      <button class="more-item danger" onclick={() => pick('remove')}>Remove</button>
-      <button class="more-item danger" onclick={() => pick('removeVolumes')}
-        >Remove + Volumes</button
-      >
-    {/if}
+    {#each menuActions as action (action.pluginId + action.id)}
+      <button class="more-item" class:danger={action.tone === 'danger'} onclick={() => run(action)}>
+        {action.title}
+      </button>
+    {/each}
   </div>
 {/if}

@@ -105,7 +105,7 @@ const resources: KubernetesResources = {
 const manifest: PluginManifest = {
   id: 'official.kubernetes',
   name: 'Kubernetes',
-  version: '0.1.0',
+  version: '0.2.0',
   manifestVersion: '1',
   dockscopeApiVersion: '1',
   hostApiVersion: '1',
@@ -220,12 +220,34 @@ describe('official Kubernetes plugin', () => {
     const module = await loadOfficialKubernetes();
     const { host, execFile } = createHost();
     const plugin = module.default({ manifest, host });
-    const provider = plugin.getResourceProviders?.()[0];
+    const logsProvider = plugin.getLogsProviders?.()[0];
+    const actionProvider = plugin.getActionProviders?.()[0];
+    const podRef = { entityId: 'k8s:pod:prod:api-7d9f5b8c4-x2k9q' };
+    const hpaRef = {
+      entityId: 'k8s:hpa:prod:api',
+      context: {
+        nodeId: 'k8s:hpa:prod:api',
+        name: 'api',
+        metadata: { minReplicas: 2, maxReplicas: 8 },
+      },
+    };
 
-    await expect(
-      provider?.getResourceLogs('k8s:pod:prod:api-7d9f5b8c4-x2k9q', { tail: 10 }),
-    ).resolves.toBe('pod log\n');
-    await provider?.runResourceAction('k8s:hpa:prod:api', 'set_hpa_constraints', {
+    await expect(logsProvider?.getLogs(podRef, { tail: 10 })).resolves.toBe('pod log\n');
+    expect(await actionProvider?.listActions(hpaRef)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'set_hpa_constraints',
+          capability: 'action.scale',
+          input: {
+            fields: expect.arrayContaining([
+              expect.objectContaining({ key: 'minReplicas', default: 2 }),
+              expect.objectContaining({ key: 'maxReplicas', default: 8 }),
+            ]),
+          },
+        }),
+      ]),
+    );
+    await actionProvider?.runAction(hpaRef, 'set_hpa_constraints', {
       minReplicas: 2,
       maxReplicas: 5,
     });

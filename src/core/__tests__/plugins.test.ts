@@ -11,12 +11,16 @@ import {
 } from '../plugins';
 import type { GraphSourceAdapter } from '../model';
 import type {
+  EntityActionProvider,
   EntityExecProvider,
   EntityLogStreamProvider,
   EntityStatsProvider,
   ProjectProvider,
   ResourceProvider,
 } from '../operations';
+import type { MetricAnalysisProvider } from '../plugin-analysis';
+import type { PluginSystemProvider } from '../plugin-system';
+import type { PluginConnectionProvider } from '../plugin-connections';
 
 const TEST_API_VERSIONS = {
   manifestVersion: '1',
@@ -835,6 +839,144 @@ describe('PluginRegistry', () => {
     });
   });
 
+  it('discovers and runs provider-owned entity actions with typed input', async () => {
+    const actionProvider: EntityActionProvider = {
+      canHandle: (ref) => ref.sourceId === 'source-a',
+      listActions: vi.fn().mockResolvedValue([
+        {
+          id: 'scale',
+          title: 'Scale',
+          capability: 'action.scale',
+          placement: 'primary',
+          input: {
+            fields: [{ key: 'replicas', label: 'Replicas', type: 'number', required: true }],
+          },
+        },
+      ]),
+      runAction: vi.fn().mockResolvedValue({ ok: true, message: 'scaled' }),
+    };
+    const registry = new PluginRegistry();
+    registry.register(
+      pluginWithCapabilities(['source.graph', 'action.scale'], {
+        getActionProviders: () => [actionProvider],
+      }),
+    );
+    const ref = { entityId: 'entity-a', sourceId: 'source-a' };
+
+    await expect(registry.listEntityActions(ref)).resolves.toEqual([
+      expect.objectContaining({
+        pluginId: 'test.plugin',
+        id: 'scale',
+        capability: 'action.scale',
+        placement: 'primary',
+      }),
+    ]);
+    await expect(registry.listEntityOperations(ref)).resolves.toContainEqual({
+      id: 'actions',
+      pluginId: 'test.plugin',
+      capability: 'action.scale',
+    });
+    await expect(
+      registry.runEntityAction(ref, 'test.plugin', 'scale', { replicas: 3 }),
+    ).resolves.toEqual({ ok: true, message: 'scaled', data: undefined });
+    expect(actionProvider.runAction).toHaveBeenCalledWith(ref, 'scale', { replicas: 3 });
+    await expect(
+      registry.runEntityAction(ref, 'test.plugin', 'scale', { replicas: 'three' }),
+    ).rejects.toThrow('must be a number');
+  });
+
+  it('aggregates plugin-owned metric analysis and system inventory', async () => {
+    const analysisProvider: MetricAnalysisProvider = {
+      canHandle: (ref) => ref.sourceId === 'source-a',
+      analyze: vi.fn().mockResolvedValue({ average: 25, threshold: 80, severity: 'warning' }),
+    };
+    const systemProvider: PluginSystemProvider = {
+      listSystems: vi.fn().mockResolvedValue([
+        {
+          id: 'source-a',
+          label: 'Source A',
+          runtime: 'demo',
+          status: 'connected',
+          version: '1.0.0',
+        },
+      ]),
+    };
+    const registry = new PluginRegistry();
+    registry.register(
+      pluginWithCapabilities(['source.graph', 'source.system', 'analysis.anomalies'], {
+        getMetricAnalysisProviders: () => [analysisProvider],
+        getSystemProviders: () => [systemProvider],
+      }),
+    );
+
+    await expect(
+      registry.analyzeMetric({
+        ref: { entityId: 'entity-a', sourceId: 'source-a' },
+        metric: 'cpu',
+        value: 95,
+        history: [20, 25, 30],
+      }),
+    ).resolves.toEqual([
+      {
+        pluginId: 'test.plugin',
+        metric: 'cpu',
+        value: 95,
+        average: 25,
+        threshold: 80,
+        severity: 'warning',
+        message: undefined,
+      },
+    ]);
+    await expect(registry.listSystems()).resolves.toEqual([
+      expect.objectContaining({ id: 'source-a', pluginId: 'test.plugin', status: 'connected' }),
+    ]);
+  });
+
+  it('routes connection lifecycle to an exact plugin provider', async () => {
+    const connectionProvider: PluginConnectionProvider = {
+      describe: () => ({
+        id: 'clusters',
+        label: 'Clusters',
+        input: {
+          fields: [{ key: 'endpoint', label: 'Endpoint', type: 'string', required: true }],
+        },
+      }),
+      listConnections: vi
+        .fn()
+        .mockResolvedValue([
+          { id: 'cluster-a', label: 'Cluster A', status: 'connected', removable: true },
+        ]),
+      addConnection: vi.fn().mockResolvedValue(undefined),
+      removeConnection: vi.fn().mockResolvedValue(undefined),
+      refreshConnections: vi.fn().mockResolvedValue(undefined),
+    };
+    const registry = new PluginRegistry();
+    registry.register(
+      pluginWithCapabilities(['source.graph', 'source.connections'], {
+        getConnectionProviders: () => [connectionProvider],
+      }),
+    );
+
+    expect(registry.listConnectionProviders()).toEqual([
+      expect.objectContaining({ pluginId: 'test.plugin', id: 'clusters' }),
+    ]);
+    await expect(registry.listConnections()).resolves.toEqual([
+      expect.objectContaining({
+        id: 'cluster-a',
+        pluginId: 'test.plugin',
+        providerId: 'clusters',
+      }),
+    ]);
+    await registry.addConnection('test.plugin', 'clusters', { endpoint: 'https://cluster-a' });
+    expect(connectionProvider.addConnection).toHaveBeenCalledWith({
+      endpoint: 'https://cluster-a',
+    });
+    await registry.removeConnection('test.plugin', 'clusters', 'cluster-a');
+    expect(connectionProvider.removeConnection).toHaveBeenCalledWith('cluster-a');
+    await registry.refreshConnections();
+    expect(connectionProvider.refreshConnections).toHaveBeenCalledOnce();
+  });
+
   it('routes stream log operations to a matching provider', async () => {
     const stop = vi.fn();
     const logStreamProvider: EntityLogStreamProvider = {
@@ -910,7 +1052,13 @@ describe('PluginRegistry', () => {
     );
 
     await expect(registry.listProjects()).resolves.toEqual([
-      { name: 'demo', running: 1, stopped: 0 },
+      {
+        name: 'demo',
+        running: 1,
+        stopped: 0,
+        pluginId: 'test.plugin',
+        providerId: '0',
+      },
     ]);
     await expect(registry.runProjectAction('demo', 'restart')).resolves.toBe('restart completed');
     expect(projectProvider.runProjectAction).toHaveBeenCalledWith('demo', 'restart');

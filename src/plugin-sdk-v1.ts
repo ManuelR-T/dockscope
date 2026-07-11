@@ -24,6 +24,10 @@ export {
 } from './core/plugins.js';
 export type {
   EntityDiagnosticProvider,
+  EntityActionProvider,
+  EntityContext,
+  EntityOperationDescriptor,
+  EntityOperationId,
   EntityExecProvider,
   EntityExecSession,
   EntityFilesystemProvider,
@@ -44,6 +48,50 @@ export type {
   ResourceActionOptions,
   ResourceProvider,
 } from './core/operations.js';
+export type {
+  EntityAction,
+  EntityActionConfirmation,
+  EntityActionDeclaration,
+  EntityActionEffect,
+  EntityActionInput,
+  EntityActionPlacement,
+  EntityActionResult,
+  EntityActionTone,
+} from './core/entity-actions.js';
+export {
+  EntityActionError,
+  hydrateEntityAction,
+  validateEntityActionResult,
+  validateEntityActions,
+} from './core/entity-actions.js';
+export type {
+  MetricAnalysisFinding,
+  MetricAnalysisId,
+  MetricAnalysisProvider,
+  MetricAnalysisResult,
+  MetricAnalysisSample,
+} from './core/plugin-analysis.js';
+export type {
+  PluginSystemDeclaration,
+  PluginSystemProvider,
+  PluginSystemSnapshot,
+  PluginSystemStatus,
+} from './core/plugin-system.js';
+export { PluginSystemError, validatePluginSystems } from './core/plugin-system.js';
+export type {
+  PluginConnection,
+  PluginConnectionDeclaration,
+  PluginConnectionProvider,
+  PluginConnectionProviderDeclaration,
+  PluginConnectionProviderDescriptor,
+  PluginConnectionStatus,
+} from './core/plugin-connections.js';
+export {
+  PluginConnectionError,
+  validatePluginConnectionProvider,
+  validatePluginConnections,
+} from './core/plugin-connections.js';
+export { MetricAnalysisError, validateMetricAnalysisResult } from './core/plugin-analysis.js';
 export type { PluginCapability, PluginPermission } from './core/capabilities.js';
 export {
   PLUGIN_CAPABILITIES,
@@ -123,6 +171,7 @@ export type {
   ContainerTopResult,
   CrashDiagnostic,
   DockerEvent,
+  RuntimeEvent,
   GraphData,
   ServiceLink,
   ServiceNode,

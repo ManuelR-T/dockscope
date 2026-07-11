@@ -1,6 +1,7 @@
 import { createHash } from 'crypto';
 import type { DataSourceDescriptor, GraphSourceAdapter } from './model.js';
 import type {
+  EntityActionProvider,
   EntityDiagnosticProvider,
   EntityExecProvider,
   EntityFilesystemProvider,
@@ -10,6 +11,8 @@ import type {
   EntityLogsProvider,
   EntityRef,
   EntityStatsProvider,
+  EntityOperationDescriptor,
+  EntityProvider,
   LifecycleAction,
   LogsOptions,
   ProjectAction,
@@ -19,6 +22,31 @@ import type {
   ResourceActionOptions,
   ResourceProvider,
 } from './operations.js';
+import {
+  hydrateEntityAction,
+  validateEntityActionResult,
+  validateEntityActions,
+  type EntityAction,
+  type EntityActionResult,
+} from './entity-actions.js';
+import {
+  validateMetricAnalysisResult,
+  type MetricAnalysisFinding,
+  type MetricAnalysisProvider,
+  type MetricAnalysisSample,
+} from './plugin-analysis.js';
+import {
+  validatePluginSystems,
+  type PluginSystemProvider,
+  type PluginSystemSnapshot,
+} from './plugin-system.js';
+import {
+  validatePluginConnectionProvider,
+  validatePluginConnections,
+  type PluginConnection,
+  type PluginConnectionProvider,
+  type PluginConnectionProviderDescriptor,
+} from './plugin-connections.js';
 import {
   isPluginCapability,
   isPluginPermission,
@@ -118,6 +146,10 @@ export interface DockscopePlugin {
   getUiExtensions?(): readonly PluginUiExtensionDeclaration[];
   getFrontendBundle?(): Promise<string>;
   getGraphSources?(): readonly GraphSourceAdapter[];
+  getActionProviders?(): readonly EntityActionProvider[];
+  getMetricAnalysisProviders?(): readonly MetricAnalysisProvider[];
+  getSystemProviders?(): readonly PluginSystemProvider[];
+  getConnectionProviders?(): readonly PluginConnectionProvider[];
   getStatsProviders?(): readonly EntityStatsProvider[];
   getLogsProviders?(): readonly EntityLogsProvider[];
   getLogStreamProviders?(): readonly EntityLogStreamProvider[];
@@ -127,6 +159,7 @@ export interface DockscopePlugin {
   getDiagnosticProviders?(): readonly EntityDiagnosticProvider[];
   getExecProviders?(): readonly EntityExecProvider[];
   getProjectProviders?(): readonly ProjectProvider[];
+  /** @deprecated Implement entity log and action providers instead. */
   getResourceProviders?(): readonly ResourceProvider[];
 }
 
@@ -568,6 +601,8 @@ function cloneRuntimeInfo(info: PluginRuntimeInfo): PluginRuntimeInfo {
 const PLUGIN_METHOD_CAPABILITIES: readonly [keyof DockscopePlugin, readonly PluginCapability[]][] =
   [
     ['getGraphSources', ['source.graph']],
+    ['getSystemProviders', ['source.system']],
+    ['getConnectionProviders', ['source.connections']],
     ['getStatsProviders', ['source.metrics']],
     ['getLogsProviders', ['source.logs']],
     ['getLogStreamProviders', ['source.logs']],
@@ -575,6 +610,7 @@ const PLUGIN_METHOD_CAPABILITIES: readonly [keyof DockscopePlugin, readonly Plug
     ['getInspectProviders', ['source.inspect']],
     ['getFilesystemProviders', ['action.filesystem']],
     ['getDiagnosticProviders', ['analysis.diagnostics']],
+    ['getMetricAnalysisProviders', ['analysis.anomalies']],
     ['getExecProviders', ['action.exec']],
     ['getProjectProviders', ['source.inventory', 'action.deploy']],
     ['getCommands', ['ui.command']],
@@ -600,6 +636,14 @@ function validatePluginContract(plugin: DockscopePlugin, manifest: PluginManifes
     if (plugin[method]) {
       requireManifestCapabilities(manifest, capabilities, `implements ${method}`);
     }
+  }
+  if (
+    plugin.getActionProviders &&
+    !manifest.capabilities.some((capability) => capability.startsWith('action.'))
+  ) {
+    throw new PluginManifestError(
+      `Plugin "${manifest.id}" implements getActionProviders without declaring an action capability`,
+    );
   }
   if (
     plugin.getResourceProviders &&
@@ -1165,6 +1209,235 @@ export class PluginRegistry {
     );
   }
 
+  async listEntityActions(ref: EntityRef): Promise<EntityAction[]> {
+    const actions = new Map<string, EntityAction>();
+    for (const plugin of this.activePlugins()) {
+      for (const provider of plugin.getActionProviders?.() ?? []) {
+        if (!(await provider.canHandle(ref))) {
+          continue;
+        }
+        for (const declaration of validateEntityActions(await provider.listActions(ref))) {
+          requireManifestCapabilities(
+            plugin.manifest,
+            [declaration.capability],
+            `declares entity action "${declaration.id}"`,
+          );
+          const action = hydrateEntityAction(plugin.manifest.id, declaration);
+          actions.set(`${action.pluginId}:${action.id}`, action);
+        }
+      }
+    }
+    return [...actions.values()].sort(
+      (a, b) =>
+        (a.placement === 'primary' ? 0 : 1) - (b.placement === 'primary' ? 0 : 1) ||
+        a.title.localeCompare(b.title) ||
+        a.pluginId.localeCompare(b.pluginId),
+    );
+  }
+
+  async listEntityOperations(ref: EntityRef): Promise<EntityOperationDescriptor[]> {
+    const operations = new Map<string, EntityOperationDescriptor>();
+    for (const plugin of this.activePlugins()) {
+      const actionCapability = plugin.manifest.capabilities.find((capability) =>
+        capability.startsWith('action.'),
+      );
+      const candidates: Array<{
+        id: EntityOperationDescriptor['id'];
+        capability: PluginCapability;
+        providers: readonly EntityProvider[];
+      }> = [
+        {
+          id: 'actions',
+          capability: actionCapability ?? 'action.lifecycle',
+          providers: plugin.getActionProviders?.() ?? [],
+        },
+        {
+          id: 'stats',
+          capability: 'source.metrics',
+          providers: plugin.getStatsProviders?.() ?? [],
+        },
+        { id: 'logs', capability: 'source.logs', providers: plugin.getLogsProviders?.() ?? [] },
+        {
+          id: 'logStream',
+          capability: 'source.logs',
+          providers: plugin.getLogStreamProviders?.() ?? [],
+        },
+        {
+          id: 'inspect',
+          capability: 'source.inspect',
+          providers: plugin.getInspectProviders?.() ?? [],
+        },
+        {
+          id: 'top',
+          capability: 'action.filesystem',
+          providers: plugin.getFilesystemProviders?.() ?? [],
+        },
+        {
+          id: 'diff',
+          capability: 'action.filesystem',
+          providers: plugin.getFilesystemProviders?.() ?? [],
+        },
+        {
+          id: 'diagnostic',
+          capability: 'analysis.diagnostics',
+          providers: plugin.getDiagnosticProviders?.() ?? [],
+        },
+        { id: 'exec', capability: 'action.exec', providers: plugin.getExecProviders?.() ?? [] },
+      ];
+      for (const candidate of candidates) {
+        for (const provider of candidate.providers) {
+          if (await provider.canHandle(ref)) {
+            operations.set(`${plugin.manifest.id}:${candidate.id}`, {
+              id: candidate.id,
+              pluginId: plugin.manifest.id,
+              capability: candidate.capability,
+            });
+            break;
+          }
+        }
+      }
+    }
+    return [...operations.values()].sort(
+      (a, b) => a.id.localeCompare(b.id) || a.pluginId.localeCompare(b.pluginId),
+    );
+  }
+
+  async runEntityAction(
+    ref: EntityRef,
+    pluginId: string,
+    actionId: string,
+    input?: unknown,
+  ): Promise<EntityActionResult> {
+    const plugin = this.plugins.get(pluginId);
+    const runtime = this.runtime.get(pluginId);
+    if (!plugin || !runtime) {
+      throw new PluginOperationError(404, `Plugin not found: ${pluginId}`);
+    }
+    if (!runtime.enabled) {
+      throw new PluginOperationError(400, `Plugin is disabled: ${pluginId}`);
+    }
+    for (const provider of plugin.getActionProviders?.() ?? []) {
+      if (!(await provider.canHandle(ref))) {
+        continue;
+      }
+      const action = validateEntityActions(await provider.listActions(ref)).find(
+        (candidate) => candidate.id === actionId,
+      );
+      if (!action) {
+        continue;
+      }
+      requireManifestCapabilities(
+        plugin.manifest,
+        [action.capability],
+        `declares entity action "${action.id}"`,
+      );
+      const values = validatePluginConfigValues(input, action.input);
+      return validateEntityActionResult(await provider.runAction(ref, actionId, values));
+    }
+    throw new PluginOperationError(404, `Entity action not found: ${pluginId}/${actionId}`);
+  }
+
+  async analyzeMetric(sample: MetricAnalysisSample): Promise<MetricAnalysisFinding[]> {
+    const findings: MetricAnalysisFinding[] = [];
+    for (const plugin of this.activePlugins()) {
+      for (const provider of plugin.getMetricAnalysisProviders?.() ?? []) {
+        if (!(await provider.canHandle(sample.ref))) {
+          continue;
+        }
+        const result = validateMetricAnalysisResult(await provider.analyze(sample));
+        if (result) {
+          findings.push({
+            ...result,
+            pluginId: plugin.manifest.id,
+            metric: sample.metric,
+            value: sample.value,
+          });
+        }
+      }
+    }
+    return findings;
+  }
+
+  async listSystems(): Promise<PluginSystemSnapshot[]> {
+    const systems = await Promise.all(
+      this.activePlugins().flatMap((plugin) =>
+        [...(plugin.getSystemProviders?.() ?? [])].map(async (provider) =>
+          validatePluginSystems(await provider.listSystems()).map((system) => ({
+            ...system,
+            pluginId: plugin.manifest.id,
+          })),
+        ),
+      ),
+    );
+    return systems
+      .flat()
+      .sort((a, b) => a.label.localeCompare(b.label) || a.pluginId.localeCompare(b.pluginId));
+  }
+
+  listConnectionProviders(): PluginConnectionProviderDescriptor[] {
+    return this.getConnectionProviderEntries()
+      .map(({ pluginId, declaration }) => ({ ...declaration, pluginId }))
+      .sort((a, b) => a.label.localeCompare(b.label) || a.pluginId.localeCompare(b.pluginId));
+  }
+
+  async listConnections(): Promise<PluginConnection[]> {
+    const connections = await Promise.all(
+      this.getConnectionProviderEntries().map(async ({ pluginId, providerId, provider }) =>
+        validatePluginConnections(await provider.listConnections()).map((connection) => ({
+          ...connection,
+          pluginId,
+          providerId,
+        })),
+      ),
+    );
+    return connections
+      .flat()
+      .sort(
+        (a, b) =>
+          a.label.localeCompare(b.label) ||
+          a.pluginId.localeCompare(b.pluginId) ||
+          a.providerId.localeCompare(b.providerId),
+      );
+  }
+
+  async addConnection(pluginId: string, providerId: string, input: unknown): Promise<void> {
+    const entry = this.getConnectionProviderEntries().find(
+      (candidate) => candidate.pluginId === pluginId && candidate.providerId === providerId,
+    );
+    if (!entry) {
+      throw new PluginOperationError(
+        404,
+        `Connection provider not found: ${pluginId}/${providerId}`,
+      );
+    }
+    await entry.provider.addConnection(validatePluginConfigValues(input, entry.declaration.input));
+  }
+
+  async removeConnection(
+    pluginId: string,
+    providerId: string,
+    connectionId: string,
+  ): Promise<void> {
+    const entry = this.getConnectionProviderEntries().find(
+      (candidate) => candidate.pluginId === pluginId && candidate.providerId === providerId,
+    );
+    if (!entry) {
+      throw new PluginOperationError(
+        404,
+        `Connection provider not found: ${pluginId}/${providerId}`,
+      );
+    }
+    await entry.provider.removeConnection(connectionId);
+  }
+
+  async refreshConnections(): Promise<void> {
+    await Promise.all(
+      this.getConnectionProviderEntries().map(({ provider }) =>
+        provider.refreshConnections?.().catch(() => {}),
+      ),
+    );
+  }
+
   async getLogs(ref: EntityRef, options?: LogsOptions) {
     return (await this.requireProvider('source.logs', this.getLogsProviders(), ref)).getLogs(
       ref,
@@ -1226,17 +1499,54 @@ export class PluginRegistry {
 
   async listProjects() {
     const projects = await Promise.all(
-      this.getProjectProviders().map((provider) => provider.listProjects()),
+      this.getProjectProviderEntries().map(async ({ pluginId, providerId, provider }) =>
+        (await provider.listProjects()).map((project) => ({
+          ...project,
+          pluginId,
+          providerId,
+        })),
+      ),
     );
-    return projects.flat().sort((a, b) => a.name.localeCompare(b.name));
+    return projects
+      .flat()
+      .sort(
+        (a, b) =>
+          a.name.localeCompare(b.name) ||
+          (a.pluginId ?? '').localeCompare(b.pluginId ?? '') ||
+          (a.providerId ?? '').localeCompare(b.providerId ?? ''),
+      );
   }
 
-  async runProjectAction(project: string, action: ProjectAction) {
-    const provider = this.getProjectProviders()[0];
-    if (!provider) {
+  async runProjectAction(
+    project: string,
+    action: ProjectAction,
+    owner: { pluginId?: string; providerId?: string } = {},
+  ) {
+    const matches = [];
+    for (const entry of this.getProjectProviderEntries()) {
+      if (owner.pluginId && entry.pluginId !== owner.pluginId) {
+        continue;
+      }
+      if (owner.providerId && entry.providerId !== owner.providerId) {
+        continue;
+      }
+      const handles = entry.provider.canHandle
+        ? await entry.provider.canHandle(project)
+        : (await entry.provider.listProjects()).some((candidate) => candidate.name === project);
+      if (handles) {
+        matches.push(entry);
+      }
+    }
+    if (matches.length === 0) {
       throw new PluginOperationError(404, 'No plugin provider found for action.deploy');
     }
-    return provider.runProjectAction(project, action);
+    if (matches.length > 1) {
+      throw new PluginOperationError(
+        409,
+        `Project provider is ambiguous for "${project}"; specify pluginId and providerId`,
+      );
+    }
+    return matches[0].provider.runProjectAction(project, action);
   }
 
   async getResourceLogs(resourceId: string, options?: LogsOptions) {
@@ -1337,8 +1647,37 @@ export class PluginRegistry {
     return this.activePlugins().flatMap((plugin) => [...(plugin.getExecProviders?.() ?? [])]);
   }
 
-  private getProjectProviders(): ProjectProvider[] {
-    return this.activePlugins().flatMap((plugin) => [...(plugin.getProjectProviders?.() ?? [])]);
+  private getProjectProviderEntries(): Array<{
+    pluginId: string;
+    providerId: string;
+    provider: ProjectProvider;
+  }> {
+    return this.activePlugins().flatMap((plugin) =>
+      [...(plugin.getProjectProviders?.() ?? [])].map((provider, index) => ({
+        pluginId: plugin.manifest.id,
+        providerId: provider.id ?? String(index),
+        provider,
+      })),
+    );
+  }
+
+  private getConnectionProviderEntries(): Array<{
+    pluginId: string;
+    providerId: string;
+    declaration: ReturnType<typeof validatePluginConnectionProvider>;
+    provider: PluginConnectionProvider;
+  }> {
+    return this.activePlugins().flatMap((plugin) =>
+      [...(plugin.getConnectionProviders?.() ?? [])].map((provider) => {
+        const declaration = validatePluginConnectionProvider(provider.describe());
+        return {
+          pluginId: plugin.manifest.id,
+          providerId: declaration.id,
+          declaration,
+          provider,
+        };
+      }),
+    );
   }
 
   private getResourceProviders(): ResourceProvider[] {

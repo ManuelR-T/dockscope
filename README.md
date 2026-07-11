@@ -118,19 +118,18 @@ Opens `http://localhost:4681`.
 | Method | Path                                  | Description                                                        |
 | ------ | ------------------------------------- | ------------------------------------------------------------------ |
 | GET    | `/api/graph`                          | Full graph (nodes + links)                                         |
-| GET    | `/api/containers/:id/stats`           | CPU, memory, network I/O                                           |
-| GET    | `/api/containers/:id/logs?tail=N`     | Logs (default 200 lines)                                           |
-| GET    | `/api/containers/:id/inspect`         | Env, labels, mounts, config                                        |
-| GET    | `/api/containers/:id/history`         | Metric sparkline data                                              |
-| GET    | `/api/containers/:id/top`             | Running processes                                                  |
-| GET    | `/api/containers/:id/diff`            | Filesystem changes                                                 |
-| GET    | `/api/containers/:id/diagnostic`      | Crash diagnostic analysis                                          |
-| POST   | `/api/containers/:id/{action}`        | start, stop, restart, pause, unpause, kill                         |
-| DELETE | `/api/containers/:id?volumes=true`    | Remove container                                                   |
-| GET    | `/api/projects`                       | List compose projects                                              |
-| POST   | `/api/projects/:name/{action}`        | up, down, stop, start, restart, destroy                            |
-| GET    | `/api/system`                         | Docker version, CPUs, memory                                       |
-| GET    | `/api/health`                         | Docker connectivity check                                          |
+| GET    | `/api/entities/:id/operations`        | Matching plugin operation descriptors                              |
+| GET    | `/api/entities/:id/actions`           | Contextual plugin-owned actions                                    |
+| POST   | `/api/entities/:id/actions/:pluginId/:actionId` | Run an exact entity action                              |
+| GET    | `/api/entities/:id/{stats,logs,inspect,history,top,diff,diagnostic}` | Generic entity reads          |
+| GET    | `/api/projects`                       | Plugin-owned project inventory                                     |
+| POST   | `/api/projects/:name/{action}`        | Run a project action with owner query parameters                   |
+| GET    | `/api/systems`                        | Plugin-owned runtime/system inventory                              |
+| GET    | `/api/connections/providers`          | Typed connection provider forms                                    |
+| GET    | `/api/connections`                    | Configured source connections                                      |
+| POST   | `/api/connections/:pluginId/:providerId` | Add a provider connection                                       |
+| DELETE | `/api/connections/:pluginId/:providerId/:connectionId` | Remove a provider connection                   |
+| GET    | `/api/health`                         | Aggregate plugin source health                                     |
 | GET    | `/api/version`                        | Current + latest version                                           |
 | GET    | `/api/plugins`                        | Runtime plugin registry                                            |
 | GET    | `/api/plugins/errors`                 | External plugin load/register failures                             |

@@ -291,6 +291,12 @@ function buildGraph(resources) {
       ],
       networks: [namespace],
       volumeCount: 0,
+      metadata: {
+        currentReplicas: current,
+        desiredReplicas: desired,
+        minReplicas: hpa.spec?.minReplicas ?? 1,
+        maxReplicas: hpa.spec?.maxReplicas ?? 1,
+      },
     });
 
     const targetKind = hpa.spec?.scaleTargetRef?.kind || 'target';
@@ -377,6 +383,77 @@ async function getResourceLogs(host, resourceId, options = {}) {
   return result.stdout;
 }
 
+function numericMetadata(ref, key, fallback) {
+  const value = ref.context?.metadata?.[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function entityActions(ref) {
+  const resource = parseResourceId(ref.entityId);
+  const name = ref.context?.name || resource.name;
+  const fullName = `${resource.namespace}/${resource.name}`;
+  const actions = [
+    {
+      id: 'restart',
+      title: 'Restart',
+      capability: 'action.lifecycle',
+      icon: 'restart',
+      placement: 'primary',
+      confirm: {
+        title: resource.kind === 'pod' ? 'Restart Pod' : 'Restart Backing Pods',
+        message:
+          resource.kind === 'pod'
+            ? `Restart pod ${name}? Kubernetes will recreate the current pod.`
+            : `Restart backing pods for ${fullName}? Kubernetes will recreate the selected pods.`,
+        confirmLabel: 'Restart',
+        variant: 'warning',
+      },
+    },
+  ];
+  if (resource.kind === 'hpa') {
+    actions.push({
+      id: 'set_hpa_constraints',
+      title: 'Set replica bounds',
+      capability: 'action.scale',
+      icon: 'scale',
+      input: {
+        fields: [
+          {
+            key: 'minReplicas',
+            label: 'Min replicas',
+            type: 'number',
+            required: true,
+            default: numericMetadata(ref, 'minReplicas', 1),
+          },
+          {
+            key: 'maxReplicas',
+            label: 'Max replicas',
+            type: 'number',
+            required: true,
+            default: numericMetadata(ref, 'maxReplicas', 1),
+          },
+        ],
+      },
+    });
+  }
+  actions.push({
+    id: 'delete',
+    title: 'Delete',
+    capability: 'action.lifecycle',
+    icon: 'trash',
+    tone: 'danger',
+    effect: 'remove',
+    confirm: {
+      title: `Delete ${resource.kind}`,
+      message: `Delete ${fullName}? This removes the Kubernetes ${resource.kind} resource.`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
+      typeToConfirm: name,
+    },
+  });
+  return actions;
+}
+
 export default function createPlugin({ manifest, host }) {
   const descriptor = {
     id: KUBERNETES_SOURCE_ID,
@@ -406,20 +483,36 @@ export default function createPlugin({ manifest, host }) {
         },
       ];
     },
-    getResourceProviders() {
+    getLogsProviders() {
       return [
         {
-          canHandle(resourceId) {
+          canHandle(ref) {
             try {
-              parseResourceId(resourceId);
+              return parseResourceId(ref.entityId).kind === 'pod';
+            } catch {
+              return false;
+            }
+          },
+          getLogs: (ref, options) => getResourceLogs(host, ref.entityId, options),
+        },
+      ];
+    },
+    getActionProviders() {
+      return [
+        {
+          canHandle(ref) {
+            try {
+              parseResourceId(ref.entityId);
               return true;
             } catch {
               return false;
             }
           },
-          getResourceLogs: (resourceId, options) => getResourceLogs(host, resourceId, options),
-          runResourceAction: (resourceId, action, options) =>
-            runResourceAction(host, resourceId, action, options),
+          listActions: entityActions,
+          async runAction(ref, actionId, input) {
+            await runResourceAction(host, ref.entityId, actionId, input);
+            return { ok: true, message: `${actionId} completed` };
+          },
         },
       ];
     },
@@ -429,6 +522,7 @@ export default function createPlugin({ manifest, host }) {
 export const internals = {
   buildGraph,
   hpaPatch,
+  entityActions,
   parseResourceId,
   podsForRestart,
 };

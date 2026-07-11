@@ -10,6 +10,7 @@ External Kubernetes provider for DockScope.
 - Deletes Kubernetes resources.
 - Restarts Pods or backing Pods for Services, Ingresses, and HPAs.
 - Updates HPA minimum and maximum replica constraints.
+- Advertises contextual actions through DockScope's generic entity action contract.
 
 ## Requirements
 

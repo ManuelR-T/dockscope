@@ -6,6 +6,8 @@ export const PLUGIN_CAPABILITIES = [
   'source.inspect',
   'source.inventory',
   'source.relationships',
+  'source.system',
+  'source.connections',
   'action.lifecycle',
   'action.exec',
   'action.filesystem',

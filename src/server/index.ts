@@ -4,7 +4,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { checkConnection, initDockerClient } from '../docker/client.js';
+import { initDockerClient } from '../docker/client.js';
 import { initHosts } from '../docker/hosts.js';
 import { setupRoutes } from './routes.js';
 import type { ServerOptions, ServerHandle, WSMessage } from '../types.js';
@@ -88,14 +88,6 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
 
   const server = createServer(app);
   const wss = new WebSocketServer({ server, path: '/ws' });
-
-  const connected = await checkConnection();
-  if (!connected) {
-    console.error('Cannot connect to Docker daemon. Is Docker running?');
-    console.error('If running inside a container, mount the Docker socket:');
-    console.error('  docker run -v /var/run/docker.sock:/var/run/docker.sock ...');
-    process.exit(1);
-  }
 
   // Metric history storage (shared with routes)
   const metricHistory = new Map<string, { cpu: number; memory: number; time: number }[]>();

@@ -19,6 +19,10 @@ describe('plugin API v1 contract', () => {
       expect.arrayContaining([
         'source.graph',
         'source.events',
+        'source.system',
+        'source.connections',
+        'action.scale',
+        'analysis.anomalies',
         'ui.command',
         'ui.toolbarAction',
         'ui.settings',

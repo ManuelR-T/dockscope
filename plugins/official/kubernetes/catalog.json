@@ -3,7 +3,7 @@
   "license": "MIT",
   "status": "active",
   "tags": ["kubernetes", "pods", "services", "ingress", "hpa"],
-  "releaseNotes": "Initial external Kubernetes provider with graph, logs, lifecycle, and HPA actions.",
+  "releaseNotes": "Moves logs and contextual actions onto the generic entity provider contracts.",
   "repositoryUrl": "https://github.com/ManuelR-T/dockscope",
   "readmeUrl": "https://github.com/ManuelR-T/dockscope/blob/main/plugins/official/kubernetes/README.md",
   "screenshots": []

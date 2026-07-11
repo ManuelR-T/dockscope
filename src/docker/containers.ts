@@ -144,8 +144,8 @@ export async function inspectContainer(
   };
 }
 
-export async function getSystemInfo(): Promise<SystemInfo> {
-  const info = await getDefaultDockerClient().info();
+export async function getSystemInfo(client?: Dockerode): Promise<SystemInfo> {
+  const info = await dockerClient(client).info();
   return {
     dockerVersion: info.ServerVersion || 'unknown',
     os: `${info.OperatingSystem || 'unknown'} (${info.Architecture || ''})`,

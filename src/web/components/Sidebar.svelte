@@ -9,8 +9,7 @@
     removeAnomaly,
     getAnomaliesForContainer,
   } from '../stores/docker.svelte';
-  import ConfirmDialog from './ConfirmDialog.svelte';
-  import HpaReplicaDialog from './HpaReplicaDialog.svelte';
+  import EntityActionDialog from './EntityActionDialog.svelte';
   import SidebarHeader from './SidebarHeader.svelte';
   import SidebarInfo from './sidebar/SidebarInfo.svelte';
   import SidebarEnv from './sidebar/SidebarEnv.svelte';
@@ -26,26 +25,16 @@
   import { pluginUiContextMatches, type PluginUiExtension } from '../../core/plugin-ui';
   import { pluginUiContextFromNode } from '../lib/pluginUi';
   import { apiErrorMessage, isAbortError } from '../lib/api';
+  import type { EntityAction } from '../../core/entity-actions';
+  import type { EntityOperationDescriptor } from '../../core/operations';
+  import type { PluginConfig } from '../../core/plugin-config';
   import {
-    containerActionPastTense,
-    getHpaReplicaRange,
-    getKubernetesPodLogs,
-    kubernetesActionPastTense,
-    loadDockerSidebarData,
-    removeContainer,
-    runContainerAction,
-    runKubernetesAction,
-    type ContainerUiAction,
-    type KubernetesUiAction,
+    getEntityLogs,
+    hasEntityOperation,
+    loadEntityCapabilities,
+    loadEntitySidebarData,
+    runEntityAction,
   } from '../lib/sidebarApi';
-  import {
-    confirmKill,
-    confirmKubernetesDelete,
-    confirmKubernetesRestart,
-    confirmRemove,
-    confirmStop,
-    type ConfirmKind,
-  } from '../lib/sidebarActions';
 
   const docker = getDockerState();
 
@@ -69,19 +58,11 @@
   let inspect = $state<ContainerInspect | null>(null);
   let history = $state<MetricPoint[]>([]);
   let activeTab = $state<'info' | 'env' | 'logs' | 'top' | 'diff' | 'exec'>('info');
-  let kubernetesLogs = $state('');
+  let fetchedLogs = $state('');
   let actionPending = $state(false);
-  let hpaDialog = $state<{ node: ServiceNode; min: number; max: number } | null>(null);
-
-  let confirmDialog = $state<{
-    title: string;
-    message: string;
-    confirmLabel: string;
-    variant: 'warning' | 'danger';
-    typeToConfirm?: string;
-    action: () => Promise<void>;
-  } | null>(null);
-  let isKubernetesNode = $derived(node?.runtime === 'kubernetes');
+  let entityActions = $state<EntityAction[]>([]);
+  let entityOperations = $state<EntityOperationDescriptor[]>([]);
+  let actionDialog = $state<EntityAction | null>(null);
   let pluginContext = $derived(pluginUiContextFromNode(node));
   let sidebarExtensions = $derived(
     extensions.filter(
@@ -107,115 +88,80 @@
     addToast(detail ? `${prefix}: ${detail}` : prefix, 'error');
   }
 
-  async function doAction(action: ContainerUiAction) {
+  function supports(operation: EntityOperationDescriptor['id']): boolean {
+    return hasEntityOperation(entityOperations, operation);
+  }
+
+  function tabSupported(
+    tab: typeof activeTab,
+    operations: readonly EntityOperationDescriptor[],
+    currentNode: ServiceNode,
+  ): boolean {
+    if (tab === 'info') {
+      return true;
+    }
+    if (tab === 'env') {
+      return hasEntityOperation(operations, 'inspect');
+    }
+    if (tab === 'logs') {
+      return hasEntityOperation(operations, 'logs') || hasEntityOperation(operations, 'logStream');
+    }
+    if (tab === 'top') {
+      return (
+        hasEntityOperation(operations, 'top') &&
+        (currentNode.status === 'running' || currentNode.status === 'paused')
+      );
+    }
+    if (tab === 'diff') {
+      return hasEntityOperation(operations, 'diff');
+    }
+    return hasEntityOperation(operations, 'exec') && currentNode.status === 'running';
+  }
+
+  function requestEntityAction(action: EntityAction): void {
+    if (actionPending) {
+      return;
+    }
+    if (action.confirm || (action.input?.fields.length ?? 0) > 0) {
+      actionDialog = action;
+      return;
+    }
+    void executeEntityAction(action);
+  }
+
+  async function executeEntityAction(action: EntityAction, input?: PluginConfig) {
     if (!node || actionPending) {
       return;
     }
     const target = node;
     actionPending = true;
     try {
-      await runContainerAction(target, action);
-      addToast(`Container ${containerActionPastTense(action)}`, 'success');
-    } catch (error) {
-      if (!isAbortError(error)) {
-        toastActionFailure(`Failed to ${action}`, error);
-      }
-    } finally {
-      actionPending = false;
-    }
-  }
-
-  async function doRemove(withVolumes: boolean) {
-    if (!node || actionPending) {
-      return;
-    }
-    const target = node;
-    actionPending = true;
-    try {
-      await removeContainer(target, withVolumes);
-      addToast(`Container removed${withVolumes ? ' with volumes' : ''}`, 'success');
-      onClose();
-    } catch (error) {
-      if (!isAbortError(error)) {
-        toastActionFailure('Failed to remove', error);
-      }
-    } finally {
-      actionPending = false;
-    }
-  }
-
-  async function doKubernetesAction(
-    action: KubernetesUiAction,
-    options: { minReplicas?: number; maxReplicas?: number } = {},
-    targetNode = node,
-  ) {
-    if (!targetNode || actionPending) {
-      return;
-    }
-    const target = targetNode;
-    actionPending = true;
-    try {
-      await runKubernetesAction(target, action, options);
-      addToast(`Kubernetes ${target.kind} ${kubernetesActionPastTense(action)}`, 'success');
-      if (action === 'delete') {
+      const result = await runEntityAction(target, action, input);
+      addToast(result.message || `${action.title} completed`, result.ok ? 'success' : 'error');
+      actionDialog = null;
+      if (action.effect === 'remove') {
         onClose();
       }
     } catch (error) {
       if (!isAbortError(error)) {
-        toastActionFailure(`Failed to ${action}`, error);
+        toastActionFailure(`${action.title} failed`, error);
       }
     } finally {
       actionPending = false;
     }
   }
 
-  function showHpaReplicaDialog(node: ServiceNode) {
-    const current = getHpaReplicaRange(node);
-    hpaDialog = { node, min: current.min, max: current.max };
-  }
-
-  /** Open the confirm dialog for a destructive action requested by the header */
-  function openConfirm(kind: ConfirmKind) {
-    const target = node;
-    if (!target) {
-      return;
-    }
-    switch (kind) {
-      case 'stop':
-        confirmDialog = { ...confirmStop(target), action: () => doAction('stop') };
-        break;
-      case 'kill':
-        confirmDialog = { ...confirmKill(target), action: () => doAction('kill') };
-        break;
-      case 'remove':
-        confirmDialog = { ...confirmRemove(target, false), action: () => doRemove(false) };
-        break;
-      case 'removeVolumes':
-        confirmDialog = { ...confirmRemove(target, true), action: () => doRemove(true) };
-        break;
-      case 'k8sRestart':
-        confirmDialog = {
-          ...confirmKubernetesRestart(target),
-          action: () => doKubernetesAction('restart'),
-        };
-        break;
-      case 'k8sDelete':
-        confirmDialog = {
-          ...confirmKubernetesDelete(target),
-          action: () => doKubernetesAction('delete'),
-        };
-        break;
-    }
-  }
-
-  // Fetch stats + inspect + history when node changes
+  // Resolve plugin-owned operations before loading entity-specific data.
   $effect(() => {
     const currentNode = node;
     if (!currentNode) {
       stats = null;
       inspect = null;
       history = [];
-      kubernetesLogs = '';
+      fetchedLogs = '';
+      entityActions = [];
+      entityOperations = [];
+      actionDialog = null;
       return;
     }
     // Replay mode shows historical node state — live inspect/stats/logs would contradict it
@@ -223,41 +169,46 @@
       stats = null;
       inspect = null;
       history = [];
-      kubernetesLogs = '';
+      fetchedLogs = '';
+      entityActions = [];
+      entityOperations = [];
+      actionDialog = null;
       activeTab = 'info';
       return;
-    }
-    const isKubernetes = currentNode.runtime === 'kubernetes';
-    const tab = untrack(() => activeTab);
-    if (isKubernetes && tab !== 'info') {
-      activeTab = 'info';
-    }
-    // Fall back to 'info' only if current tab isn't available for this node
-    const runningTabs = ['top', 'exec'];
-    if (
-      runningTabs.includes(tab) &&
-      currentNode.status !== 'running' &&
-      currentNode.status !== 'paused'
-    ) {
-      activeTab = 'info';
     }
     stats = null;
     inspect = null;
     history = [];
-    kubernetesLogs = '';
+    fetchedLogs = '';
+    entityActions = [];
+    entityOperations = [];
+    actionDialog = null;
 
     const controller = new AbortController();
-    if (isKubernetes) {
-      return () => controller.abort();
-    }
-
     const loadDiagnostic = untrack(() => !docker.diagnostics.has(currentNode.id));
-    loadDockerSidebarData(currentNode, {
-      loadDiagnostic,
-      signal: controller.signal,
-    })
-      .then((data) => {
+    loadEntityCapabilities(currentNode, { signal: controller.signal })
+      .then(async (capabilities) => {
         if (controller.signal.aborted) {
+          return null;
+        }
+        entityActions = capabilities.actions;
+        entityOperations = capabilities.operations;
+        if (
+          !tabSupported(
+            untrack(() => activeTab),
+            capabilities.operations,
+            currentNode,
+          )
+        ) {
+          activeTab = 'info';
+        }
+        return loadEntitySidebarData(currentNode, capabilities.operations, {
+          loadDiagnostic,
+          signal: controller.signal,
+        });
+      })
+      .then((data) => {
+        if (controller.signal.aborted || !data) {
           return;
         }
         stats = data.stats;
@@ -274,6 +225,8 @@
         stats = null;
         inspect = null;
         history = [];
+        entityActions = [];
+        entityOperations = [];
       });
 
     return () => controller.abort();
@@ -285,44 +238,37 @@
     const currentNode = node;
     const containerId = currentNode?.containerId ?? null;
     const host = currentNode?.host ?? 'local';
-    const runtime = currentNode?.runtime;
-    const kind = currentNode?.kind;
+    const canStream = supports('logStream');
+    const canRead = supports('logs');
     const replayActive = docker.replayMode;
     return untrack(() => {
       const controller = new AbortController();
-      const shouldStreamDockerLogs =
-        tab === 'logs' && containerId !== null && runtime !== 'kubernetes' && !replayActive;
+      const shouldStreamLogs = tab === 'logs' && containerId !== null && canStream && !replayActive;
 
-      if (shouldStreamDockerLogs) {
+      if (shouldStreamLogs) {
         subscribeLogs(containerId, host);
       } else {
         unsubscribeLogs();
       }
 
-      if (
-        tab === 'logs' &&
-        runtime === 'kubernetes' &&
-        kind === 'pod' &&
-        containerId &&
-        !replayActive
-      ) {
-        kubernetesLogs = '';
-        getKubernetesPodLogs(containerId, 300, { signal: controller.signal })
+      if (tab === 'logs' && currentNode && canRead && !canStream && !replayActive) {
+        fetchedLogs = '';
+        getEntityLogs(currentNode, 300, { signal: controller.signal })
           .then((logs) => {
             if (!controller.signal.aborted) {
-              kubernetesLogs = logs;
+              fetchedLogs = logs;
             }
           })
           .catch((error) => {
             if (!isAbortError(error) && !controller.signal.aborted) {
-              kubernetesLogs = '';
+              fetchedLogs = '';
             }
           });
       }
 
       return () => {
         controller.abort();
-        if (shouldStreamDockerLogs) {
+        if (shouldStreamLogs) {
           unsubscribeLogs();
         }
       };
@@ -361,12 +307,11 @@
   {:else}
     <SidebarHeader
       {node}
+      actions={entityActions}
       {actionPending}
       hideActions={docker.replayMode}
       {onClose}
-      onDirect={doAction}
-      onConfirmAction={openConfirm}
-      onHpaDialog={() => showHpaReplicaDialog(node)}
+      onAction={requestEntityAction}
     />
 
     {#if nodeActionExtensions.length > 0}
@@ -385,34 +330,31 @@
       {#if docker.replayMode}
         <span class="replay-note">Historical view — live tabs disabled</span>
       {:else}
-        {#if !isKubernetesNode}
+        {#if supports('inspect')}
           <button
             class="tab {activeTab === 'env' ? 'active' : ''}"
             onclick={() => (activeTab = 'env')}>Env</button
           >
-          <button
-            class="tab {activeTab === 'logs' ? 'active' : ''}"
-            onclick={() => (activeTab = 'logs')}>Logs</button
-          >
-        {:else if node.kind === 'pod'}
+        {/if}
+        {#if supports('logs') || supports('logStream')}
           <button
             class="tab {activeTab === 'logs' ? 'active' : ''}"
             onclick={() => (activeTab = 'logs')}>Logs</button
           >
         {/if}
-        {#if !isKubernetesNode && (node.status === 'running' || node.status === 'paused')}
+        {#if supports('top') && (node.status === 'running' || node.status === 'paused')}
           <button
             class="tab {activeTab === 'top' ? 'active' : ''}"
             onclick={() => (activeTab = 'top')}>Top</button
           >
         {/if}
-        {#if !isKubernetesNode}
+        {#if supports('diff')}
           <button
             class="tab {activeTab === 'diff' ? 'active' : ''}"
             onclick={() => (activeTab = 'diff')}>Diff</button
           >
         {/if}
-        {#if !isKubernetesNode && node.status === 'running'}
+        {#if supports('exec') && node.status === 'running'}
           <button
             class="tab {activeTab === 'exec' ? 'active' : ''}"
             onclick={() => (activeTab = 'exec')}>Exec</button
@@ -445,8 +387,8 @@
       <SidebarEnv {inspect} />
     {:else if activeTab === 'logs'}
       <SidebarLogs
-        logs={isKubernetesNode ? kubernetesLogs : undefined}
-        placeholder={isKubernetesNode ? 'Loading pod logs...' : 'Connecting to log stream...'}
+        logs={supports('logStream') ? undefined : fetchedLogs}
+        placeholder={supports('logStream') ? 'Connecting to log stream...' : 'Loading logs...'}
       />
     {:else if activeTab === 'top'}
       <SidebarTop {node} />
@@ -465,38 +407,13 @@
   {/if}
 </div>
 
-{#if hpaDialog}
-  <HpaReplicaDialog
-    resourceName={hpaDialog.node.fullName}
-    initialMin={hpaDialog.min}
-    initialMax={hpaDialog.max}
-    onConfirm={({ minReplicas, maxReplicas }) => {
-      const target = hpaDialog?.node;
-      hpaDialog = null;
-      if (target) {
-        doKubernetesAction('set_hpa_constraints', { minReplicas, maxReplicas }, target);
-      }
-    }}
-    onCancel={() => {
-      hpaDialog = null;
-    }}
-  />
-{/if}
-
-{#if confirmDialog}
-  <ConfirmDialog
-    title={confirmDialog.title}
-    message={confirmDialog.message}
-    confirmLabel={confirmDialog.confirmLabel}
-    variant={confirmDialog.variant}
-    typeToConfirm={confirmDialog.typeToConfirm}
-    onConfirm={() => {
-      confirmDialog?.action();
-      confirmDialog = null;
-    }}
-    onCancel={() => {
-      confirmDialog = null;
-    }}
+{#if actionDialog && node}
+  <EntityActionDialog
+    action={actionDialog}
+    entityName={node.name}
+    pending={actionPending}
+    onConfirm={(input) => executeEntityAction(actionDialog!, input)}
+    onCancel={() => (actionDialog = null)}
   />
 {/if}
 

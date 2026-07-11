@@ -1,14 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { EntityAction } from '../../../core/entity-actions';
+import type { EntityOperationDescriptor, EntityOperationId } from '../../../core/operations';
 import type { ServiceNode } from '../../../types';
 import {
-  containerActionPastTense,
-  getHpaReplicaRange,
-  kubernetesActionPastTense,
-  loadDockerSidebarData,
-  removeContainer,
-  runContainerAction,
-  runKubernetesAction,
-  containerApiUrl,
+  entityApiUrl,
+  getEntityLogs,
+  hasEntityOperation,
+  loadEntityCapabilities,
+  loadEntitySidebarData,
+  runEntityAction,
 } from '../sidebarApi';
 
 const originalFetch = globalThis.fetch;
@@ -42,67 +42,89 @@ function makeNode(overrides: Partial<ServiceNode> & { id: string }): ServiceNode
   };
 }
 
+function operation(id: EntityOperationId): EntityOperationDescriptor {
+  return { id, pluginId: 'core.docker', capability: 'source.graph' };
+}
+
+function action(): EntityAction {
+  return {
+    pluginId: 'official.kubernetes',
+    id: 'set_hpa_constraints',
+    title: 'Set replica bounds',
+    capability: 'action.scale',
+    placement: 'menu',
+    tone: 'neutral',
+    effect: 'refresh',
+  };
+}
+
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {
     headers: { 'Content-Type': 'application/json' },
   });
 }
 
-describe('sidebar API helpers', () => {
-  it('parses HPA replica ranges with safe defaults', () => {
-    expect(getHpaReplicaRange(makeNode({ id: 'hpa', ports: ['2-5 range'] }))).toEqual({
-      min: 2,
-      max: 5,
-    });
-    expect(getHpaReplicaRange(makeNode({ id: 'hpa', ports: [] }))).toEqual({ min: 1, max: 1 });
-  });
-
-  it('formats action success labels', () => {
-    expect(containerActionPastTense('pause')).toBe('paused');
-    expect(containerActionPastTense('restart')).toBe('restarted');
-    expect(kubernetesActionPastTense('set_hpa_constraints')).toBe('updated');
-  });
-
-  it('uses sidebar action endpoints', async () => {
-    const node = makeNode({ id: 'abc', runtime: 'kubernetes', kind: 'pod' });
-    globalThis.fetch = vi.fn(async () => jsonResponse({ ok: true })) as typeof fetch;
-
-    await runContainerAction('abc', 'restart');
-    await removeContainer('abc', true);
-    await runKubernetesAction(node, 'set_hpa_constraints', { minReplicas: 2, maxReplicas: 4 });
-
-    expect(vi.mocked(globalThis.fetch).mock.calls.map(([url]) => url)).toEqual([
-      '/api/containers/abc/restart',
-      '/api/containers/abc?volumes=true',
-      '/api/kubernetes/action',
-    ]);
-    expect(vi.mocked(globalThis.fetch).mock.calls[2][1]?.body).toBe(
-      JSON.stringify({
-        id: 'abc',
-        action: 'set_hpa_constraints',
-        minReplicas: 2,
-        maxReplicas: 4,
-      }),
-    );
-  });
-
-  it('adds host and node context for node-scoped container URLs', () => {
+describe('sidebar entity API helpers', () => {
+  it('builds source-scoped generic entity URLs', () => {
     const node = makeNode({
       id: 'remote-a:abcdef123456',
       host: 'remote-a',
       containerId: 'abcdef1234567890',
     });
 
-    expect(containerApiUrl(node, '/stats')).toBe(
-      '/api/containers/abcdef1234567890/stats?host=remote-a&nodeId=remote-a%3Aabcdef123456',
-    );
-    expect(containerApiUrl(node, '', { volumes: true })).toBe(
-      '/api/containers/abcdef1234567890?host=remote-a&nodeId=remote-a%3Aabcdef123456&volumes=true',
+    expect(entityApiUrl(node, '/stats')).toBe(
+      '/api/entities/abcdef1234567890/stats?sourceId=remote-a&nodeId=remote-a%3Aabcdef123456',
     );
   });
 
-  it('loads running container sidebar data without fetching diagnostics', async () => {
-    const node = makeNode({ id: 'abcdef123456', status: 'running' });
+  it('loads provider-owned operations and actions', async () => {
+    const node = makeNode({ id: 'k8s:hpa:prod:api', runtime: 'kubernetes', kind: 'hpa' });
+    globalThis.fetch = vi.fn(async (input) => {
+      const url = String(input);
+      if (url.includes('/operations')) {
+        return jsonResponse([operation('actions')]);
+      }
+      if (url.includes('/actions')) {
+        return jsonResponse([action()]);
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }) as typeof fetch;
+
+    await expect(loadEntityCapabilities(node)).resolves.toEqual({
+      operations: [operation('actions')],
+      actions: [action()],
+    });
+    expect(hasEntityOperation([operation('logs')], 'logs')).toBe(true);
+    expect(hasEntityOperation([operation('logs')], 'exec')).toBe(false);
+  });
+
+  it('runs an action through its owning plugin and entity', async () => {
+    const node = makeNode({ id: 'k8s:hpa:prod:api', runtime: 'kubernetes', kind: 'hpa' });
+    globalThis.fetch = vi.fn(async () => jsonResponse({ ok: true })) as typeof fetch;
+
+    await runEntityAction(node, action(), { minReplicas: 2, maxReplicas: 4 });
+
+    const [url, init] = vi.mocked(globalThis.fetch).mock.calls[0];
+    expect(url).toBe(
+      '/api/entities/k8s%3Ahpa%3Aprod%3Aapi/actions/official.kubernetes/set_hpa_constraints?sourceId=local&nodeId=k8s%3Ahpa%3Aprod%3Aapi',
+    );
+    expect(init?.method).toBe('POST');
+    expect(init?.body).toBe(JSON.stringify({ input: { minReplicas: 2, maxReplicas: 4 } }));
+  });
+
+  it('loads logs through the generic entity endpoint', async () => {
+    const node = makeNode({ id: 'k8s:pod:prod:api', runtime: 'kubernetes', kind: 'pod' });
+    globalThis.fetch = vi.fn(async () => jsonResponse({ logs: 'pod log\n' })) as typeof fetch;
+
+    await expect(getEntityLogs(node, 50)).resolves.toBe('pod log\n');
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      '/api/entities/k8s%3Apod%3Aprod%3Aapi/logs?sourceId=local&nodeId=k8s%3Apod%3Aprod%3Aapi&tail=50',
+      { method: 'GET' },
+    );
+  });
+
+  it('loads running entity data only for advertised operations', async () => {
+    const node = makeNode({ id: 'abcdef123456' });
     globalThis.fetch = vi.fn(async (input) => {
       const url = String(input);
       if (url.includes('/stats?')) {
@@ -117,18 +139,17 @@ describe('sidebar API helpers', () => {
       throw new Error(`Unexpected request: ${url}`);
     }) as typeof fetch;
 
-    const data = await loadDockerSidebarData(node, { loadDiagnostic: true });
+    const data = await loadEntitySidebarData(node, [operation('stats'), operation('inspect')], {
+      loadDiagnostic: true,
+    });
 
     expect(data.stats?.cpu).toBe(12);
     expect(data.history).toHaveLength(1);
     expect(data.inspect?.id).toBe(node.id);
     expect(data.diagnostic).toBeNull();
-    expect(
-      vi.mocked(globalThis.fetch).mock.calls.some(([url]) => String(url).includes('/diagnostic')),
-    ).toBe(false);
   });
 
-  it('loads stopped container diagnostics only when requested', async () => {
+  it('loads stopped entity diagnostics only when advertised', async () => {
     const node = makeNode({ id: 'abcdef123456', status: 'exited' });
     globalThis.fetch = vi.fn(async (input) => {
       const url = String(input);
@@ -141,7 +162,11 @@ describe('sidebar API helpers', () => {
       throw new Error(`Unexpected request: ${url}`);
     }) as typeof fetch;
 
-    const data = await loadDockerSidebarData(node, { loadDiagnostic: true });
+    const data = await loadEntitySidebarData(
+      node,
+      [operation('inspect'), operation('diagnostic')],
+      { loadDiagnostic: true },
+    );
 
     expect(data.stats).toBeNull();
     expect(data.history).toEqual([]);
@@ -155,7 +180,9 @@ describe('sidebar API helpers', () => {
     }) as typeof fetch;
 
     await expect(
-      loadDockerSidebarData(makeNode({ id: 'abcdef123456' }), { loadDiagnostic: true }),
+      loadEntitySidebarData(makeNode({ id: 'abcdef123456' }), [operation('inspect')], {
+        loadDiagnostic: true,
+      }),
     ).rejects.toBe(abort);
   });
 });

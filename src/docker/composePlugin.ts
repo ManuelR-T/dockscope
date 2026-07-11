@@ -10,6 +10,9 @@ const COMPOSE_CAPABILITIES = [
 ] as const satisfies readonly PluginCapability[];
 
 const composeProjectProvider: ProjectProvider = {
+  id: 'compose',
+  canHandle: async (project) =>
+    (await listComposeProjects()).some((candidate) => candidate.name === project),
   listProjects: listComposeProjects,
   runProjectAction: composeAction,
 };

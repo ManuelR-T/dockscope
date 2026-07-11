@@ -48,6 +48,14 @@ export const ICONS = {
     body: '<path d="M8 3v4M16 3v4M7 7h10v5a5 5 0 0 1-10 0V7Z" /><path d="M12 17v4M8 21h8" />',
     strokeWidth: 2,
   },
+  trash: {
+    body: '<path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 15H6L5 6" /><path d="M10 11v5M14 11v5" />',
+    strokeWidth: 2,
+  },
+  scale: {
+    body: '<path d="M4 7h16M7 4v6M17 4v6M4 17h16M9 14v6M15 14v6" />',
+    strokeWidth: 2,
+  },
 } as const satisfies Record<string, IconDef>;
 
 export type IconName = keyof typeof ICONS;

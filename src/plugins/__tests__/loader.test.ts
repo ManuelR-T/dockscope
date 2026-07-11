@@ -479,6 +479,132 @@ describe('external plugin loader', () => {
     await result.plugins[0].stop?.();
   });
 
+  it('routes contextual entity actions through the plugin process', async () => {
+    const pluginDir = await createPluginDir();
+    await writePlugin(
+      pluginDir,
+      manifest({
+        capabilities: ['action.scale'],
+        execution: { isolation: 'process' },
+      }),
+      `
+        export default function createPlugin({ manifest }) {
+          return {
+            manifest,
+            getActionProviders() {
+              return [{
+                canHandle(ref) {
+                  return ref.entityId.startsWith('workload:');
+                },
+                listActions(ref) {
+                  return [{
+                    id: 'scale',
+                    title: 'Scale ' + (ref.context?.name || ref.entityId),
+                    capability: 'action.scale',
+                    input: { fields: [{ key: 'replicas', label: 'Replicas', type: 'number', required: true }] }
+                  }];
+                },
+                async runAction(ref, actionId, input) {
+                  if (actionId !== 'scale' || input?.replicas !== 3) throw new Error('unexpected action');
+                  return { ok: true, message: ref.entityId + ' scaled' };
+                }
+              }];
+            }
+          };
+        }
+      `,
+    );
+
+    const result = await loadExternalPlugins({ paths: [pluginDir], permissions: 'all' });
+    const provider = result.plugins[0].getActionProviders?.()[0];
+    const ref = {
+      entityId: 'workload:api',
+      context: { nodeId: 'workload:api', name: 'api' },
+    };
+
+    expect(result.errors).toEqual([]);
+    await expect(provider?.canHandle(ref)).resolves.toBe(true);
+    await expect(provider?.listActions(ref)).resolves.toEqual([
+      expect.objectContaining({ id: 'scale', title: 'Scale api', capability: 'action.scale' }),
+    ]);
+    await expect(provider?.runAction(ref, 'scale', { replicas: 3 })).resolves.toEqual({
+      ok: true,
+      message: 'workload:api scaled',
+      data: undefined,
+    });
+    await result.plugins[0].stop?.();
+  });
+
+  it('routes analysis, system, and connection providers through the plugin process', async () => {
+    const pluginDir = await createPluginDir();
+    await writePlugin(
+      pluginDir,
+      manifest({
+        capabilities: ['analysis.anomalies', 'source.system', 'source.connections'],
+        execution: { isolation: 'process' },
+      }),
+      `
+        export default function createPlugin({ manifest }) {
+          const connections = new Map([['seed', 'https://seed']]);
+          return {
+            manifest,
+            getMetricAnalysisProviders() {
+              return [{
+                canHandle: (ref) => ref.entityId.startsWith('demo:'),
+                analyze: (sample) => sample.value > 80 ? { average: 40, threshold: 80 } : null
+              }];
+            },
+            getSystemProviders() {
+              return [{ listSystems: () => [{ id: 'demo', label: 'Demo', status: 'connected', version: '1' }] }];
+            },
+            getConnectionProviders() {
+              return [{
+                describe: () => ({
+                  id: 'demo',
+                  label: 'Demo connection',
+                  input: { fields: [{ key: 'endpoint', label: 'Endpoint', type: 'string', required: true }] }
+                }),
+                listConnections: () => [...connections].map(([id, endpoint]) => ({ id, label: id, endpoint, status: 'connected', removable: true })),
+                async addConnection(input) { connections.set('added', input.endpoint); },
+                async removeConnection(id) { connections.delete(id); },
+                async refreshConnections() {}
+              }];
+            }
+          };
+        }
+      `,
+    );
+
+    const result = await loadExternalPlugins({ paths: [pluginDir], permissions: 'all' });
+    const plugin = result.plugins[0];
+    const analysis = plugin.getMetricAnalysisProviders?.()[0];
+    const systems = plugin.getSystemProviders?.()[0];
+    const connections = plugin.getConnectionProviders?.()[0];
+
+    expect(result.errors).toEqual([]);
+    await expect(
+      analysis?.analyze({
+        ref: { entityId: 'demo:api' },
+        metric: 'cpu',
+        value: 90,
+        history: [40],
+      }),
+    ).resolves.toEqual({ average: 40, threshold: 80, severity: undefined, message: undefined });
+    await expect(systems?.listSystems()).resolves.toEqual([
+      expect.objectContaining({ id: 'demo', status: 'connected' }),
+    ]);
+    expect(connections?.describe().id).toBe('demo');
+    await connections?.addConnection({ endpoint: 'https://added' });
+    await expect(connections?.listConnections()).resolves.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'added', endpoint: 'https://added' })]),
+    );
+    await connections?.removeConnection('added');
+    await expect(connections?.listConnections()).resolves.not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'added' })]),
+    );
+    await result.plugins[0].stop?.();
+  });
+
   it('serves a declared frontend bundle without importing it into the host UI', async () => {
     const pluginDir = await createPluginDir();
     await writeFile(

@@ -1,6 +1,7 @@
 import { PluginRegistry } from '../core/plugins.js';
 import { createComposePlugin } from '../docker/composePlugin.js';
 import { createDockerPlugin } from '../docker/plugin.js';
+import { createAnomalyPlugin } from '../server/anomalyPlugin.js';
 import { createPluginApprovalStoreFromEnv } from './approvalStore.js';
 import { createPluginConfigStoreFromEnv } from './configStore.js';
 import { createPluginEventStoreFromEnv } from './eventStore.js';
@@ -11,6 +12,7 @@ import { createPluginStateStoreFromEnv } from './stateStore.js';
 export function createInternalPluginRegistry(registry = new PluginRegistry()): PluginRegistry {
   registry.register(createDockerPlugin());
   registry.register(createComposePlugin());
+  registry.register(createAnomalyPlugin());
   return registry;
 }
 

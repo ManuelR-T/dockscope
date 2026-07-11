@@ -11,9 +11,9 @@ describe('parseInboundWSMessage', () => {
   it('validates log subscription messages', () => {
     expect(
       parseInboundWSMessage(
-        JSON.stringify({ type: 'subscribe_logs', data: { containerId: '123456789abc' } }),
+        JSON.stringify({ type: 'subscribe_logs', data: { entityId: 'k8s:pod:prod:api' } }),
       ),
-    ).toEqual({ type: 'subscribe_logs', data: { containerId: '123456789abc' } });
+    ).toEqual({ type: 'subscribe_logs', data: { entityId: 'k8s:pod:prod:api' } });
     expect(
       parseInboundWSMessage(
         JSON.stringify({
@@ -23,12 +23,12 @@ describe('parseInboundWSMessage', () => {
       ),
     ).toEqual({
       type: 'subscribe_logs',
-      data: { containerId: '123456789abc', host: 'remote-a' },
+      data: { entityId: '123456789abc', sourceId: 'remote-a' },
     });
     expect(parseInboundWSMessage(JSON.stringify({ type: 'subscribe_logs', data: {} }))).toBeNull();
     expect(
       parseInboundWSMessage(
-        JSON.stringify({ type: 'subscribe_logs', data: { containerId: '../bad' } }),
+        JSON.stringify({ type: 'subscribe_logs', data: { entityId: '../bad' } }),
       ),
     ).toBeNull();
     expect(parseInboundWSMessage(JSON.stringify({ type: 'unsubscribe_logs' }))).toEqual({
@@ -41,16 +41,26 @@ describe('parseInboundWSMessage', () => {
       parseInboundWSMessage(
         JSON.stringify({
           type: 'exec_start',
-          data: { containerId: '123456789abc', host: 'remote-a', cmd: ['/bin/sh'] },
+          data: {
+            entityId: 'workload:api',
+            sourceId: 'cluster-a',
+            nodeId: 'cluster-a:workload:api',
+            cmd: ['/bin/sh'],
+          },
         }),
       ),
     ).toEqual({
       type: 'exec_start',
-      data: { containerId: '123456789abc', host: 'remote-a', cmd: ['/bin/sh'] },
+      data: {
+        entityId: 'workload:api',
+        sourceId: 'cluster-a',
+        nodeId: 'cluster-a:workload:api',
+        cmd: ['/bin/sh'],
+      },
     });
     expect(
       parseInboundWSMessage(
-        JSON.stringify({ type: 'exec_start', data: { containerId: '123456789abc', cmd: 'sh' } }),
+        JSON.stringify({ type: 'exec_start', data: { entityId: 'workload:api', cmd: 'sh' } }),
       ),
     ).toBeNull();
     expect(

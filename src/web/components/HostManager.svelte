@@ -2,6 +2,15 @@
   import { onDestroy } from 'svelte';
   import { addToast } from '../stores/docker.svelte';
   import type { ServiceNode } from '../../types';
+  import type {
+    PluginConnection,
+    PluginConnectionProviderDescriptor,
+  } from '../../core/plugin-connections';
+  import type {
+    PluginConfig,
+    PluginConfigField,
+    PluginConfigValue,
+  } from '../../core/plugin-config';
 
   interface Props {
     onClose: () => void;
@@ -10,12 +19,12 @@
   let { onClose }: Props = $props();
 
   // --- State ---
-  let view = $state<'hosts' | 'compare'>('hosts');
-  let hosts = $state<
-    { name: string; url: string; connected: boolean; containers: number; version: string }[]
-  >([]);
-  let newName = $state('');
-  let newUrl = $state('');
+  let view = $state<'connections' | 'compare'>('connections');
+  let connections = $state<PluginConnection[]>([]);
+  let providers = $state<PluginConnectionProviderDescriptor[]>([]);
+  let selectedProviderKey = $state('');
+  let draftProviderKey = $state('');
+  let draft = $state<PluginConfig>({});
   let adding = $state(false);
   let loading = $state(true);
 
@@ -36,8 +45,13 @@
   let comparing = $state(false);
   let compareError = $state('');
 
-  let connectedHosts = $derived(hosts.filter((h) => h.connected));
-  let canCompare = $derived(connectedHosts.length >= 2);
+  let selectedProvider = $derived(
+    providers.find((provider) => providerKey(provider) === selectedProviderKey) ?? null,
+  );
+  let connectedSources = $derived(
+    connections.filter((connection) => connection.status === 'connected'),
+  );
+  let canCompare = $derived(connectedSources.length >= 2);
   let matchedCount = $derived(
     compareResult ? compareResult.matched.filter((m) => m.diffs.length === 0).length : 0,
   );
@@ -45,72 +59,128 @@
     compareResult ? compareResult.matched.filter((m) => m.diffs.length > 0).length : 0,
   );
 
-  // --- Host management ---
-  async function fetchHosts() {
+  function providerKey(provider: PluginConnectionProviderDescriptor): string {
+    return `${provider.pluginId}:${provider.id}`;
+  }
+
+  function defaultValue(field: PluginConfigField): PluginConfigValue {
+    if (field.default !== undefined) {
+      return field.default;
+    }
+    if (field.type === 'boolean') {
+      return false;
+    }
+    if (field.type === 'number') {
+      return 0;
+    }
+    if (field.type === 'select') {
+      return field.options?.[0]?.value ?? '';
+    }
+    return '';
+  }
+
+  function setDraft(key: string, value: PluginConfigValue): void {
+    draft = { ...draft, [key]: value };
+  }
+
+  function requiredInputMissing(): boolean {
+    return Boolean(
+      selectedProvider?.input.fields.some(
+        (field) => field.required && (draft[field.key] === '' || draft[field.key] === undefined),
+      ),
+    );
+  }
+
+  async function fetchConnections() {
     try {
-      const res = await fetch('/api/hosts');
-      hosts = await res.json();
+      const [connectionsResponse, providersResponse] = await Promise.all([
+        fetch('/api/connections'),
+        fetch('/api/connections/providers'),
+      ]);
+      connections = await connectionsResponse.json();
+      providers = await providersResponse.json();
     } catch {
-      hosts = [];
+      connections = [];
+      providers = [];
     } finally {
       loading = false;
     }
   }
 
-  async function addNewHost() {
-    if (!newName.trim() || !newUrl.trim() || adding) {
+  async function addConnection() {
+    if (!selectedProvider || requiredInputMissing() || adding) {
       return;
     }
     adding = true;
     try {
-      const res = await fetch('/api/hosts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newName.trim(), url: newUrl.trim() }),
-        signal: AbortSignal.timeout(8000),
-      });
+      const res = await fetch(
+        `/api/connections/${encodeURIComponent(selectedProvider.pluginId)}/${encodeURIComponent(selectedProvider.id)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(draft),
+          signal: AbortSignal.timeout(8000),
+        },
+      );
       const data = await res.json();
       if (!res.ok) {
-        addToast(data.error || 'Failed to add host', 'error');
+        addToast(data.error || 'Failed to add connection', 'error');
       } else {
-        addToast(`Host "${newName}" connected`, 'success');
-        newName = '';
-        newUrl = '';
-        await fetchHosts();
+        addToast(`${selectedProvider.label} connected`, 'success');
+        draft = Object.fromEntries(
+          selectedProvider.input.fields.map((field) => [field.key, defaultValue(field)]),
+        );
+        await fetchConnections();
       }
     } catch {
-      addToast('Failed to add host', 'error');
+      addToast('Failed to add connection', 'error');
     } finally {
       adding = false;
     }
   }
 
-  async function removeHostByName(name: string) {
+  async function removeConnection(connection: PluginConnection) {
     try {
-      const res = await fetch(`/api/hosts/${encodeURIComponent(name)}`, { method: 'DELETE' });
+      const res = await fetch(
+        `/api/connections/${encodeURIComponent(connection.pluginId)}/${encodeURIComponent(connection.providerId)}/${encodeURIComponent(connection.id)}`,
+        { method: 'DELETE' },
+      );
       if (res.ok) {
-        addToast(`Host "${name}" removed`, 'success');
-        await fetchHosts();
+        addToast(`${connection.label} removed`, 'success');
+        await fetchConnections();
       } else {
         const data = await res.json();
-        addToast(data.error || 'Failed to remove', 'error');
+        addToast(data.error || 'Failed to remove connection', 'error');
       }
     } catch {
-      addToast('Failed to remove host', 'error');
+      addToast('Failed to remove connection', 'error');
     }
   }
 
   // --- Compare ---
   $effect(() => {
-    if (connectedHosts.length >= 2 && !hostA && !hostB) {
-      hostA = connectedHosts[0].name;
-      hostB = connectedHosts[1].name;
+    if (connectedSources.length >= 2 && !hostA && !hostB) {
+      hostA = connectedSources[0].id;
+      hostB = connectedSources[1].id;
+    }
+  });
+
+  $effect(() => {
+    if (!selectedProviderKey && providers.length > 0) {
+      selectedProviderKey = providerKey(providers[0]);
+    }
+    const provider = providers.find((candidate) => providerKey(candidate) === selectedProviderKey);
+    if (provider && draftProviderKey !== providerKey(provider)) {
+      draftProviderKey = providerKey(provider);
+      draft = Object.fromEntries(
+        provider.input.fields.map((field) => [field.key, defaultValue(field)]),
+      );
     }
   });
 
   async function runCompare() {
     if (!hostA || !hostB || hostA === hostB) {
-      compareError = 'Select two different hosts';
+      compareError = 'Select two different sources';
       return;
     }
     comparing = true;
@@ -135,8 +205,8 @@
   }
 
   // Polling
-  fetchHosts();
-  const pollTimer = setInterval(fetchHosts, 5000);
+  fetchConnections();
+  const pollTimer = setInterval(fetchConnections, 5000);
   onDestroy(() => clearInterval(pollTimer));
 </script>
 
@@ -147,7 +217,11 @@
     <!-- Header with tabs -->
     <div class="header">
       <div class="tabs">
-        <button class="tab" class:active={view === 'hosts'} onclick={() => (view = 'hosts')}>
+        <button
+          class="tab"
+          class:active={view === 'connections'}
+          onclick={() => (view = 'connections')}
+        >
           <svg
             width="11"
             height="11"
@@ -170,7 +244,7 @@
               fill="currentColor"
             />
           </svg>
-          Hosts
+          Connections
         </button>
         {#if canCompare}
           <button class="tab" class:active={view === 'compare'} onclick={() => (view = 'compare')}>
@@ -191,30 +265,37 @@
       <button class="close-btn" onclick={onClose}>&times;</button>
     </div>
 
-    <!-- Hosts view -->
-    {#if view === 'hosts'}
+    <!-- Connections view -->
+    {#if view === 'connections'}
       <div class="content">
         <div class="host-list">
           {#if loading}
-            <div class="empty-msg">Loading hosts...</div>
+            <div class="empty-msg">Loading connections...</div>
           {/if}
-          {#each hosts as host}
+          {#each connections as connection (connection.pluginId + connection.providerId + connection.id)}
             <div class="host-item">
-              <span class="dot" class:on={host.connected} class:off={!host.connected}></span>
+              <span
+                class="dot"
+                class:on={connection.status === 'connected'}
+                class:off={connection.status !== 'connected'}
+              ></span>
               <div class="host-info">
-                <span class="host-name">{host.name}</span>
-                <span class="host-url">{host.url}</span>
-                {#if host.connected}
-                  <span class="host-meta">{host.containers} containers · Docker {host.version}</span
-                  >
+                <span class="host-name">{connection.label}</span>
+                <span class="host-url">{connection.endpoint ?? connection.id}</span>
+                {#if connection.status === 'connected'}
+                  <span class="host-meta">
+                    {Object.entries(connection.metadata ?? {})
+                      .map(([key, value]) => `${key} ${value}`)
+                      .join(' · ')}
+                  </span>
                 {:else}
-                  <span class="host-meta off-text">disconnected</span>
+                  <span class="host-meta off-text">{connection.status}</span>
                 {/if}
               </div>
-              {#if host.name !== 'local'}
+              {#if connection.removable}
                 <button
                   class="remove-btn"
-                  onclick={() => removeHostByName(host.name)}
+                  onclick={() => removeConnection(connection)}
                   title="Remove">&times;</button
                 >
               {/if}
@@ -223,26 +304,56 @@
         </div>
 
         <div class="add-form">
-          <input
-            class="input"
-            type="text"
-            placeholder="Name (e.g. staging)"
-            bind:value={newName}
-            onkeydown={(e) => e.key === 'Enter' && addNewHost()}
-          />
-          <input
-            class="input mono"
-            type="text"
-            placeholder="tcp://192.168.1.10:2375"
-            bind:value={newUrl}
-            onkeydown={(e) => e.key === 'Enter' && addNewHost()}
-          />
+          {#if providers.length > 1}
+            <select class="input" bind:value={selectedProviderKey}>
+              {#each providers as provider}
+                <option value={providerKey(provider)}>{provider.label}</option>
+              {/each}
+            </select>
+          {/if}
+          {#each selectedProvider?.input.fields ?? [] as field (field.key)}
+            {#if field.type === 'boolean'}
+              <label class="connection-check">
+                <input
+                  type="checkbox"
+                  checked={draft[field.key] === true}
+                  onchange={(event) =>
+                    setDraft(field.key, (event.currentTarget as HTMLInputElement).checked)}
+                />
+                <span>{field.label}</span>
+              </label>
+            {:else if field.type === 'select'}
+              <select
+                class="input"
+                value={String(draft[field.key] ?? '')}
+                onchange={(event) =>
+                  setDraft(field.key, (event.currentTarget as HTMLSelectElement).value)}
+              >
+                {#each field.options ?? [] as option}
+                  <option value={option.value}>{option.label}</option>
+                {/each}
+              </select>
+            {:else}
+              <input
+                class="input"
+                class:mono={field.key.toLowerCase().includes('url')}
+                type={field.type === 'number' ? 'number' : 'text'}
+                placeholder={field.label}
+                value={String(draft[field.key] ?? '')}
+                oninput={(event) => {
+                  const value = (event.currentTarget as HTMLInputElement).value;
+                  setDraft(field.key, field.type === 'number' ? Number(value) : value);
+                }}
+                onkeydown={(event) => event.key === 'Enter' && addConnection()}
+              />
+            {/if}
+          {/each}
           <button
             class="action-btn"
-            onclick={addNewHost}
-            disabled={adding || !newName.trim() || !newUrl.trim()}
+            onclick={addConnection}
+            disabled={adding || !selectedProvider || requiredInputMissing()}
           >
-            {adding ? 'Connecting...' : 'Add Host'}
+            {adding ? 'Connecting...' : 'Add Connection'}
           </button>
         </div>
       </div>
@@ -253,14 +364,14 @@
         <div class="compare-controls">
           <div class="compare-row">
             <select class="input" bind:value={hostA}>
-              {#each connectedHosts as h}
-                <option value={h.name}>{h.name}</option>
+              {#each connectedSources as source}
+                <option value={source.id}>{source.label}</option>
               {/each}
             </select>
             <span class="compare-vs">vs</span>
             <select class="input" bind:value={hostB}>
-              {#each connectedHosts as h}
-                <option value={h.name}>{h.name}</option>
+              {#each connectedSources as source}
+                <option value={source.id}>{source.label}</option>
               {/each}
             </select>
           </div>
@@ -327,7 +438,7 @@
         {/if}
 
         {#if !compareResult && !compareError && !comparing}
-          <div class="empty-msg">Select two hosts and compare their container configurations.</div>
+          <div class="empty-msg">Select two sources and compare their entity configurations.</div>
         {/if}
       </div>
     {/if}
@@ -350,7 +461,7 @@
   .panel {
     background: rgba(8, 10, 24, 0.95);
     border: 1px solid rgba(0, 228, 255, 0.12);
-    border-radius: 12px;
+    border-radius: 7px;
     min-width: 420px;
     max-width: 520px;
     max-height: 80vh;
@@ -502,6 +613,20 @@
     gap: 8px;
     padding-top: 14px;
     border-top: 1px solid rgba(255, 255, 255, 0.04);
+  }
+
+  .connection-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 11px;
+  }
+
+  .connection-check input {
+    width: 15px;
+    height: 15px;
+    accent-color: #00e4ff;
   }
 
   /* --- Shared inputs --- */

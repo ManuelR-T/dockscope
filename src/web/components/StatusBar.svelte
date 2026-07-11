@@ -10,7 +10,8 @@
     startReplay,
     stopRecording,
   } from '../stores/recorder.svelte';
-  import type { DockerEvent, GraphData, SystemInfo } from '../../types';
+  import type { DockerEvent, GraphData } from '../../types';
+  import type { PluginSystemSnapshot } from '../../core/plugin-system';
 
   import type { ServiceNode } from '../../types';
 
@@ -24,7 +25,7 @@
 
   const recorder = getRecorderState();
 
-  let sysInfo = $state<SystemInfo | null>(null);
+  let sysInfo = $state<PluginSystemSnapshot | null>(null);
 
   let hideHealthChecks = $state(true);
   let fileInput = $state<HTMLInputElement | null>(null);
@@ -71,9 +72,11 @@
   }
 
   onMount(() => {
-    fetch('/api/system')
+    fetch('/api/systems')
       .then((r) => r.json())
-      .then((data) => (sysInfo = data))
+      .then((data: PluginSystemSnapshot[]) => {
+        sysInfo = data.find((system) => system.status === 'connected') ?? data[0] ?? null;
+      })
       .catch(() => {});
   });
 </script>
@@ -101,9 +104,13 @@
       {/if}
       {#if sysInfo}
         <span class="sys-info-divider"></span>
-        <span class="sys-info">Docker {sysInfo.dockerVersion}</span>
-        <span class="sys-info">{sysInfo.cpus} CPUs</span>
-        <span class="sys-info">{formatGB(sysInfo.totalMemory)} GB</span>
+        <span class="sys-info">{sysInfo.runtime ?? sysInfo.label} {sysInfo.version ?? ''}</span>
+        {#if sysInfo.cpuCount !== undefined}
+          <span class="sys-info">{sysInfo.cpuCount} CPUs</span>
+        {/if}
+        {#if sysInfo.memoryBytes !== undefined}
+          <span class="sys-info">{formatGB(sysInfo.memoryBytes)} GB</span>
+        {/if}
       {/if}
     </div>
     <div class="event-header-right">

@@ -5,11 +5,44 @@ import type {
   ContainerTopResult,
   CrashDiagnostic,
 } from '../types.js';
+import type {
+  EntityActionDeclaration,
+  EntityActionInput,
+  EntityActionResult,
+} from './entity-actions.js';
+
+export interface EntityContext {
+  nodeId: string;
+  name: string;
+  runtime?: string;
+  kind?: string;
+  status?: string;
+  health?: string;
+  metadata?: Record<string, string | number | boolean>;
+}
+
+export type EntityOperationId =
+  | 'actions'
+  | 'stats'
+  | 'logs'
+  | 'logStream'
+  | 'inspect'
+  | 'top'
+  | 'diff'
+  | 'diagnostic'
+  | 'exec';
+
+export interface EntityOperationDescriptor {
+  id: EntityOperationId;
+  pluginId: string;
+  capability: string;
+}
 
 export interface EntityRef {
   entityId: string;
   sourceId?: string;
   nodeId?: string;
+  context?: EntityContext;
 }
 
 export interface LogsOptions {
@@ -28,6 +61,8 @@ export interface ProjectSummary {
   name: string;
   running: number;
   stopped: number;
+  pluginId?: string;
+  providerId?: string;
 }
 
 export interface ResourceActionOptions {
@@ -37,6 +72,17 @@ export interface ResourceActionOptions {
 
 export interface EntityProvider {
   canHandle(ref: EntityRef): boolean | Promise<boolean>;
+}
+
+export interface EntityActionProvider extends EntityProvider {
+  listActions(
+    ref: EntityRef,
+  ): readonly EntityActionDeclaration[] | Promise<readonly EntityActionDeclaration[]>;
+  runAction(
+    ref: EntityRef,
+    actionId: string,
+    input?: EntityActionInput,
+  ): Promise<EntityActionResult | void>;
 }
 
 export interface EntityStatsProvider extends EntityProvider {
@@ -83,10 +129,13 @@ export interface EntityExecProvider extends EntityProvider {
 }
 
 export interface ProjectProvider {
+  id?: string;
+  canHandle?(project: string): boolean | Promise<boolean>;
   listProjects(): Promise<ProjectSummary[]>;
   runProjectAction(project: string, action: ProjectAction): Promise<string>;
 }
 
+/** @deprecated Implement EntityLogsProvider and EntityActionProvider instead. */
 export interface ResourceProvider {
   canHandle(resourceId: string): boolean | Promise<boolean>;
   getResourceLogs(resourceId: string, options?: LogsOptions): Promise<string>;

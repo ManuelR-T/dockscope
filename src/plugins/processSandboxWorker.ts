@@ -3,6 +3,7 @@ import type { PluginCommandResult } from '../core/plugin-commands.js';
 import { validatePluginCommandResult } from '../core/plugin-commands.js';
 import type { GraphSourceAdapter } from '../core/model.js';
 import type {
+  EntityActionProvider,
   EntityDiagnosticProvider,
   EntityExecProvider,
   EntityFilesystemProvider,
@@ -14,6 +15,16 @@ import type {
   ProjectProvider,
   ResourceProvider,
 } from '../core/operations.js';
+import { validateEntityActionResult, validateEntityActions } from '../core/entity-actions.js';
+import type { MetricAnalysisProvider } from '../core/plugin-analysis.js';
+import { validateMetricAnalysisResult } from '../core/plugin-analysis.js';
+import type { PluginSystemProvider } from '../core/plugin-system.js';
+import { validatePluginSystems } from '../core/plugin-system.js';
+import type { PluginConnectionProvider } from '../core/plugin-connections.js';
+import {
+  validatePluginConnectionProvider,
+  validatePluginConnections,
+} from '../core/plugin-connections.js';
 import type { DockscopePlugin, PluginManifest } from '../core/plugins.js';
 import { validatePluginManifest } from '../core/plugins.js';
 import type { PluginUiExtensionDeclaration } from '../core/plugin-ui.js';
@@ -200,6 +211,22 @@ function statsProviders(): readonly EntityStatsProvider[] {
   return requirePlugin().getStatsProviders?.() ?? [];
 }
 
+function actionProviders(): readonly EntityActionProvider[] {
+  return requirePlugin().getActionProviders?.() ?? [];
+}
+
+function metricAnalysisProviders(): readonly MetricAnalysisProvider[] {
+  return requirePlugin().getMetricAnalysisProviders?.() ?? [];
+}
+
+function systemProviders(): readonly PluginSystemProvider[] {
+  return requirePlugin().getSystemProviders?.() ?? [];
+}
+
+function connectionProviders(): readonly PluginConnectionProvider[] {
+  return requirePlugin().getConnectionProviders?.() ?? [];
+}
+
 function logsProviders(): readonly EntityLogsProvider[] {
   return requirePlugin().getLogsProviders?.() ?? [];
 }
@@ -248,6 +275,8 @@ function describePlugin(): SandboxPluginDescriptor {
       supportsEvents: Boolean(source.startEvents),
     })),
     providers: {
+      action: actionProviders().length,
+      metricAnalysis: metricAnalysisProviders().length,
       stats: statsProviders().length,
       logs: logsProviders().length,
       logStream: logStreamProviders().length,
@@ -258,9 +287,13 @@ function describePlugin(): SandboxPluginDescriptor {
       exec: execProviders().length,
       project: projectProviders().length,
       resource: resourceProviders().length,
+      system: systemProviders().length,
     },
     commands: [...(instance.getCommands?.() ?? [])],
     ui,
+    connectionProviders: connectionProviders().map((provider) =>
+      validatePluginConnectionProvider(provider.describe()),
+    ),
   };
 }
 
@@ -268,6 +301,10 @@ async function canHandleEntity(
   operation: Extract<SandboxRequestOperation, { type: 'canHandleEntity' }>,
 ) {
   switch (operation.provider) {
+    case 'action':
+      return actionProviders()[operation.providerIndex]?.canHandle(operation.ref) ?? false;
+    case 'metricAnalysis':
+      return metricAnalysisProviders()[operation.providerIndex]?.canHandle(operation.ref) ?? false;
     case 'stats':
       return statsProviders()[operation.providerIndex]?.canHandle(operation.ref) ?? false;
     case 'logs':
@@ -339,10 +376,56 @@ async function handleOperation(operation: SandboxRequestOperation): Promise<unkn
       }
       return source.collectGraph();
     }
+    case 'listSystems':
+      return validatePluginSystems(
+        await itemAt(systemProviders(), operation.providerIndex, 'system').listSystems(),
+      );
+    case 'listConnections':
+      return validatePluginConnections(
+        await itemAt(
+          connectionProviders(),
+          operation.providerIndex,
+          'connection',
+        ).listConnections(),
+      );
+    case 'addConnection':
+      return itemAt(connectionProviders(), operation.providerIndex, 'connection').addConnection(
+        operation.input,
+      );
+    case 'removeConnection':
+      return itemAt(connectionProviders(), operation.providerIndex, 'connection').removeConnection(
+        operation.connectionId,
+      );
+    case 'refreshConnections':
+      return itemAt(
+        connectionProviders(),
+        operation.providerIndex,
+        'connection',
+      ).refreshConnections?.();
     case 'canHandleEntity':
       return Boolean(await canHandleEntity(operation));
     case 'getStats':
       return itemAt(statsProviders(), operation.providerIndex, 'stats').getStats(operation.ref);
+    case 'analyzeMetric':
+      return validateMetricAnalysisResult(
+        await itemAt(metricAnalysisProviders(), operation.providerIndex, 'metric analysis').analyze(
+          operation.sample,
+        ),
+      );
+    case 'listEntityActions':
+      return validateEntityActions(
+        await itemAt(actionProviders(), operation.providerIndex, 'action').listActions(
+          operation.ref,
+        ),
+      );
+    case 'runEntityAction':
+      return validateEntityActionResult(
+        await itemAt(actionProviders(), operation.providerIndex, 'action').runAction(
+          operation.ref,
+          operation.actionId,
+          operation.input,
+        ),
+      );
     case 'getLogs':
       return itemAt(logsProviders(), operation.providerIndex, 'logs').getLogs(
         operation.ref,
@@ -374,6 +457,12 @@ async function handleOperation(operation: SandboxRequestOperation): Promise<unkn
       );
     case 'listProjects':
       return itemAt(projectProviders(), operation.providerIndex, 'project').listProjects();
+    case 'canHandleProject': {
+      const provider = itemAt(projectProviders(), operation.providerIndex, 'project');
+      return provider.canHandle
+        ? provider.canHandle(operation.project)
+        : (await provider.listProjects()).some((project) => project.name === operation.project);
+    }
     case 'runProjectAction':
       return itemAt(projectProviders(), operation.providerIndex, 'project').runProjectAction(
         operation.project,

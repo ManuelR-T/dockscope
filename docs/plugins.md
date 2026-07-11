@@ -149,6 +149,52 @@ Installed plugins are copied into `~/.dockscope/plugins` by default and are load
 dockscope up --plugin-registry ./installed-plugins --plugin-permissions all
 ```
 
+## Data Providers
+
+Plugin behavior is discovered through typed provider arrays. DockScope routes operations by entity/source data and plugin ownership; the frontend does not select implementations from runtime names.
+
+Current provider families are:
+
+- Graph sources and source events
+- Entity metrics, logs, log streams, inspection, filesystem, diagnostics, and exec
+- Contextual entity actions
+- Project inventory and actions
+- System inventory and connection lifecycle
+- Metric analysis
+
+An entity action advertises its capability, UI placement, tone, confirmation policy, optional typed input, and expected effect. The action ID is scoped by its owning plugin ID.
+
+```js
+getActionProviders() {
+  return [{
+    canHandle: (ref) => ref.entityId.startsWith('workload:'),
+    listActions: (ref) => [{
+      id: 'scale',
+      title: `Scale ${ref.context?.name ?? ref.entityId}`,
+      capability: 'action.scale',
+      placement: 'primary',
+      input: {
+        fields: [
+          { key: 'replicas', label: 'Replicas', type: 'number', required: true }
+        ]
+      }
+    }],
+    async runAction(ref, actionId, input) {
+      await scaleWorkload(ref.entityId, input.replicas);
+      return { ok: true, message: 'Workload scaled' };
+    }
+  }];
+}
+```
+
+`GET /api/entities/:entityId/operations` reports available provider operations. `GET /api/entities/:entityId/actions` returns contextual action descriptors, and `POST /api/entities/:entityId/actions/:pluginId/:actionId` executes one exact owner/action pair. Use `sourceId` and `nodeId` query parameters for multi-source entities.
+
+Project rows similarly include `pluginId` and `providerId`. Pass both back when running a project action so two plugins may expose the same project name without ambiguous dispatch.
+
+System providers use `source.system`; connection providers use `source.connections` and declare a typed connection form. Metric analyzers use `analysis.anomalies`. Every provider family is proxied through process isolation for external plugins.
+
+`ResourceProvider` and the `/api/kubernetes/*` endpoints remain as v1 compatibility adapters. New plugins should implement `EntityLogsProvider` and `EntityActionProvider` instead.
+
 ## UI Extensions
 
 Plugins can extend the interface with declarative descriptors or an optional sandboxed frontend bundle. Declarative content is rendered by DockScope and should be the default. A frontend bundle is appropriate only when a view needs custom interaction.
@@ -279,7 +325,7 @@ External plugins run in a dedicated child process by default. Use the explicit `
 }
 ```
 
-DockScope validates the manifest and imports plugin code only inside a persistent worker. Commands, graph sources and events, entity providers, project providers, resource providers, log streams, and exec sessions are proxied over typed IPC. Permission-checked host calls execute in the parent process, and the worker receives a scrubbed environment instead of DockScope's full environment.
+DockScope validates the manifest and imports plugin code only inside a persistent worker. Commands, graph sources and events, entity/action providers, project providers, system and connection providers, analysis providers, log streams, and exec sessions are proxied over typed IPC. Permission-checked host calls execute in the parent process, and the worker receives a scrubbed environment instead of DockScope's full environment.
 
 `operationTimeoutMs` applies to each request. `memoryLimitMb` sets the worker's V8 old-generation heap limit, and `maxStderrBytes` terminates a worker that emits excessive stderr. A crash rejects in-flight work without taking down DockScope; the next operation starts a fresh worker. Mutating operations are not retried automatically.
 
@@ -639,5 +685,14 @@ Use these endpoints to inspect plugin state:
 - `POST /api/plugins/:pluginId/enable` enables an external plugin.
 - `POST /api/plugins/:pluginId/disable` disables an external plugin.
 - `POST /api/plugins/:pluginId/reload` reloads an external plugin from disk.
+- `GET /api/entities/:entityId/operations` returns matching plugin operation descriptors.
+- `GET /api/entities/:entityId/actions` returns contextual entity actions.
+- `POST /api/entities/:entityId/actions/:pluginId/:actionId` runs an owned entity action.
+- `GET /api/entities/:entityId/{stats|logs|inspect|history|top|diff|diagnostic}` routes an entity read.
+- `GET /api/systems` returns plugin-owned system inventory.
+- `GET /api/connections/providers` returns typed connection provider forms.
+- `GET /api/connections` returns configured plugin connections.
+- `POST /api/connections/:pluginId/:providerId` adds a connection.
+- `DELETE /api/connections/:pluginId/:providerId/:connectionId` removes a connection.
 
 Start/stop failures mark the plugin as `failed` without preventing the rest of DockScope from running.

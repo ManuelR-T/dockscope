@@ -2,11 +2,7 @@
   import { onMount } from 'svelte';
   import { addToast } from '../stores/toast.svelte';
 
-  interface Project {
-    name: string;
-    running: number;
-    stopped: number;
-  }
+  import type { ProjectSummary } from '../../core/operations';
 
   interface Props {
     onClose: () => void;
@@ -14,7 +10,7 @@
 
   let { onClose }: Props = $props();
 
-  let projects = $state<Project[]>([]);
+  let projects = $state<ProjectSummary[]>([]);
   let loading = $state(true);
   let pendingAction = $state<string | null>(null);
 
@@ -34,27 +30,45 @@
     }
   }
 
-  async function doAction(project: string, action: string) {
-    pendingAction = `${project}:${action}`;
+  function projectKey(project: ProjectSummary): string {
+    return `${project.pluginId ?? ''}:${project.providerId ?? ''}:${project.name}`;
+  }
+
+  async function doAction(project: ProjectSummary, action: string) {
+    const key = projectKey(project);
+    pendingAction = `${key}:${action}`;
     try {
-      const res = await fetch(`/api/projects/${project}/${action}`, { method: 'POST' });
+      const query = new URLSearchParams();
+      if (project.pluginId) {
+        query.set('pluginId', project.pluginId);
+      }
+      if (project.providerId) {
+        query.set('providerId', project.providerId);
+      }
+      const suffix = query.size > 0 ? `?${query}` : '';
+      const res = await fetch(
+        `/api/projects/${encodeURIComponent(project.name)}/${action}${suffix}`,
+        {
+          method: 'POST',
+        },
+      );
       if (res.ok) {
-        addToast(`${project}: ${action} done`, 'success');
+        addToast(`${project.name}: ${action} done`, 'success');
         // Refresh after a short delay for Docker to update
         setTimeout(fetchProjects, 1500);
       } else {
         const err = await res.json();
-        addToast(`${project}: ${err.error}`, 'error');
+        addToast(`${project.name}: ${err.error}`, 'error');
       }
     } catch {
-      addToast(`${project}: ${action} failed`, 'error');
+      addToast(`${project.name}: ${action} failed`, 'error');
     } finally {
       pendingAction = null;
     }
   }
 
-  function isPending(project: string, action: string): boolean {
-    return pendingAction === `${project}:${action}`;
+  function isPending(project: ProjectSummary, action: string): boolean {
+    return pendingAction === `${projectKey(project)}:${action}`;
   }
 </script>
 
@@ -92,64 +106,64 @@
                 <button
                   class="pm-btn up"
                   disabled={!!pendingAction}
-                  onclick={() => doAction(project.name, 'up')}
+                  onclick={() => doAction(project, 'up')}
                   title="Up (start all)"
                 >
-                  {isPending(project.name, 'up') ? '...' : 'Up'}
+                  {isPending(project, 'up') ? '...' : 'Up'}
                 </button>
               {:else if project.running === 0}
                 <!-- All stopped — can Up or Down -->
                 <button
                   class="pm-btn up"
                   disabled={!!pendingAction}
-                  onclick={() => doAction(project.name, 'up')}
+                  onclick={() => doAction(project, 'up')}
                   title="Up (start all)"
                 >
-                  {isPending(project.name, 'up') ? '...' : 'Up'}
+                  {isPending(project, 'up') ? '...' : 'Up'}
                 </button>
                 <button
                   class="pm-btn down"
                   disabled={!!pendingAction}
-                  onclick={() => doAction(project.name, 'down')}
+                  onclick={() => doAction(project, 'down')}
                   title="Down (remove containers)"
                 >
-                  {isPending(project.name, 'down') ? '...' : 'Down'}
+                  {isPending(project, 'down') ? '...' : 'Down'}
                 </button>
               {:else}
                 <!-- Running — full control -->
                 <button
                   class="pm-btn restart"
                   disabled={!!pendingAction}
-                  onclick={() => doAction(project.name, 'restart')}
+                  onclick={() => doAction(project, 'restart')}
                   title="Restart all"
                 >
-                  {isPending(project.name, 'restart') ? '...' : 'Restart'}
+                  {isPending(project, 'restart') ? '...' : 'Restart'}
                 </button>
                 <button
                   class="pm-btn stop"
                   disabled={!!pendingAction}
-                  onclick={() => doAction(project.name, 'stop')}
+                  onclick={() => doAction(project, 'stop')}
                   title="Stop all"
                 >
-                  {isPending(project.name, 'stop') ? '...' : 'Stop'}
+                  {isPending(project, 'stop') ? '...' : 'Stop'}
                 </button>
                 <button
                   class="pm-btn down"
                   disabled={!!pendingAction}
-                  onclick={() => doAction(project.name, 'down')}
+                  onclick={() => doAction(project, 'down')}
                   title="Down (remove containers)"
                 >
-                  {isPending(project.name, 'down') ? '...' : 'Down'}
+                  {isPending(project, 'down') ? '...' : 'Down'}
                 </button>
               {/if}
               <!-- Destroy always available — removes containers, volumes, orphans, and cache -->
               <button
                 class="pm-btn destroy"
                 disabled={!!pendingAction}
-                onclick={() => doAction(project.name, 'destroy')}
+                onclick={() => doAction(project, 'destroy')}
                 title="Destroy (remove containers + volumes)"
               >
-                {isPending(project.name, 'destroy') ? '...' : 'Destroy'}
+                {isPending(project, 'destroy') ? '...' : 'Destroy'}
               </button>
             </div>
           </div>

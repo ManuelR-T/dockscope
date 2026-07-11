@@ -29,10 +29,11 @@ export function setupWebSocketHandlers(wss: WebSocketServer, opts: WebSocketOpti
     }
   }
 
-  function entityRef(containerId: string, host?: string): EntityRef {
+  function entityRef(data: { entityId: string; sourceId?: string; nodeId?: string }): EntityRef {
     return {
-      entityId: containerId,
-      ...(host ? { sourceId: host } : {}),
+      entityId: data.entityId,
+      ...(data.sourceId ? { sourceId: data.sourceId } : {}),
+      ...(data.nodeId ? { nodeId: data.nodeId } : {}),
     };
   }
 
@@ -54,13 +55,13 @@ export function setupWebSocketHandlers(wss: WebSocketServer, opts: WebSocketOpti
     subscribe_logs: async (ws, msg) => {
       stopLogStream(ws);
       const stop = await opts.plugins.streamLogs(
-        entityRef(msg.data.containerId, msg.data.host),
+        entityRef(msg.data),
         (text) => {
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(
               JSON.stringify({
                 type: 'log_chunk',
-                data: { containerId: msg.data.containerId, text },
+                data: { entityId: msg.data.entityId, containerId: msg.data.entityId, text },
               }),
             );
           }
@@ -79,7 +80,7 @@ export function setupWebSocketHandlers(wss: WebSocketServer, opts: WebSocketOpti
 
       try {
         const { stream: execStream } = await opts.plugins.createExecSession(
-          entityRef(msg.data.containerId, msg.data.host),
+          entityRef(msg.data),
           msg.data.cmd,
         );
         clientExecStreams.set(ws, execStream);

@@ -43,7 +43,7 @@
       socket.send(
         JSON.stringify({
           type: 'exec_start',
-          data: { containerId: node.containerId, host: node.host || 'local' },
+          data: { entityId: node.containerId, sourceId: node.host || 'local', nodeId: node.id },
         }),
       );
     };

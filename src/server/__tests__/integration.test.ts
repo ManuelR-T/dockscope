@@ -39,6 +39,8 @@ const mocks = vi.hoisted(() => ({
   getContainerLogs: vi.fn(),
   getContainerStats: vi.fn(),
   getContainerTop: vi.fn(),
+  getHost: vi.fn(),
+  getSystemInfo: vi.fn(),
   inspectContainer: vi.fn(),
   listComposeProjects: vi.fn(),
   removeContainer: vi.fn(),
@@ -62,7 +64,7 @@ vi.mock('../../docker/client.js', () => ({
   getContainerLogs: mocks.getContainerLogs,
   getContainerStats: mocks.getContainerStats,
   getContainerTop: mocks.getContainerTop,
-  getSystemInfo: vi.fn(),
+  getSystemInfo: mocks.getSystemInfo,
   initDockerClient: vi.fn(),
   inspectContainer: mocks.inspectContainer,
   listComposeProjects: mocks.listComposeProjects,
@@ -78,7 +80,7 @@ vi.mock('../../docker/projects.js', () => ({
 
 vi.mock('../../docker/hosts.js', () => ({
   addHost: vi.fn(),
-  getHost: vi.fn(),
+  getHost: mocks.getHost,
   initHosts: mocks.initHosts,
   listDockerHosts: mocks.listDockerHosts,
   listDockerGraphSources: mocks.listDockerGraphSources,
@@ -148,6 +150,15 @@ describe('server integration', () => {
       networkTxRate: 2,
     });
     mocks.getContainerTop.mockResolvedValue({ titles: ['PID'], processes: [['1']] });
+    mocks.getSystemInfo.mockResolvedValue({
+      dockerVersion: '27.5.1',
+      os: 'Linux (x86_64)',
+      totalMemory: 8_000_000_000,
+      cpus: 4,
+      containersRunning: 1,
+      containersStopped: 0,
+      images: 2,
+    });
     mocks.getContainerDiff.mockResolvedValue([{ kind: 'C', path: '/app/index.js' }]);
     mocks.inspectContainer.mockResolvedValue({
       id: '123456789abc',
@@ -188,6 +199,18 @@ describe('server integration', () => {
         version: 'test',
       },
     ]);
+    mocks.getHost.mockImplementation((name) =>
+      name === 'local'
+        ? {
+            name: 'local',
+            url: 'local',
+            client: {},
+            connected: true,
+            containers: 1,
+            version: 'test',
+          }
+        : undefined,
+    );
     mocks.stopWatching = vi.fn();
     mocks.watchEvents.mockReturnValue(mocks.stopWatching);
   });
@@ -199,6 +222,7 @@ describe('server integration', () => {
 
   it('serves route responses through real HTTP', async () => {
     server = await startTestServer();
+    expect(mocks.checkConnection).not.toHaveBeenCalled();
 
     const graphResponse = await fetch(`http://127.0.0.1:${server.port}/api/graph`);
     expect(graphResponse.status).toBe(200);
@@ -217,6 +241,30 @@ describe('server integration', () => {
         capabilities: ['source.graph'],
         status: 'connected',
       },
+    ]);
+
+    const systemsResponse = await fetch(`http://127.0.0.1:${server.port}/api/systems`);
+    expect(systemsResponse.status).toBe(200);
+    expect(await systemsResponse.json()).toEqual([
+      expect.objectContaining({
+        id: 'local',
+        pluginId: 'core.docker',
+        runtime: 'docker',
+        status: 'connected',
+        version: '27.5.1',
+      }),
+    ]);
+
+    const healthResponse = await fetch(`http://127.0.0.1:${server.port}/api/health`);
+    expect(healthResponse.status).toBe(200);
+    expect(await healthResponse.json()).toMatchObject({ status: 'ok' });
+
+    const connectionProvidersResponse = await fetch(
+      `http://127.0.0.1:${server.port}/api/connections/providers`,
+    );
+    expect(connectionProvidersResponse.status).toBe(200);
+    expect(await connectionProvidersResponse.json()).toEqual([
+      expect.objectContaining({ pluginId: 'core.docker', id: 'hosts', label: 'Docker host' }),
     ]);
 
     const pluginsResponse = await fetch(`http://127.0.0.1:${server.port}/api/plugins`);
@@ -276,10 +324,18 @@ describe('server integration', () => {
 
     const projectsResponse = await fetch(`http://127.0.0.1:${server.port}/api/projects`);
     expect(projectsResponse.status).toBe(200);
-    expect(await projectsResponse.json()).toEqual([{ name: 'demo', running: 1, stopped: 0 }]);
+    expect(await projectsResponse.json()).toEqual([
+      {
+        name: 'demo',
+        running: 1,
+        stopped: 0,
+        pluginId: 'core.compose',
+        providerId: 'compose',
+      },
+    ]);
 
     const projectActionResponse = await fetch(
-      `http://127.0.0.1:${server.port}/api/projects/demo/restart`,
+      `http://127.0.0.1:${server.port}/api/projects/demo/restart?pluginId=core.compose&providerId=compose`,
       { method: 'POST' },
     );
     expect(projectActionResponse.status).toBe(200);
@@ -315,6 +371,41 @@ describe('server integration', () => {
     expect(logsResponse.status).toBe(200);
     expect(await logsResponse.json()).toEqual({ logs: 'hello\n' });
     expect(mocks.getContainerLogs).toHaveBeenCalledWith('123456789abc', 50, undefined);
+
+    const operationsResponse = await fetch(
+      `http://127.0.0.1:${server.port}/api/entities/123456789abcdef/operations?sourceId=local&nodeId=123456789abc`,
+    );
+    expect(operationsResponse.status).toBe(200);
+    expect(await operationsResponse.json()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'actions', pluginId: 'core.docker' }),
+        expect.objectContaining({ id: 'stats', pluginId: 'core.docker' }),
+      ]),
+    );
+
+    const actionsResponse = await fetch(
+      `http://127.0.0.1:${server.port}/api/entities/123456789abcdef/actions?sourceId=local&nodeId=123456789abc`,
+    );
+    expect(actionsResponse.status).toBe(200);
+    expect(await actionsResponse.json()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'restart',
+          pluginId: 'core.docker',
+          placement: 'primary',
+        }),
+      ]),
+    );
+
+    const entityActionResponse = await fetch(
+      `http://127.0.0.1:${server.port}/api/entities/123456789abcdef/actions/core.docker/restart?sourceId=local&nodeId=123456789abc`,
+      { method: 'POST' },
+    );
+    expect(entityActionResponse.status).toBe(200);
+    expect(await entityActionResponse.json()).toEqual({
+      ok: true,
+      message: 'Container restart completed',
+    });
 
     const invalidIdResponse = await fetch(
       `http://127.0.0.1:${server.port}/api/containers/not-a-container/logs`,
@@ -356,7 +447,7 @@ describe('server integration', () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(mocks.streamContainerLogs).not.toHaveBeenCalled();
 
-    ws.send(JSON.stringify({ type: 'subscribe_logs', data: { containerId: '123456789abc' } }));
+    ws.send(JSON.stringify({ type: 'subscribe_logs', data: { entityId: '123456789abc' } }));
 
     await waitFor(() => pushLog !== null);
     expect(mocks.streamContainerLogs).toHaveBeenCalledWith(
@@ -369,7 +460,11 @@ describe('server integration', () => {
     requiredLogCallback(pushLog)('hello from container\n');
     expect(await readWsMessage(ws)).toEqual({
       type: 'log_chunk',
-      data: { containerId: '123456789abc', text: 'hello from container\n' },
+      data: {
+        entityId: '123456789abc',
+        containerId: '123456789abc',
+        text: 'hello from container\n',
+      },
     });
 
     ws.close();

@@ -4,6 +4,7 @@ import { pathToFileURL } from 'url';
 import { errorMessage } from '../utils.js';
 import type { GraphSourceAdapter, SourceEvent, SourceGraphSnapshot } from '../core/model.js';
 import type {
+  EntityActionProvider,
   EntityDiagnosticProvider,
   EntityExecProvider,
   EntityFilesystemProvider,
@@ -16,6 +17,13 @@ import type {
   ProjectSummary,
   ResourceProvider,
 } from '../core/operations.js';
+import type { EntityActionDeclaration, EntityActionResult } from '../core/entity-actions.js';
+import type { MetricAnalysisProvider, MetricAnalysisResult } from '../core/plugin-analysis.js';
+import type { PluginSystemDeclaration, PluginSystemProvider } from '../core/plugin-system.js';
+import type {
+  PluginConnectionDeclaration,
+  PluginConnectionProvider,
+} from '../core/plugin-connections.js';
 import { defaultPluginConfig, type PluginConfig } from '../core/plugin-config.js';
 import {
   type DockscopePlugin,
@@ -340,6 +348,73 @@ async function createProcessIsolatedPlugin(options: {
   if (manifest.capabilities.includes('source.graph')) {
     plugin.getGraphSources = () => graphSources;
   }
+  if (descriptor.providers.system > 0) {
+    const providers: PluginSystemProvider[] = Array.from(
+      { length: descriptor.providers.system },
+      (_, providerIndex) => ({
+        listSystems: () =>
+          sandbox.request<PluginSystemDeclaration[]>({ type: 'listSystems', providerIndex }),
+      }),
+    );
+    plugin.getSystemProviders = () => providers;
+  }
+  if (descriptor.connectionProviders.length > 0) {
+    const providers: PluginConnectionProvider[] = descriptor.connectionProviders.map(
+      (declaration, providerIndex) => ({
+        describe: () => declaration,
+        listConnections: () =>
+          sandbox.request<PluginConnectionDeclaration[]>({
+            type: 'listConnections',
+            providerIndex,
+          }),
+        addConnection: (input) =>
+          sandbox.request<void>({ type: 'addConnection', providerIndex, input }),
+        removeConnection: (connectionId) =>
+          sandbox.request<void>({ type: 'removeConnection', providerIndex, connectionId }),
+        refreshConnections: () =>
+          sandbox.request<void>({ type: 'refreshConnections', providerIndex }),
+      }),
+    );
+    plugin.getConnectionProviders = () => providers;
+  }
+  if (descriptor.providers.action > 0) {
+    const providers: EntityActionProvider[] = Array.from(
+      { length: descriptor.providers.action },
+      (_, providerIndex) => ({
+        canHandle: (ref) => canHandleEntity('action', providerIndex, ref),
+        listActions: (ref) =>
+          sandbox.request<EntityActionDeclaration[]>({
+            type: 'listEntityActions',
+            providerIndex,
+            ref,
+          }),
+        runAction: (ref, actionId, input) =>
+          sandbox.request<EntityActionResult>({
+            type: 'runEntityAction',
+            providerIndex,
+            ref,
+            actionId,
+            input,
+          }),
+      }),
+    );
+    plugin.getActionProviders = () => providers;
+  }
+  if (descriptor.providers.metricAnalysis > 0) {
+    const providers: MetricAnalysisProvider[] = Array.from(
+      { length: descriptor.providers.metricAnalysis },
+      (_, providerIndex) => ({
+        canHandle: (ref) => canHandleEntity('metricAnalysis', providerIndex, ref),
+        analyze: (sample) =>
+          sandbox.request<MetricAnalysisResult | null>({
+            type: 'analyzeMetric',
+            providerIndex,
+            sample,
+          }),
+      }),
+    );
+    plugin.getMetricAnalysisProviders = () => providers;
+  }
   if (descriptor.providers.stats > 0) {
     const providers: EntityStatsProvider[] = Array.from(
       { length: descriptor.providers.stats },
@@ -456,6 +531,9 @@ async function createProcessIsolatedPlugin(options: {
     const providers: ProjectProvider[] = Array.from(
       { length: descriptor.providers.project },
       (_, providerIndex) => ({
+        id: String(providerIndex),
+        canHandle: (project) =>
+          sandbox.request<boolean>({ type: 'canHandleProject', providerIndex, project }),
         listProjects: () =>
           sandbox.request<ProjectSummary[]>({ type: 'listProjects', providerIndex }),
         runProjectAction: (project, action) =>

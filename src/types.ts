@@ -9,6 +9,7 @@ export interface ServiceNode {
   namespace?: string;
   rolloutPhase?: 'terminating';
   rolloutUntil?: number;
+  metadata?: Record<string, string | number | boolean>;
   containerId: string;
   image: string;
   status:
@@ -46,9 +47,11 @@ export interface GraphData {
   links: ServiceLink[];
 }
 
-export interface DockerEvent {
+export interface RuntimeEvent {
   id: string;
+  entityId?: string;
   containerId?: string;
+  sourceId?: string;
   host?: string;
   type: string;
   action: string;
@@ -56,6 +59,9 @@ export interface DockerEvent {
   time: number;
   message: string;
 }
+
+/** @deprecated Use RuntimeEvent. */
+export type DockerEvent = RuntimeEvent;
 
 export interface ContainerStats {
   id: string;
@@ -81,6 +87,7 @@ export interface ContainerInspect {
 }
 
 export interface LogChunk {
+  entityId?: string;
   containerId: string;
   text: string;
 }
@@ -134,6 +141,7 @@ export interface MetricPoint {
 }
 
 export interface Anomaly {
+  analyzerId?: string;
   containerId: string;
   containerName: string;
   metric: 'cpu' | 'memory';

@@ -67,7 +67,7 @@ function sendLogSubscription() {
     ws.send(
       JSON.stringify({
         type: 'subscribe_logs',
-        data: { containerId: streamingLogContainerId, host: streamingLogHost || 'local' },
+        data: { entityId: streamingLogContainerId, sourceId: streamingLogHost || 'local' },
       }),
     );
   }
@@ -206,7 +206,7 @@ function handleMessage(msg: WSMessage, opts: { replay?: boolean } = {}) {
 
     case 'log_chunk': {
       const chunk = msg.data as LogChunk;
-      if (chunk.containerId === streamingLogContainerId) {
+      if ((chunk.entityId ?? chunk.containerId) === streamingLogContainerId) {
         streamingLogs += chunk.text;
         // Cap at ~500KB to avoid memory issues
         if (streamingLogs.length > DOCKER.logMaxBuffer) {
@@ -218,7 +218,7 @@ function handleMessage(msg: WSMessage, opts: { replay?: boolean } = {}) {
 
     case 'anomaly': {
       const a = msg.data as Anomaly;
-      const key = `${a.containerId}:${a.metric}`;
+      const key = `${a.containerId}:${a.analyzerId ?? 'legacy'}:${a.metric}`;
       if (dismissedAnomalies.has(key)) {
         break;
       }

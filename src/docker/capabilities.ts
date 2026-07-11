@@ -8,10 +8,10 @@ export const DOCKER_SOURCE_CAPABILITIES = [
   'source.inspect',
   'source.inventory',
   'source.relationships',
+  'source.system',
+  'source.connections',
   'action.lifecycle',
   'action.exec',
   'action.filesystem',
-  'action.deploy',
   'analysis.diagnostics',
-  'analysis.anomalies',
 ] as const satisfies readonly PluginCapability[];

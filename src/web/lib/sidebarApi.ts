@@ -5,19 +5,10 @@ import type {
   MetricPoint,
   ServiceNode,
 } from '../../types';
-import { deleteJson, getJson, isAbortError, postJson } from './api';
-
-export type ContainerUiAction = 'start' | 'stop' | 'restart' | 'pause' | 'unpause' | 'kill';
-export type KubernetesUiAction = 'delete' | 'restart' | 'set_hpa_constraints';
-
-interface OkResponse {
-  ok: true;
-}
-
-export interface HpaReplicaRange {
-  min: number;
-  max: number;
-}
+import type { EntityAction, EntityActionResult } from '../../core/entity-actions';
+import type { EntityOperationDescriptor, EntityOperationId } from '../../core/operations';
+import type { PluginConfig } from '../../core/plugin-config';
+import { getJson, isAbortError, postJson } from './api';
 
 export interface SidebarNodeData {
   stats: ContainerStats | null;
@@ -31,10 +22,10 @@ interface SidebarNodeDataOptions {
   signal?: AbortSignal;
 }
 
-export type ContainerTarget = Pick<ServiceNode, 'id' | 'containerId' | 'host'> | string;
+export type EntityTarget = Pick<ServiceNode, 'id' | 'containerId' | 'host'> | string;
 
-export function containerApiUrl(
-  target: ContainerTarget,
+export function entityApiUrl(
+  target: EntityTarget,
   suffix = '',
   params: Record<string, string | boolean | number | undefined> = {},
 ): string {
@@ -42,7 +33,7 @@ export function containerApiUrl(
   const search = new URLSearchParams();
 
   if (typeof target !== 'string') {
-    search.set('host', target.host || 'local');
+    search.set('sourceId', target.host || 'local');
     search.set('nodeId', target.id);
   }
 
@@ -53,8 +44,11 @@ export function containerApiUrl(
   }
 
   const qs = search.toString();
-  return `/api/containers/${encodeURIComponent(containerId)}${suffix}${qs ? `?${qs}` : ''}`;
+  return `/api/entities/${encodeURIComponent(containerId)}${suffix}${qs ? `?${qs}` : ''}`;
 }
+
+/** @deprecated Use entityApiUrl. */
+export const containerApiUrl = entityApiUrl;
 
 async function fallbackUnlessAborted<T>(request: Promise<T>, fallback: T): Promise<T> {
   try {
@@ -67,93 +61,70 @@ async function fallbackUnlessAborted<T>(request: Promise<T>, fallback: T): Promi
   }
 }
 
-export function kubernetesRestartMessage(node: ServiceNode): string {
-  if (node.kind === 'pod') {
-    return `Restart pod ${node.name}? Kubernetes will delete the current pod so its controller can recreate it.`;
-  }
-  return `Restart backing pods for ${node.fullName}? DockScope will delete the pods resolved from this ${node.kind}.`;
+export interface EntityCapabilities {
+  operations: EntityOperationDescriptor[];
+  actions: EntityAction[];
 }
 
-export function getHpaReplicaRange(node: ServiceNode): HpaReplicaRange {
-  const range = node.ports.find((port) => port.endsWith(' range'))?.replace(' range', '');
-  const [minRaw, maxRaw] = (range || '').split('-');
-  const min = parseInt(minRaw, 10);
-  const max = parseInt(maxRaw, 10);
-  return {
-    min: Number.isFinite(min) ? min : 1,
-    max: Number.isFinite(max) ? max : Math.max(Number.isFinite(min) ? min : 1, 1),
-  };
+export function hasEntityOperation(
+  operations: readonly EntityOperationDescriptor[],
+  id: EntityOperationId,
+): boolean {
+  return operations.some((operation) => operation.id === id);
 }
 
-export function containerActionPastTense(action: ContainerUiAction): string {
-  return {
-    start: 'started',
-    stop: 'stopped',
-    restart: 'restarted',
-    pause: 'paused',
-    unpause: 'unpaused',
-    kill: 'killed',
-  }[action];
-}
-
-export function kubernetesActionPastTense(action: KubernetesUiAction): string {
-  return action === 'restart' ? 'restarted' : action === 'delete' ? 'deleted' : 'updated';
-}
-
-export function runContainerAction(
-  target: ContainerTarget,
-  action: ContainerUiAction,
-  init: RequestInit = {},
-): Promise<OkResponse> {
-  return postJson<OkResponse>(containerApiUrl(target, `/${action}`), undefined, init);
-}
-
-export function removeContainer(
-  target: ContainerTarget,
-  withVolumes: boolean,
-  init: RequestInit = {},
-): Promise<OkResponse> {
-  return deleteJson<OkResponse>(containerApiUrl(target, '', { volumes: withVolumes }), init);
-}
-
-export function runKubernetesAction(
+export async function loadEntityCapabilities(
   node: ServiceNode,
-  action: KubernetesUiAction,
-  options: { minReplicas?: number; maxReplicas?: number } = {},
   init: RequestInit = {},
-): Promise<OkResponse> {
-  return postJson<OkResponse>(
-    '/api/kubernetes/action',
-    { id: node.containerId, action, ...options },
+): Promise<EntityCapabilities> {
+  const [operations, actions] = await Promise.all([
+    getJson<EntityOperationDescriptor[]>(entityApiUrl(node, '/operations'), init),
+    getJson<EntityAction[]>(entityApiUrl(node, '/actions'), init),
+  ]);
+  return { operations, actions };
+}
+
+export function runEntityAction(
+  node: ServiceNode,
+  action: EntityAction,
+  input?: PluginConfig,
+  init: RequestInit = {},
+): Promise<EntityActionResult> {
+  return postJson<EntityActionResult>(
+    entityApiUrl(
+      node,
+      `/actions/${encodeURIComponent(action.pluginId)}/${encodeURIComponent(action.id)}`,
+    ),
+    input === undefined ? undefined : { input },
     init,
   );
 }
 
-export function getKubernetesPodLogs(
-  containerId: string,
+export function getEntityLogs(
+  node: ServiceNode,
   tail = 300,
   init: RequestInit = {},
 ): Promise<string> {
-  return postJson<{ logs?: string }>('/api/kubernetes/logs', { id: containerId, tail }, init).then(
+  return getJson<{ logs?: string }>(entityApiUrl(node, '/logs', { tail }), init).then(
     (data) => data.logs || '',
   );
 }
 
-export function loadDockerSidebarData(
+export function loadEntitySidebarData(
   node: ServiceNode,
+  operations: readonly EntityOperationDescriptor[],
   { loadDiagnostic, signal }: SidebarNodeDataOptions,
 ): Promise<SidebarNodeData> {
   const init = signal ? { signal } : {};
-  const inspect = fallbackUnlessAborted(
-    getJson<ContainerInspect>(containerApiUrl(node, '/inspect'), init),
-    null,
-  );
+  const inspect = hasEntityOperation(operations, 'inspect')
+    ? fallbackUnlessAborted(getJson<ContainerInspect>(entityApiUrl(node, '/inspect'), init), null)
+    : Promise.resolve(null);
 
-  if (node.status === 'running') {
+  if (node.status === 'running' && hasEntityOperation(operations, 'stats')) {
     return Promise.all([
-      fallbackUnlessAborted(getJson<ContainerStats>(containerApiUrl(node, '/stats'), init), null),
+      fallbackUnlessAborted(getJson<ContainerStats>(entityApiUrl(node, '/stats'), init), null),
       inspect,
-      fallbackUnlessAborted(getJson<MetricPoint[]>(containerApiUrl(node, '/history'), init), []),
+      fallbackUnlessAborted(getJson<MetricPoint[]>(entityApiUrl(node, '/history'), init), []),
     ]).then(([stats, inspect, history]) => ({
       stats,
       inspect,
@@ -162,12 +133,13 @@ export function loadDockerSidebarData(
     }));
   }
 
-  const diagnostic = loadDiagnostic
-    ? fallbackUnlessAborted(
-        getJson<CrashDiagnostic | null>(containerApiUrl(node, '/diagnostic'), init),
-        null,
-      )
-    : Promise.resolve(null);
+  const diagnostic =
+    loadDiagnostic && hasEntityOperation(operations, 'diagnostic')
+      ? fallbackUnlessAborted(
+          getJson<CrashDiagnostic | null>(entityApiUrl(node, '/diagnostic'), init),
+          null,
+        )
+      : Promise.resolve(null);
 
   return Promise.all([inspect, diagnostic]).then(([inspect, diagnostic]) => ({
     stats: null,
