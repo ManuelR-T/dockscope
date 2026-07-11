@@ -39,6 +39,7 @@ export async function createPluginRegistry(
     getConfig: (manifest) => configStore.load(manifest.id, manifest.config),
     secretStore,
     publishEvent: (pluginId, type, payload) => registry.publishPluginEvent(pluginId, type, payload),
+    onRuntimeCrash: (pluginId, crash) => registry.recordRuntimeCrash(pluginId, crash),
   });
   for (const error of external.errors) {
     registry.recordLoadError(error);
@@ -48,8 +49,9 @@ export async function createPluginRegistry(
   }
   for (const plugin of external.plugins) {
     try {
+      const runtimeState = await stateStore.loadRuntimeState(plugin.manifest.id);
       registry.register(plugin, external.configs.get(plugin.manifest.id), {
-        enabled: await stateStore.loadEnabled(plugin.manifest.id),
+        ...runtimeState,
       });
     } catch (error) {
       registry.recordLoadError({
@@ -65,6 +67,8 @@ export async function createPluginRegistry(
       secretStore,
       publishEvent: (reloadedPluginId, type, payload) =>
         registry.publishPluginEvent(reloadedPluginId, type, payload),
+      onRuntimeCrash: (reloadedPluginId, crash) =>
+        registry.recordRuntimeCrash(reloadedPluginId, crash),
       cacheBust: true,
     });
     for (const error of reloaded.errors) {

@@ -9,6 +9,7 @@
     PluginReviewReport,
     PluginRuntimeInfo,
   } from '../../core/plugins';
+  import type { PluginRuntimeHealth } from '../../core/plugin-runtime';
   import type { PluginConfigField, PluginConfigValue } from '../../core/plugin-config';
   import type { PluginSecretSnapshot } from '../../core/plugin-secrets';
   import type { PluginUiExtension } from '../../core/plugin-ui';
@@ -49,6 +50,7 @@
   >('plugins');
   let loading = $state(true);
   let plugins = $state<PluginRuntimeInfo[]>([]);
+  let runtimeHealth = $state<PluginRuntimeHealth[]>([]);
   let errors = $state<PluginLoadError[]>([]);
   let warnings = $state<PluginLoadWarning[]>([]);
   let extensions = $state<PluginUiExtension[]>([]);
@@ -88,13 +90,33 @@
 
   onMount(() => {
     void loadPluginState();
+    const runtimeRefresh = window.setInterval(() => {
+      if (tab === 'plugins' && !loading) {
+        void refreshRuntimeHealth();
+      }
+    }, 5000);
+    return () => window.clearInterval(runtimeRefresh);
   });
+
+  async function refreshRuntimeHealth() {
+    try {
+      const [pluginData, healthData] = await Promise.all([
+        getJson<PluginRuntimeInfo[]>('/api/plugins'),
+        getJson<PluginRuntimeHealth[]>('/api/plugins/health'),
+      ]);
+      plugins = pluginData;
+      runtimeHealth = healthData;
+    } catch {
+      // The full refresh path surfaces connectivity failures to the user.
+    }
+  }
 
   async function loadPluginState() {
     loading = true;
     try {
       const [
         pluginData,
+        healthData,
         errorData,
         warningData,
         extensionData,
@@ -107,6 +129,7 @@
         secretData,
       ] = await Promise.all([
         getJson<PluginRuntimeInfo[]>('/api/plugins'),
+        getJson<PluginRuntimeHealth[]>('/api/plugins/health'),
         getJson<PluginLoadError[]>('/api/plugins/errors'),
         getJson<PluginLoadWarning[]>('/api/plugins/warnings'),
         getJson<PluginUiExtension[]>('/api/plugins/ui'),
@@ -119,6 +142,7 @@
         getJson<PluginSecretSnapshot[]>('/api/plugins/secrets'),
       ]);
       plugins = pluginData;
+      runtimeHealth = healthData;
       errors = errorData;
       warnings = warningData;
       extensions = extensionData;
@@ -511,7 +535,22 @@
   }
 
   function statusClass(status: PluginRuntimeInfo['status']): string {
-    return status === 'started' ? 'ok' : status === 'failed' ? 'bad' : 'idle';
+    return status === 'started'
+      ? 'ok'
+      : status === 'failed' || status === 'quarantined'
+        ? 'bad'
+        : 'idle';
+  }
+
+  function healthFor(pluginId: string): PluginRuntimeHealth | undefined {
+    return runtimeHealth.find((health) => health.pluginId === pluginId);
+  }
+
+  function formatBytes(value: number): string {
+    if (value < 1024 * 1024) {
+      return `${Math.round(value / 1024)} KiB`;
+    }
+    return `${(value / 1024 / 1024).toFixed(1)} MiB`;
   }
 
   function listText(values: readonly string[]): string {
@@ -717,6 +756,7 @@
 
         <div class="list">
           {#each plugins as plugin}
+            {@const health = healthFor(plugin.manifest.id)}
             <div class="item">
               <span class="status-dot {statusClass(plugin.status)}"></span>
               <div class="item-main">
@@ -734,7 +774,16 @@
                   {#if plugin.manifest.execution?.isolation}
                     <span>{plugin.manifest.execution.isolation}</span>
                   {/if}
+                  {#if health?.pid}<span>pid {health.pid}</span>{/if}
+                  {#if health?.metrics}<span>rss {formatBytes(health.metrics.rssBytes)}</span>{/if}
+                  {#if health?.metrics}<span>cpu {health.metrics.cpuPercent.toFixed(1)}%</span>{/if}
+                  {#if health && health.crashCount > 0}
+                    <span>{health.crashCount} crashes</span>
+                  {/if}
                 </div>
+                {#if plugin.quarantineReason}
+                  <div class="warning-line">Quarantined: {plugin.quarantineReason}</div>
+                {/if}
                 {#if plugin.error}
                   <div class="error-line">{plugin.error}</div>
                 {/if}

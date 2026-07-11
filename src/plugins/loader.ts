@@ -48,6 +48,7 @@ import type {
 } from '../types.js';
 import type { PluginCommandResult } from '../core/plugin-commands.js';
 import type { PluginFactory } from '../core/plugin-api.js';
+import type { PluginRuntimeCrash } from '../core/plugin-runtime.js';
 
 const PLUGIN_MANIFEST_FILE = 'plugin.json';
 const MAX_PLUGIN_FRONTEND_BYTES = 256 * 1024;
@@ -71,6 +72,7 @@ export interface ExternalPluginLoadOptions {
   processMaxStderrBytes?: number;
   processMemoryLimitMb?: number;
   logger?: Pick<Console, 'debug' | 'info' | 'warn' | 'error'>;
+  onRuntimeCrash?: (pluginId: string, crash: PluginRuntimeCrash) => void | Promise<void>;
 }
 
 export interface ExternalPluginLoadResult {
@@ -261,17 +263,29 @@ async function createProcessIsolatedPlugin(options: {
   maxStderrBytes?: number;
   memoryLimitMb?: number;
   logger: Pick<Console, 'debug' | 'info' | 'warn' | 'error'>;
+  onRuntimeCrash?: ExternalPluginLoadOptions['onRuntimeCrash'];
 }): Promise<DockscopePlugin> {
   const sandbox = new PluginProcessSandbox({
     ...options,
     onCrash: (error, restartCount) => {
+      const crash = { message: error.message, restartCount, time: Date.now() };
       options.logger.error(
         `Plugin process crashed (${options.manifest.id}, restart ${restartCount}): ${error.message}`,
       );
-      void options.publishEvent?.(options.manifest.id, 'runtime.crashed', {
-        message: error.message,
-        restartCount,
+      void Promise.resolve(
+        options.publishEvent?.(options.manifest.id, 'runtime.crashed', { ...crash }),
+      ).catch((publishError) => {
+        options.logger.error(
+          `Plugin crash event failed (${options.manifest.id}): ${errorMessage(publishError)}`,
+        );
       });
+      void Promise.resolve(options.onRuntimeCrash?.(options.manifest.id, crash)).catch(
+        (reportError) => {
+          options.logger.error(
+            `Plugin crash state update failed (${options.manifest.id}): ${errorMessage(reportError)}`,
+          );
+        },
+      );
     },
   });
   let descriptor: SandboxPluginDescriptor;
@@ -336,6 +350,7 @@ async function createProcessIsolatedPlugin(options: {
     configure: (config) => sandbox.configure(config),
     start: () => sandbox.start(),
     stop: () => sandbox.stop(),
+    getRuntimeHealth: () => sandbox.getRuntimeHealth(),
   };
   if (manifest.capabilities.includes('ui.command')) {
     plugin.getCommands = () => descriptor.commands;
@@ -632,6 +647,7 @@ export async function loadExternalPlugins(
               maxStderrBytes: manifest.execution?.maxStderrBytes ?? options.processMaxStderrBytes,
               memoryLimitMb: manifest.execution?.memoryLimitMb ?? options.processMemoryLimitMb,
               logger,
+              onRuntimeCrash: options.onRuntimeCrash,
             }),
             frontendEntry,
           ),
@@ -739,6 +755,7 @@ export async function loadExternalPluginsFromEnv(
     | 'processMaxStderrBytes'
     | 'processMemoryLimitMb'
     | 'logger'
+    | 'onRuntimeCrash'
   > = {},
 ): Promise<ExternalPluginLoadResult> {
   if (env.DOCKSCOPE_DISABLE_EXTERNAL_PLUGINS === '1') {

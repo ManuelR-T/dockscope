@@ -65,6 +65,7 @@ Opens `http://localhost:4681`.
 | `--plugin-approvals <file>`          | —           | Plugin approval JSON file                                              |
 | `--plugin-catalog <source>`          | —           | Plugin catalog JSON file or URL                                        |
 | `--plugin-catalog-public-key <file>` | —           | Verify the configured plugin catalog signature                         |
+| `--plugin-catalog-trust <file>`      | —           | Catalog signer rotation and revocation trust store                     |
 | `--plugin-registry <dir>`            | `~/.dockscope/plugins` | Local plugin registry directory                              |
 | `--allow-unsigned-plugins`           | —           | Allow unsigned catalog entries for local marketplace development        |
 | `--no-external-plugins`              | —           | Disable external plugin loading                                        |
@@ -99,6 +100,7 @@ Opens `http://localhost:4681`.
 - **Snapshot Export** — Export the current graph view from the toolbar (bottom-left) as a PNG (exact render) or SVG (vector projection with labels, dependency arrows, and a status legend) for documentation and READMEs. Both respect active search/status filters.
 - **Kubernetes Plugin** — The official external Kubernetes plugin renders Pods, Services, Ingresses, and HPAs alongside Docker resources, with Pod logs, restart/delete actions, and HPA replica controls through `kubectl`.
 - **Plugin Marketplace** — Catalog plugins can be installed, updated, and removed from the Plugin Manager with a pre-install review of signature, package hash, permissions, compatibility, and release notes.
+- **Plugin Runtime Isolation** — External plugins run in child processes with operation timeouts, memory limits, health telemetry, crash recovery, and automatic quarantine after repeated crashes.
 
 ## Keyboard Shortcuts
 

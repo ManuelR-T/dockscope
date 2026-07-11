@@ -47,6 +47,11 @@ import {
   type PluginConnectionProvider,
   type PluginConnectionProviderDescriptor,
 } from './plugin-connections.js';
+import type {
+  PluginProcessHealthSnapshot,
+  PluginRuntimeCrash,
+  PluginRuntimeHealth,
+} from './plugin-runtime.js';
 import {
   isPluginCapability,
   isPluginPermission,
@@ -101,7 +106,16 @@ const SUPPORTED_PLUGIN_API_VERSIONS = new Set<string>([DOCKSCOPE_PLUGIN_API_VERS
 const SUPPORTED_PLUGIN_HOST_API_VERSIONS = new Set<string>([DOCKSCOPE_PLUGIN_HOST_API_VERSION]);
 const SUPPORTED_PLUGIN_MANIFEST_VERSIONS = new Set<string>([DOCKSCOPE_PLUGIN_MANIFEST_VERSION]);
 
-export type PluginStatus = 'registered' | 'started' | 'stopped' | 'failed' | 'disabled';
+export type PluginStatus =
+  | 'registered'
+  | 'started'
+  | 'stopped'
+  | 'failed'
+  | 'disabled'
+  | 'quarantined';
+
+export const PLUGIN_CRASH_QUARANTINE_THRESHOLD = 3;
+export const PLUGIN_CRASH_QUARANTINE_WINDOW_MS = 60_000;
 
 export interface PluginManifest {
   id: string;
@@ -150,6 +164,7 @@ export interface DockscopePlugin {
   getMetricAnalysisProviders?(): readonly MetricAnalysisProvider[];
   getSystemProviders?(): readonly PluginSystemProvider[];
   getConnectionProviders?(): readonly PluginConnectionProvider[];
+  getRuntimeHealth?(): Promise<PluginProcessHealthSnapshot>;
   getStatsProviders?(): readonly EntityStatsProvider[];
   getLogsProviders?(): readonly EntityLogsProvider[];
   getLogStreamProviders?(): readonly EntityLogStreamProvider[];
@@ -171,6 +186,11 @@ export interface PluginRuntimeInfo {
   startedAt?: number;
   stoppedAt?: number;
   error?: string;
+  crashCount: number;
+  lastCrashAt?: number;
+  lastCrashError?: string;
+  quarantinedAt?: number;
+  quarantineReason?: string;
 }
 
 export interface PluginLoadError {
@@ -244,6 +264,19 @@ export interface PluginConfigWriter {
 
 export interface PluginStateWriter {
   saveEnabled(pluginId: string, enabled: boolean): Promise<void>;
+  saveRuntimeState?(
+    pluginId: string,
+    state: {
+      enabled: boolean;
+      quarantined?: boolean;
+      quarantineReason?: string;
+      crashCount?: number;
+      lastCrashAt?: number;
+      lastCrashError?: string;
+      quarantinedAt?: number;
+      recentCrashTimes?: readonly number[];
+    },
+  ): Promise<void>;
 }
 
 export interface PluginSecretWriter {
@@ -665,6 +698,7 @@ export class PluginRegistry {
   private readonly loadWarnings: PluginLoadWarning[] = [];
   private readonly events: PluginEventBus;
   private readonly approvals = new Map<string, PluginApprovalSnapshot>();
+  private readonly crashHistory = new Map<string, number[]>();
   private reloadHandler?: PluginReloadHandler;
 
   constructor(
@@ -685,7 +719,16 @@ export class PluginRegistry {
   register(
     plugin: DockscopePlugin,
     initialConfig?: PluginConfig,
-    options: { enabled?: boolean } = {},
+    options: {
+      enabled?: boolean;
+      quarantined?: boolean;
+      quarantineReason?: string;
+      crashCount?: number;
+      lastCrashAt?: number;
+      lastCrashError?: string;
+      quarantinedAt?: number;
+      recentCrashTimes?: readonly number[];
+    } = {},
   ): void {
     const manifest = validatePluginManifest(plugin.manifest);
     validatePluginContract(plugin, manifest);
@@ -699,11 +742,23 @@ export class PluginRegistry {
     this.plugins.set(id, { ...plugin, manifest });
     this.configs.set(id, config);
     const enabled = options.enabled ?? true;
+    const quarantined = options.quarantined === true && !manifest.builtin;
+    const recentCrashTimes = (options.recentCrashTimes ?? []).filter(
+      (time) => Number.isFinite(time) && time >= Date.now() - PLUGIN_CRASH_QUARANTINE_WINDOW_MS,
+    );
+    if (recentCrashTimes.length > 0) {
+      this.crashHistory.set(id, [...recentCrashTimes]);
+    }
     this.runtime.set(id, {
       manifest,
-      status: enabled ? 'registered' : 'disabled',
-      enabled,
+      status: quarantined ? 'quarantined' : enabled ? 'registered' : 'disabled',
+      enabled: quarantined ? false : enabled,
       registeredAt: Date.now(),
+      crashCount: options.crashCount ?? 0,
+      lastCrashAt: options.lastCrashAt,
+      lastCrashError: options.lastCrashError,
+      quarantinedAt: quarantined ? (options.quarantinedAt ?? Date.now()) : undefined,
+      quarantineReason: quarantined ? options.quarantineReason : undefined,
     });
   }
 
@@ -738,6 +793,7 @@ export class PluginRegistry {
     await this.stop(pluginId);
     this.plugins.delete(pluginId);
     this.runtime.delete(pluginId);
+    this.crashHistory.delete(pluginId);
     this.configs.delete(pluginId);
     return { ok: true };
   }
@@ -752,6 +808,106 @@ export class PluginRegistry {
 
   listPluginWarnings(): PluginLoadWarning[] {
     return this.loadWarnings.map((warning) => ({ ...warning }));
+  }
+
+  async recordRuntimeCrash(pluginId: string, crash: PluginRuntimeCrash): Promise<void> {
+    const plugin = this.plugins.get(pluginId);
+    const runtime = this.runtime.get(pluginId);
+    if (!plugin || !runtime) {
+      return;
+    }
+    const cutoff = crash.time - PLUGIN_CRASH_QUARANTINE_WINDOW_MS;
+    const history = [...(this.crashHistory.get(pluginId) ?? []), crash.time].filter(
+      (time) => time >= cutoff,
+    );
+    this.crashHistory.set(pluginId, history);
+    const crashedRuntime: PluginRuntimeInfo = {
+      ...runtime,
+      crashCount: runtime.crashCount + 1,
+      lastCrashAt: crash.time,
+      lastCrashError: crash.message,
+      error: crash.message,
+    };
+    this.runtime.set(pluginId, crashedRuntime);
+
+    if (
+      !plugin.manifest.builtin &&
+      runtime.enabled &&
+      history.length >= PLUGIN_CRASH_QUARANTINE_THRESHOLD
+    ) {
+      await this.stop(pluginId).catch(() => {});
+      const stopped = this.runtime.get(pluginId) ?? crashedRuntime;
+      const reason = `${history.length} crashes within ${PLUGIN_CRASH_QUARANTINE_WINDOW_MS / 1000}s`;
+      const quarantined: PluginRuntimeInfo = {
+        ...stopped,
+        enabled: false,
+        status: 'quarantined',
+        error: crash.message,
+        crashCount: crashedRuntime.crashCount,
+        lastCrashAt: crash.time,
+        lastCrashError: crash.message,
+        quarantinedAt: crash.time,
+        quarantineReason: reason,
+      };
+      this.runtime.set(pluginId, quarantined);
+      await this.saveRuntimeState(pluginId, quarantined);
+      this.publishPluginEvent(pluginId, 'runtime.quarantined', {
+        reason,
+        crashCount: quarantined.crashCount,
+        lastCrashError: crash.message,
+      });
+      return;
+    }
+    await this.saveRuntimeState(pluginId, crashedRuntime);
+  }
+
+  async listPluginRuntimeHealth(): Promise<PluginRuntimeHealth[]> {
+    return Promise.all(
+      [...this.plugins.values()].map(async (plugin) => {
+        const runtime = this.runtime.get(plugin.manifest.id)!;
+        const isolation = plugin.manifest.execution?.isolation ?? 'in-process';
+        let processHealth: PluginProcessHealthSnapshot | undefined;
+        try {
+          processHealth = await plugin.getRuntimeHealth?.();
+        } catch {
+          processHealth = undefined;
+        }
+        const defaultState: PluginProcessHealthSnapshot['state'] =
+          runtime.status === 'started'
+            ? 'running'
+            : runtime.status === 'failed'
+              ? 'crashed'
+              : 'stopped';
+        return {
+          pluginId: plugin.manifest.id,
+          isolation,
+          enabled: runtime.enabled,
+          state: processHealth?.state ?? defaultState,
+          pid: processHealth?.pid,
+          startedAt: processHealth?.startedAt ?? runtime.startedAt,
+          lastOperationAt: processHealth?.lastOperationAt,
+          restartCount: processHealth?.restartCount ?? 0,
+          pendingOperations: processHealth?.pendingOperations ?? 0,
+          openStreams: processHealth?.openStreams ?? 0,
+          stderrBytes: processHealth?.stderrBytes ?? 0,
+          operationTimeoutMs:
+            processHealth?.operationTimeoutMs ??
+            plugin.manifest.execution?.operationTimeoutMs ??
+            plugin.manifest.execution?.commandTimeoutMs ??
+            30_000,
+          memoryLimitMb:
+            processHealth?.memoryLimitMb ?? plugin.manifest.execution?.memoryLimitMb ?? 0,
+          maxStderrBytes:
+            processHealth?.maxStderrBytes ?? plugin.manifest.execution?.maxStderrBytes ?? 0,
+          lastCrashAt: processHealth?.lastCrashAt ?? runtime.lastCrashAt,
+          lastCrashError: processHealth?.lastCrashError ?? runtime.lastCrashError,
+          metrics: processHealth?.metrics,
+          crashCount: runtime.crashCount,
+          quarantinedAt: runtime.quarantinedAt,
+          quarantineReason: runtime.quarantineReason,
+        };
+      }),
+    );
   }
 
   listUiExtensions(): PluginUiExtension[] {
@@ -1100,9 +1256,10 @@ export class PluginRegistry {
       await this.configWriter?.save(pluginId, config);
       this.configs.set(pluginId, config);
     } catch (error) {
+      const current = this.runtime.get(pluginId) ?? runtime;
       this.runtime.set(pluginId, {
-        ...runtime,
-        status: 'failed',
+        ...current,
+        status: current.status === 'quarantined' ? 'quarantined' : 'failed',
         error: error instanceof Error ? error.message : String(error),
       });
       throw error;
@@ -1119,13 +1276,23 @@ export class PluginRegistry {
     if (plugin.manifest.builtin) {
       throw new PluginOperationError(400, `Built-in plugin cannot be toggled: ${pluginId}`);
     }
-    this.runtime.set(pluginId, {
+    this.crashHistory.delete(pluginId);
+    const enabledRuntime: PluginRuntimeInfo = {
       ...runtime,
       enabled: true,
-      status: runtime.status === 'disabled' ? 'registered' : runtime.status,
+      status:
+        runtime.status === 'disabled' || runtime.status === 'quarantined'
+          ? 'registered'
+          : runtime.status,
       error: undefined,
-    });
-    await this.stateWriter?.saveEnabled(pluginId, true);
+      crashCount: 0,
+      lastCrashAt: undefined,
+      lastCrashError: undefined,
+      quarantinedAt: undefined,
+      quarantineReason: undefined,
+    };
+    this.runtime.set(pluginId, enabledRuntime);
+    await this.saveRuntimeState(pluginId, enabledRuntime);
     await this.start(pluginId);
     const updated = this.runtime.get(pluginId);
     if (!updated) {
@@ -1145,13 +1312,16 @@ export class PluginRegistry {
     }
     await this.stop(pluginId);
     const stopped = this.runtime.get(pluginId) ?? runtime;
-    this.runtime.set(pluginId, {
+    const disabledRuntime: PluginRuntimeInfo = {
       ...stopped,
       enabled: false,
       status: 'disabled',
       error: undefined,
-    });
-    await this.stateWriter?.saveEnabled(pluginId, false);
+      quarantinedAt: undefined,
+      quarantineReason: undefined,
+    };
+    this.runtime.set(pluginId, disabledRuntime);
+    await this.saveRuntimeState(pluginId, disabledRuntime);
     return cloneRuntimeInfo(this.runtime.get(pluginId)!);
   }
 
@@ -1180,16 +1350,20 @@ export class PluginRegistry {
     const config = reloaded.config
       ? validatePluginConfigValues(reloaded.config, manifest.config, { partial: true })
       : (this.configs.get(pluginId) ?? defaultPluginConfig(manifest.config));
+    const enabled = oldRuntime.status === 'quarantined' ? true : oldRuntime.enabled;
     this.plugins.set(pluginId, { ...reloaded.plugin, manifest });
     this.configs.set(pluginId, config);
+    this.crashHistory.delete(pluginId);
     this.runtime.set(pluginId, {
       manifest,
-      enabled: oldRuntime.enabled,
-      status: oldRuntime.enabled ? 'registered' : 'disabled',
+      enabled,
+      status: enabled ? 'registered' : 'disabled',
       registeredAt: oldRuntime.registeredAt,
       stoppedAt: Date.now(),
+      crashCount: 0,
     });
-    if (oldRuntime.enabled) {
+    await this.saveRuntimeState(pluginId, this.runtime.get(pluginId)!);
+    if (enabled) {
       await this.start(pluginId);
     }
     return cloneRuntimeInfo(this.runtime.get(pluginId)!);
@@ -1606,9 +1780,10 @@ export class PluginRegistry {
         error: undefined,
       });
     } catch (error) {
+      const current = this.runtime.get(id) ?? runtime;
       this.runtime.set(id, {
-        ...runtime,
-        status: 'failed',
+        ...current,
+        status: current.status === 'quarantined' ? 'quarantined' : 'failed',
         error: error instanceof Error ? error.message : String(error),
       });
       throw error;
@@ -1825,6 +2000,23 @@ export class PluginRegistry {
     return provider;
   }
 
+  private async saveRuntimeState(pluginId: string, runtime: PluginRuntimeInfo): Promise<void> {
+    if (this.stateWriter?.saveRuntimeState) {
+      await this.stateWriter.saveRuntimeState(pluginId, {
+        enabled: runtime.enabled,
+        quarantined: runtime.status === 'quarantined',
+        quarantineReason: runtime.quarantineReason,
+        crashCount: runtime.crashCount,
+        lastCrashAt: runtime.lastCrashAt,
+        lastCrashError: runtime.lastCrashError,
+        quarantinedAt: runtime.quarantinedAt,
+        recentCrashTimes: this.crashHistory.get(pluginId) ?? [],
+      });
+      return;
+    }
+    await this.stateWriter?.saveEnabled(pluginId, runtime.enabled);
+  }
+
   private async stop(id: string): Promise<void> {
     const plugin = this.plugins.get(id);
     const runtime = this.runtime.get(id);
@@ -1841,9 +2033,10 @@ export class PluginRegistry {
         error: undefined,
       });
     } catch (error) {
+      const current = this.runtime.get(id) ?? runtime;
       this.runtime.set(id, {
-        ...runtime,
-        status: 'failed',
+        ...current,
+        status: current.status === 'quarantined' ? 'quarantined' : 'failed',
         error: error instanceof Error ? error.message : String(error),
       });
       throw error;

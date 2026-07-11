@@ -5,6 +5,11 @@ import type { PluginConfig } from '../core/plugin-config.js';
 import type { PluginEvent } from '../core/plugin-events.js';
 import type { PluginManifest } from '../core/plugins.js';
 import type { EntityExecSession, EntityRef } from '../core/operations.js';
+import type {
+  PluginProcessHealthSnapshot,
+  PluginProcessMetrics,
+  PluginProcessState,
+} from '../core/plugin-runtime.js';
 import { createPluginHostApi, type PluginHostApi } from './hostApi.js';
 import type { PluginSecretStore } from './secretStore.js';
 import type {
@@ -128,6 +133,11 @@ export class PluginProcessSandbox {
   private stderrBytes = 0;
   private stderrTail = '';
   private restartCount = 0;
+  private processState: PluginProcessState = 'stopped';
+  private startedAt?: number;
+  private lastOperationAt?: number;
+  private lastCrashAt?: number;
+  private lastCrashError?: string;
   private disposed = false;
   private pluginStarted = false;
 
@@ -182,6 +192,37 @@ export class PluginProcessSandbox {
   async request<T>(operation: SandboxRequestOperation): Promise<T> {
     await this.ensureInitialized();
     return this.sendRequest<T>(operation);
+  }
+
+  async getRuntimeHealth(): Promise<PluginProcessHealthSnapshot> {
+    let metrics: PluginProcessMetrics | undefined;
+    if (this.child?.connected) {
+      try {
+        metrics = await this.sendRequest<PluginProcessMetrics>(
+          { type: 'runtimeMetrics' },
+          1000,
+          false,
+        );
+      } catch {
+        // The crash/timeout path updates the process snapshot.
+      }
+    }
+    return {
+      state: this.processState,
+      pid: this.child?.pid,
+      startedAt: this.startedAt,
+      lastOperationAt: this.lastOperationAt,
+      restartCount: this.restartCount,
+      pendingOperations: this.pending.size,
+      openStreams: this.streams.size,
+      stderrBytes: this.stderrBytes,
+      operationTimeoutMs: this.options.timeoutMs ?? 30_000,
+      memoryLimitMb: this.options.memoryLimitMb ?? 128,
+      maxStderrBytes: this.options.maxStderrBytes ?? 64_000,
+      lastCrashAt: this.lastCrashAt,
+      lastCrashError: this.lastCrashError,
+      metrics,
+    };
   }
 
   openStream(
@@ -283,6 +324,7 @@ export class PluginProcessSandbox {
     })
       .then(async (descriptor) => {
         this.descriptor = descriptor;
+        this.processState = 'running';
         if (this.pluginStarted) {
           await this.sendRequest({ type: 'configure', config: this.options.config });
           await this.sendRequest({ type: 'start' });
@@ -299,6 +341,8 @@ export class PluginProcessSandbox {
     const workerPath = sandboxWorkerPath();
     this.stderrBytes = 0;
     this.stderrTail = '';
+    this.processState = 'starting';
+    this.startedAt = Date.now();
     const child = fork(workerPath, [], {
       stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
       execArgv: sandboxExecArgv(workerPath, this.options.memoryLimitMb ?? 128),
@@ -332,7 +376,11 @@ export class PluginProcessSandbox {
     });
   }
 
-  private sendRequest<T>(operation: SandboxRequestOperation): Promise<T> {
+  private sendRequest<T>(
+    operation: SandboxRequestOperation,
+    timeoutMs = this.options.timeoutMs ?? 30_000,
+    terminateOnTimeout = true,
+  ): Promise<T> {
     const child = this.child;
     if (!child?.connected) {
       return Promise.reject(
@@ -344,11 +392,13 @@ export class PluginProcessSandbox {
       const timeout = setTimeout(() => {
         this.pending.delete(requestId);
         const error = new Error(
-          `Plugin operation "${operation.type}" timed out after ${this.options.timeoutMs ?? 30_000}ms`,
+          `Plugin operation "${operation.type}" timed out after ${timeoutMs}ms`,
         );
         reject(error);
-        this.terminate(error);
-      }, this.options.timeoutMs ?? 30_000);
+        if (terminateOnTimeout) {
+          this.terminate(error);
+        }
+      }, timeoutMs);
       this.pending.set(requestId, {
         operation: operation.type,
         resolve: (result) => resolve(result as T),
@@ -391,6 +441,7 @@ export class PluginProcessSandbox {
       if (raw.type === 'error') {
         pending.reject(new Error(raw.message));
       } else {
+        this.lastOperationAt = Date.now();
         pending.resolve(raw.result);
       }
       return;
@@ -493,6 +544,9 @@ export class PluginProcessSandbox {
     const child = this.child;
     this.child = undefined;
     this.initializing = undefined;
+    this.processState = 'crashed';
+    this.lastCrashAt = Date.now();
+    this.lastCrashError = error.message;
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timeout);
       pending.reject(error);
@@ -518,6 +572,7 @@ export class PluginProcessSandbox {
     const child = this.child;
     this.child = undefined;
     this.initializing = undefined;
+    this.processState = 'stopped';
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timeout);
       pending.reject(new Error(`Plugin process stopped: ${this.options.manifest.id}`));

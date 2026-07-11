@@ -23,6 +23,7 @@ DOCKSCOPE_PLUGIN_EVENTS=./plugin-events.json dockscope up
 DOCKSCOPE_PLUGIN_APPROVALS=./plugin-approvals.json dockscope up
 DOCKSCOPE_PLUGIN_CATALOG=./plugin-catalog.json dockscope up
 DOCKSCOPE_PLUGIN_CATALOG_PUBLIC_KEY="$(cat ./keys/catalog.public.pem)" dockscope up
+DOCKSCOPE_PLUGIN_CATALOG_TRUST="$(cat ./keys/catalog-trust.json)" dockscope up
 DOCKSCOPE_PLUGIN_REGISTRY=./installed-plugins dockscope up
 DOCKSCOPE_PLUGIN_ALLOW_UNSIGNED=1 dockscope up
 DOCKSCOPE_DISABLE_EXTERNAL_PLUGINS=1 dockscope up
@@ -30,7 +31,7 @@ DOCKSCOPE_DISABLE_EXTERNAL_PLUGINS=1 dockscope up
 
 `DOCKSCOPE_PLUGIN_PATHS` uses the platform path delimiter (`:` on Linux/macOS, `;` on Windows). Each entry can be either a plugin directory containing `plugin.json` or a directory containing multiple plugin directories. The local registry is `~/.dockscope/plugins` by default and is included automatically unless external plugins are disabled.
 
-`DOCKSCOPE_PLUGIN_CATALOG_PUBLIC_KEY` contains an Ed25519 public key PEM used to verify the whole catalog file. `DOCKSCOPE_PLUGIN_ALLOW_UNSIGNED=1` is intended for local development only; by default marketplace installs require each catalog entry to include an Ed25519 package signature.
+`DOCKSCOPE_PLUGIN_CATALOG_PUBLIC_KEY` contains one pinned Ed25519 public key PEM. `DOCKSCOPE_PLUGIN_CATALOG_TRUST` contains a JSON trust store when catalog signing keys need overlap or revocation. Use one mechanism or configure both during migration. `DOCKSCOPE_PLUGIN_ALLOW_UNSIGNED=1` is intended for local development only; by default marketplace installs require each catalog entry to include an Ed25519 package signature.
 
 ## Manifest
 
@@ -386,7 +387,13 @@ npm run plugins:catalog -- \
   --catalog-key-id official-catalog
 ```
 
-The script packages every directory under `plugins/official`, writes package artifacts under `dist/plugin-catalog/packages`, writes `dist/plugin-catalog/catalog.json`, and signs the catalog when a catalog private key is provided.
+The script packages every directory under `plugins/official`, writes package artifacts under `dist/plugin-catalog/packages`, writes `catalog.json` and `catalog-trust.json`, and signs the catalog when a catalog private key is provided. Pass `--package-trust-policy <file>` to carry previous package keys and package revocations, and `--catalog-trust-store <file>` to carry overlapping catalog signer keys. The equivalent CI variables are `DOCKSCOPE_PLUGIN_PACKAGE_TRUST_POLICY` and `DOCKSCOPE_PLUGIN_CATALOG_TRUST_STORE`.
+
+Set `SOURCE_DATE_EPOCH` to a Unix timestamp to make `updatedAt`, default `publishedAt`, packages, signatures, and catalog files reproducible from identical inputs:
+
+```bash
+SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" npm run plugins:catalog -- --out dist/plugin-catalog
+```
 
 ### Official catalog releases
 
@@ -396,6 +403,8 @@ Configure these GitHub Actions secrets before releasing:
 
 - `PLUGIN_PACKAGE_PRIVATE_KEY`: Ed25519 private key used to sign plugin packages.
 - `PLUGIN_CATALOG_PRIVATE_KEY`: Ed25519 private key used to sign the catalog metadata.
+- `PLUGIN_PACKAGE_TRUST_POLICY`: optional JSON with overlapping package keys and revocations.
+- `PLUGIN_CATALOG_TRUST_STORE`: optional JSON with overlapping catalog signing keys and revocations.
 
 Generate each pair with `dockscope plugin:keys`. Keep private keys outside the repository and retain them between releases. The catalog builder derives and publishes `package.public.pem` and `catalog.public.pem`; it also accepts the corresponding `DOCKSCOPE_PLUGIN_*_PRIVATE_KEY` environment variables in CI. Release builds use `--require-signatures` and fail closed when either secret is absent.
 
@@ -410,6 +419,18 @@ A plugin catalog is a signed-package index. It can be a local JSON file or an HT
   "format": "dockscope-plugin-catalog/v1",
   "name": "Official DockScope Plugins",
   "updatedAt": "2026-07-10T19:00:00.000Z",
+  "trust": {
+    "packageKeys": [
+      {
+        "algorithm": "ed25519",
+        "keyId": "maintainer-2",
+        "publicKey": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----\n",
+        "status": "active"
+      }
+    ],
+    "revokedPackageKeyIds": [],
+    "revokedPackages": []
+  },
   "signature": {
     "algorithm": "ed25519",
     "value": "catalog-signature-base64",
@@ -442,8 +463,7 @@ A plugin catalog is a signed-package index. It can be a local JSON file or an HT
       "packageSha256": "package-bundle-sha256-from-plugin-pack",
       "signature": {
         "algorithm": "ed25519",
-        "publicKey": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----\n",
-        "keyId": "maintainer-1"
+        "keyId": "maintainer-2"
       }
     }
   ]
@@ -454,12 +474,38 @@ Package signatures and catalog signatures are separate:
 
 - Each entry `signature` verifies the downloaded plugin package.
 - The top-level `signature` verifies the catalog contents and entry metadata.
+- The signed top-level `trust` policy resolves package `keyId` values and rejects revoked package keys, versions, or SHA-256 hashes.
 - `dockscope plugin:catalog:sign --catalog ./plugin-catalog.json --private-key ./keys/catalog.private.pem --key-id catalog-1` signs the catalog in place.
 - `--plugin-catalog-public-key ./keys/catalog.public.pem` or `DOCKSCOPE_PLUGIN_CATALOG_PUBLIC_KEY` makes catalog verification strict. Unsigned catalogs or mismatched signatures are rejected.
 
-Use `dockscope plugin:catalog --catalog ./plugin-catalog.json --public-key ./keys/catalog.public.pem` to inspect a signed catalog and `dockscope plugin:catalog:install <pluginId> --catalog ./plugin-catalog.json --catalog-public-key ./keys/catalog.public.pem` to install from it. When DockScope is started with `--plugin-catalog`, the Plugin Manager Marketplace tab can install, update, and uninstall catalog plugins in the configured local registry. Install and update actions open a review step with package signature, package hash, capabilities, permissions, compatibility range, target registry, installed version, and release notes.
+Use `dockscope plugin:catalog --catalog ./plugin-catalog.json --trust ./keys/catalog-trust.json` to inspect a signed catalog and `dockscope plugin:catalog:install <pluginId> --catalog ./plugin-catalog.json --catalog-trust ./keys/catalog-trust.json` to install from it. The legacy single-key options remain available. When DockScope is started with `--plugin-catalog`, the Plugin Manager Marketplace tab can install, update, and uninstall catalog plugins in the configured local registry. Install and update actions open a review step with package signature, package hash, capabilities, permissions, compatibility range, target registry, installed version, and release notes.
 
-Marketplace installs reject `yanked` entries, incompatible entries, hash mismatches, and unsigned package entries by default. Use `--allow-unsigned-plugins`, `DOCKSCOPE_PLUGIN_ALLOW_UNSIGNED=1`, or `dockscope plugin:catalog:install --allow-unsigned` only for local development catalogs.
+The local catalog signer trust store is deliberately outside the signed catalog, so a compromised catalog signer cannot un-revoke itself:
+
+```json
+{
+  "format": "dockscope-plugin-catalog-trust/v1",
+  "keys": [
+    {
+      "algorithm": "ed25519",
+      "keyId": "catalog-1",
+      "publicKey": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----\n",
+      "status": "retiring"
+    },
+    {
+      "algorithm": "ed25519",
+      "keyId": "catalog-2",
+      "publicKey": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----\n",
+      "status": "active"
+    }
+  ],
+  "revokedKeyIds": []
+}
+```
+
+For package-key rotation, publish both keys in the signed catalog policy, mark the old key `retiring`, start signing packages with the new key, then add the old id to `revokedPackageKeyIds` after the migration window. For catalog-root rotation, distribute a local trust store containing both signer keys before switching the catalog signature; remove or revoke the old signer only after clients have received the new root. Emergency package revocations may target a plugin id, version, SHA-256, or any combination.
+
+Marketplace installs reject `yanked` entries, incompatible entries, hash mismatches, untrusted or revoked keys, revoked packages, and unsigned package entries by default. Package contents are fully verified in a staging directory, then the plugin directory and registry index are activated atomically. A failed activation restores the previous version. Use `--allow-unsigned-plugins`, `DOCKSCOPE_PLUGIN_ALLOW_UNSIGNED=1`, or `dockscope plugin:catalog:install --allow-unsigned` only for local development catalogs.
 
 Marketplace entries can include `iconUrl`, `screenshots`, `repositoryUrl`, `readmeUrl`, and inline `readme` text. DockScope renders screenshots and inline README content in the install/update review panel.
 
@@ -659,6 +705,7 @@ Current permissions are:
 Use these endpoints to inspect plugin state:
 
 - `GET /api/plugins` returns registered plugins and lifecycle status.
+- `GET /api/plugins/health` returns process state, PID, uptime, CPU, memory, pending work, restart count, crash history, and quarantine state.
 - `GET /api/plugins/errors` returns external plugin manifest, permission, load, and register failures.
 - `GET /api/plugins/warnings` returns non-blocking manifest deprecation and compatibility warnings.
 - `GET /api/plugins/ui` returns frontend extension descriptors.
@@ -678,6 +725,8 @@ Use these endpoints to inspect plugin state:
 - `POST /api/plugins/:pluginId/migrate` runs a declared compatibility migration.
 - `POST /api/plugins/:pluginId/approve` approves the current plugin fingerprint.
 - `POST /api/plugins/:pluginId/revoke-approval` revokes approval.
+
+External process runtimes are quarantined after three crashes within 60 seconds. Quarantine stops and disables the plugin, persists the reason across restarts, and publishes a `runtime.quarantined` event. Explicitly enabling or reloading the plugin clears the quarantine and starts a fresh crash window.
 - `GET /api/plugins/config` returns config schemas and current values.
 - `PUT /api/plugins/:pluginId/config` updates plugin config.
 - `GET /api/plugins/secrets` returns declared secret status without values.

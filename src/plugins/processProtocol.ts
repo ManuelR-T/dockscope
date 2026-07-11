@@ -71,6 +71,7 @@ export type SandboxRequestOperation =
   | { type: 'start' }
   | { type: 'stop' }
   | { type: 'runCommand'; commandId: string; input?: unknown }
+  | { type: 'runtimeMetrics' }
   | { type: 'collectGraph'; sourceId: string }
   | { type: 'listSystems'; providerIndex: number }
   | { type: 'listConnections'; providerIndex: number }

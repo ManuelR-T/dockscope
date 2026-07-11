@@ -25,6 +25,7 @@ import { createPluginPackageFromPath, verifyPluginPackage } from './plugins/pack
 import {
   installPluginFromCatalog,
   loadPluginCatalog,
+  parsePluginCatalogTrustStore,
   signPluginCatalogFile,
 } from './plugins/catalog.js';
 
@@ -365,6 +366,10 @@ program
     '--plugin-catalog-public-key <file>',
     'Verify signed plugin catalogs with this public key',
   )
+  .option(
+    '--plugin-catalog-trust <file>',
+    'Catalog signer trust store with rotation and revocation policy',
+  )
   .option('--plugin-registry <dir>', 'Local plugin registry directory')
   .option('--allow-unsigned-plugins', 'Allow marketplace installs from unsigned catalog entries')
   .option('--no-external-plugins', 'Disable external plugin loading')
@@ -398,6 +403,7 @@ program
       pluginApprovals: opts.pluginApprovals,
       pluginCatalog: opts.pluginCatalog,
       pluginCatalogPublicKey: await readOptionalTextFile(opts.pluginCatalogPublicKey),
+      pluginCatalogTrust: await readOptionalTextFile(opts.pluginCatalogTrust),
       pluginRegistry: opts.pluginRegistry,
       allowUnsignedPlugins: opts.allowUnsignedPlugins === true,
       disableExternalPlugins: opts.externalPlugins === false,
@@ -558,6 +564,10 @@ program
     '--plugin-catalog-public-key <file>',
     'Verify signed plugin catalogs with this public key',
   )
+  .option(
+    '--plugin-catalog-trust <file>',
+    'Catalog signer trust store with rotation and revocation policy',
+  )
   .option('--plugin-registry <dir>', 'Local plugin registry directory')
   .option('--allow-unsigned-plugins', 'Allow marketplace installs from unsigned catalog entries')
   .option('--no-open', "Don't open browser automatically")
@@ -580,6 +590,7 @@ program
       pluginApprovals: opts.pluginApprovals,
       pluginCatalog: opts.pluginCatalog,
       pluginCatalogPublicKey: await readOptionalTextFile(opts.pluginCatalogPublicKey),
+      pluginCatalogTrust: await readOptionalTextFile(opts.pluginCatalogTrust),
       pluginRegistry: opts.pluginRegistry,
       allowUnsignedPlugins: opts.allowUnsignedPlugins === true,
     });
@@ -601,6 +612,7 @@ program
   )
   .option('--catalog <source>', 'Catalog JSON file or URL')
   .option('--catalog-public-key <file>', 'Verify catalog signature with this public key')
+  .option('--catalog-trust <file>', 'Catalog signer trust store JSON file')
   .action(async (opts) => {
     let ok = true;
     if (opts.plugins) {
@@ -610,6 +622,9 @@ program
       try {
         const catalog = await loadPluginCatalog(opts.catalog, {
           publicKey: await readOptionalTextFile(opts.catalogPublicKey),
+          trustStore: opts.catalogTrust
+            ? parsePluginCatalogTrustStore(await readRequiredTextFile(opts.catalogTrust))
+            : undefined,
         });
         console.log(
           `  catalog ok ${catalog.name} (${catalog.entries.length} entries${catalog.signatureVerified ? ', signed' : ''})`,
@@ -696,9 +711,13 @@ program
   .description('List plugins from a DockScope plugin catalog')
   .requiredOption('--catalog <source>', 'Catalog JSON file or URL')
   .option('--public-key <file>', 'Verify catalog signature with this Ed25519 public key PEM file')
+  .option('--trust <file>', 'Catalog signer trust store JSON file')
   .action(async (opts) => {
     const catalog = await loadPluginCatalog(opts.catalog, {
       publicKey: await readOptionalTextFile(opts.publicKey),
+      trustStore: opts.trust
+        ? parsePluginCatalogTrustStore(await readRequiredTextFile(opts.trust))
+        : undefined,
     });
     console.log(`  ${catalog.name}${catalog.signatureVerified ? ' (signature verified)' : ''}`);
     for (const entry of catalog.entries) {
@@ -777,6 +796,7 @@ program
   .requiredOption('--catalog <source>', 'Catalog JSON file or URL')
   .option('--registry-dir <path>', 'Local plugin registry directory')
   .option('--catalog-public-key <file>', 'Verify catalog signature with this public key')
+  .option('--catalog-trust <file>', 'Catalog signer trust store JSON file')
   .option('--allow-unsigned', 'Allow installing unsigned catalog entries')
   .action(async (pluginId: string, opts) => {
     const installed = await installPluginFromCatalog({
@@ -784,6 +804,9 @@ program
       pluginId,
       registryDir: opts.registryDir,
       catalogPublicKey: await readOptionalTextFile(opts.catalogPublicKey),
+      catalogTrustStore: opts.catalogTrust
+        ? parsePluginCatalogTrustStore(await readRequiredTextFile(opts.catalogTrust))
+        : undefined,
       allowUnsigned: opts.allowUnsigned === true,
     });
     console.log(`  installed ${installed.id} v${installed.version}`);

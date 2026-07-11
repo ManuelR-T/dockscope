@@ -7,7 +7,11 @@ import { PluginEventError } from '../core/plugin-events.js';
 import { EntityActionError } from '../core/entity-actions.js';
 import { PluginConnectionError } from '../core/plugin-connections.js';
 import { PluginCompatibilityError } from '../core/plugin-compatibility.js';
-import { loadPluginCatalog, PluginCatalogError } from '../plugins/catalog.js';
+import {
+  loadPluginCatalog,
+  parsePluginCatalogTrustStore,
+  PluginCatalogError,
+} from '../plugins/catalog.js';
 import type { PluginMarketplaceService } from '../plugins/marketplace.js';
 import type { EntityRef } from '../core/operations.js';
 import type { GraphData, ServerOptions, ServiceNode } from '../types.js';
@@ -472,6 +476,13 @@ export function setupRoutes(
     res.json(plugins.listPluginWarnings());
   });
 
+  app.get(
+    '/api/plugins/health',
+    asyncRoute(async (_req, res) => {
+      res.json(await plugins.listPluginRuntimeHealth());
+    }),
+  );
+
   app.get('/api/plugins/ui', (_req, res) => {
     res.json(plugins.listUiExtensions());
   });
@@ -534,6 +545,12 @@ export function setupRoutes(
         opts.pluginCatalog ?? (process.env.DOCKSCOPE_PLUGIN_CATALOG as string),
         {
           publicKey: opts.pluginCatalogPublicKey ?? process.env.DOCKSCOPE_PLUGIN_CATALOG_PUBLIC_KEY,
+          trustStore:
+            (opts.pluginCatalogTrust ?? process.env.DOCKSCOPE_PLUGIN_CATALOG_TRUST)
+              ? parsePluginCatalogTrustStore(
+                  (opts.pluginCatalogTrust ?? process.env.DOCKSCOPE_PLUGIN_CATALOG_TRUST) as string,
+                )
+              : undefined,
         },
       );
       res.json({ configured: true, ...catalog });

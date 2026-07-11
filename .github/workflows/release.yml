@@ -107,8 +107,10 @@ jobs:
         env:
           DOCKSCOPE_PLUGIN_PACKAGE_PRIVATE_KEY: ${{ secrets.PLUGIN_PACKAGE_PRIVATE_KEY }}
           DOCKSCOPE_PLUGIN_CATALOG_PRIVATE_KEY: ${{ secrets.PLUGIN_CATALOG_PRIVATE_KEY }}
+          DOCKSCOPE_PLUGIN_PACKAGE_TRUST_POLICY: ${{ secrets.PLUGIN_PACKAGE_TRUST_POLICY }}
+          DOCKSCOPE_PLUGIN_CATALOG_TRUST_STORE: ${{ secrets.PLUGIN_CATALOG_TRUST_STORE }}
         run: >-
-          npm run plugins:catalog --
+          env SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" npm run plugins:catalog --
           --out dist/plugin-pages/plugins
           --base-url https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/plugins/
           --package-key-id official-package-v1
@@ -142,6 +144,7 @@ jobs:
           files: |
             dist/plugin-pages/plugins/catalog.json
             dist/plugin-pages/plugins/catalog.public.pem
+            dist/plugin-pages/plugins/catalog-trust.json
             dist/plugin-pages/plugins/package.public.pem
             dist/plugin-pages/plugins/packages/*.dockscope-plugin
 

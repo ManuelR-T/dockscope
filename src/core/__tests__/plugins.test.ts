@@ -1,6 +1,7 @@
 import { PassThrough } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  PLUGIN_CRASH_QUARANTINE_THRESHOLD,
   PluginManifestError,
   PluginRegistry,
   validatePluginManifest,
@@ -78,6 +79,117 @@ describe('PluginRegistry', () => {
     await registry.stopAll();
     expect(stop).toHaveBeenCalledOnce();
     expect(registry.listPlugins()[0].status).toBe('stopped');
+  });
+
+  it('quarantines crash-looping external plugins and recovers on explicit enable', async () => {
+    const start = vi.fn();
+    const stop = vi.fn();
+    const saveRuntimeState = vi.fn();
+    const stateWriter: PluginStateWriter = {
+      saveEnabled: vi.fn(),
+      saveRuntimeState,
+    };
+    const registry = new PluginRegistry(undefined, stateWriter);
+    registry.register(
+      plugin({
+        manifest: {
+          id: 'test.unstable',
+          name: 'Unstable',
+          version: '1.0.0',
+          ...TEST_API_VERSIONS,
+          capabilities: ['ui.command'],
+          permissions: [],
+          execution: { isolation: 'process', memoryLimitMb: 64 },
+        },
+        start,
+        stop,
+        getRuntimeHealth: async () => ({
+          state: 'stopped',
+          restartCount: PLUGIN_CRASH_QUARANTINE_THRESHOLD,
+          pendingOperations: 0,
+          openStreams: 0,
+          stderrBytes: 128,
+          operationTimeoutMs: 5000,
+          memoryLimitMb: 64,
+          maxStderrBytes: 1000,
+        }),
+      }),
+    );
+    await registry.startAll();
+
+    for (let index = 0; index < PLUGIN_CRASH_QUARANTINE_THRESHOLD; index += 1) {
+      await registry.recordRuntimeCrash('test.unstable', {
+        message: `crash ${index + 1}`,
+        restartCount: index + 1,
+        time: 10_000 + index,
+      });
+    }
+
+    expect(registry.listPlugins()[0]).toMatchObject({
+      enabled: false,
+      status: 'quarantined',
+      crashCount: PLUGIN_CRASH_QUARANTINE_THRESHOLD,
+      quarantineReason: '3 crashes within 60s',
+    });
+    expect(stop).toHaveBeenCalledOnce();
+    await expect(registry.listPluginRuntimeHealth()).resolves.toEqual([
+      expect.objectContaining({
+        pluginId: 'test.unstable',
+        state: 'stopped',
+        crashCount: PLUGIN_CRASH_QUARANTINE_THRESHOLD,
+        restartCount: PLUGIN_CRASH_QUARANTINE_THRESHOLD,
+        quarantinedAt: 10_002,
+      }),
+    ]);
+    expect(saveRuntimeState).toHaveBeenLastCalledWith(
+      'test.unstable',
+      expect.objectContaining({ enabled: false, quarantined: true, crashCount: 3 }),
+    );
+
+    await registry.enablePlugin('test.unstable');
+    expect(registry.listPlugins()[0]).toMatchObject({
+      enabled: true,
+      status: 'started',
+      crashCount: 0,
+      quarantineReason: undefined,
+    });
+    expect(start).toHaveBeenCalledTimes(2);
+  });
+
+  it('preserves a persisted crash window when startup itself crashes', async () => {
+    const now = Date.now();
+    const registry = new PluginRegistry();
+    const unstable = plugin({
+      manifest: {
+        id: 'test.persisted-crashes',
+        name: 'Persisted Crashes',
+        version: '1.0.0',
+        ...TEST_API_VERSIONS,
+        capabilities: ['ui.command'],
+        permissions: [],
+        execution: { isolation: 'process' },
+      },
+      start: async () => {
+        await registry.recordRuntimeCrash('test.persisted-crashes', {
+          message: 'startup crash',
+          restartCount: 3,
+          time: now,
+        });
+        throw new Error('startup crash');
+      },
+    });
+    registry.register(unstable, undefined, {
+      recentCrashTimes: [now - 2000, now - 1000],
+      crashCount: 2,
+    });
+
+    await expect(registry.startPlugin('test.persisted-crashes')).rejects.toThrow('startup crash');
+    expect(registry.listPlugins()[0]).toMatchObject({
+      enabled: false,
+      status: 'quarantined',
+      crashCount: 3,
+      lastCrashError: 'startup crash',
+    });
   });
 
   it('rejects duplicate plugin ids', () => {

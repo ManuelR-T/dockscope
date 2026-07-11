@@ -53,6 +53,9 @@ interface PendingHostCall {
 }
 
 let plugin: DockscopePlugin | undefined;
+let previousRuntimeMetrics:
+  | { cpuUserMicros: number; cpuSystemMicros: number; sampledAt: number }
+  | undefined;
 let hostCallSequence = 0;
 const pendingHostCalls = new Map<string, PendingHostCall>();
 const streamStops = new Map<string, () => void>();
@@ -366,6 +369,35 @@ async function handleOperation(operation: SandboxRequestOperation): Promise<unkn
       return validatePluginCommandResult(
         await instance.runCommand(operation.commandId, operation.input),
       ) satisfies PluginCommandResult;
+    }
+    case 'runtimeMetrics': {
+      const memory = process.memoryUsage();
+      const cpu = process.cpuUsage();
+      const sampledAt = Date.now();
+      const uptimeSeconds = process.uptime();
+      const elapsedMicros = previousRuntimeMetrics
+        ? (sampledAt - previousRuntimeMetrics.sampledAt) * 1000
+        : uptimeSeconds * 1_000_000;
+      const cpuMicros = previousRuntimeMetrics
+        ? cpu.user -
+          previousRuntimeMetrics.cpuUserMicros +
+          (cpu.system - previousRuntimeMetrics.cpuSystemMicros)
+        : cpu.user + cpu.system;
+      previousRuntimeMetrics = {
+        cpuUserMicros: cpu.user,
+        cpuSystemMicros: cpu.system,
+        sampledAt,
+      };
+      return {
+        rssBytes: memory.rss,
+        heapUsedBytes: memory.heapUsed,
+        heapTotalBytes: memory.heapTotal,
+        externalBytes: memory.external,
+        cpuUserMicros: cpu.user,
+        cpuSystemMicros: cpu.system,
+        cpuPercent: elapsedMicros > 0 ? Math.max(0, (cpuMicros / elapsedMicros) * 100) : 0,
+        uptimeSeconds,
+      };
     }
     case 'collectGraph': {
       const source = graphSources().find(

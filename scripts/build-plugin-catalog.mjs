@@ -47,6 +47,42 @@ async function readOptionalJson(filePath) {
   }
 }
 
+async function readConfiguredJson(options, optionName, envName) {
+  const filePath = options[optionName];
+  if (typeof filePath === 'string' && filePath.trim()) {
+    return JSON.parse(await readFile(path.resolve(projectRoot, filePath), 'utf-8'));
+  }
+  const serialized = process.env[envName]?.trim();
+  return serialized ? JSON.parse(serialized) : {};
+}
+
+function buildTimestamp(options) {
+  const configured = stringOption(options, 'timestamp', process.env.SOURCE_DATE_EPOCH);
+  if (configured === undefined) {
+    return new Date().toISOString();
+  }
+  if (!/^\d+$/.test(configured)) {
+    throw new Error('SOURCE_DATE_EPOCH and --timestamp must be Unix timestamps in seconds');
+  }
+  const date = new Date(Number.parseInt(configured, 10) * 1000);
+  if (!Number.isFinite(date.getTime())) {
+    throw new Error('SOURCE_DATE_EPOCH or --timestamp is outside the supported date range');
+  }
+  return date.toISOString();
+}
+
+function mergeTrustKeys(configuredKeys, currentKey) {
+  const keys = Array.isArray(configuredKeys)
+    ? configuredKeys.filter(
+        (key) => key && typeof key === 'object' && key.keyId !== currentKey?.keyId,
+      )
+    : [];
+  if (currentKey) {
+    keys.push(currentKey);
+  }
+  return keys.sort((left, right) => String(left.keyId).localeCompare(String(right.keyId)));
+}
+
 async function discoverPluginDirs(sourceDir) {
   const directManifest = path.join(sourceDir, 'plugin.json');
   try {
@@ -152,7 +188,7 @@ const packageDir = path.join(outDir, 'packages');
 const catalogPath = path.join(outDir, 'catalog.json');
 const catalogName = stringOption(options, 'catalog-name', 'DockScope Official Plugins');
 const baseUrl = stringOption(options, 'base-url', '');
-const now = new Date().toISOString();
+const now = buildTimestamp(options);
 
 const packagePrivateKey = await readKey(
   options,
@@ -174,6 +210,16 @@ const catalogPublicKey =
     : undefined);
 const packageKeyId = stringOption(options, 'package-key-id', 'official-package');
 const catalogKeyId = stringOption(options, 'catalog-key-id', 'official-catalog');
+const configuredPackageTrust = await readConfiguredJson(
+  options,
+  'package-trust-policy',
+  'DOCKSCOPE_PLUGIN_PACKAGE_TRUST_POLICY',
+);
+const configuredCatalogTrust = await readConfiguredJson(
+  options,
+  'catalog-trust-store',
+  'DOCKSCOPE_PLUGIN_CATALOG_TRUST_STORE',
+);
 
 if (options['require-signatures'] === true && (!packagePrivateKey || !catalogPrivateKey)) {
   throw new Error(
@@ -227,13 +273,14 @@ for (const pluginDir of pluginDirs) {
     permissions: bundle.manifest.permissions,
     packageUrl: packageUrl(baseUrl, artifactName),
     packageSha256: bundle.sha256,
-    signature: packagePublicKey
-      ? {
-          algorithm: 'ed25519',
-          publicKey: packagePublicKey,
-          keyId: packagePrivateKey ? packageKeyId : undefined,
-        }
-      : undefined,
+    signature:
+      packagePublicKey && bundle.signature?.algorithm === 'ed25519'
+        ? {
+            algorithm: 'ed25519',
+            publicKey: packagePublicKey,
+            keyId: bundle.signature.keyId,
+          }
+        : undefined,
   });
   console.log(`packed ${bundle.manifest.id} v${bundle.manifest.version}`);
 }
@@ -242,10 +289,31 @@ const catalog = {
   format: catalogModule.PLUGIN_CATALOG_FORMAT,
   name: catalogName,
   updatedAt: now,
+  trust: packagePublicKey
+    ? {
+        packageKeys: mergeTrustKeys(configuredPackageTrust.packageKeys, {
+          algorithm: 'ed25519',
+          keyId: packageKeyId,
+          publicKey: packagePublicKey,
+          status: 'active',
+        }),
+        revokedPackageKeyIds: Array.isArray(configuredPackageTrust.revokedPackageKeyIds)
+          ? [...configuredPackageTrust.revokedPackageKeyIds].sort()
+          : [],
+        revokedPackages: Array.isArray(configuredPackageTrust.revokedPackages)
+          ? [...configuredPackageTrust.revokedPackages].sort((left, right) =>
+              `${left.pluginId ?? ''}:${left.version ?? ''}:${left.sha256 ?? ''}`.localeCompare(
+                `${right.pluginId ?? ''}:${right.version ?? ''}:${right.sha256 ?? ''}`,
+              ),
+            )
+          : [],
+      }
+    : undefined,
   entries,
 };
+const validatedCatalog = catalogModule.validatePluginCatalog(catalog);
 await mkdir(outDir, { recursive: true });
-await writeFile(catalogPath, JSON.stringify(catalog, null, 2), 'utf-8');
+await writeFile(catalogPath, JSON.stringify(validatedCatalog, null, 2), 'utf-8');
 
 if (catalogPrivateKey) {
   await catalogModule.signPluginCatalogFile({
@@ -260,6 +328,23 @@ if (packagePublicKey) {
 }
 if (catalogPublicKey) {
   await writeFile(path.join(outDir, 'catalog.public.pem'), catalogPublicKey, 'utf-8');
+  const catalogTrustStore = catalogModule.validatePluginCatalogTrustStore({
+    format: catalogModule.PLUGIN_CATALOG_TRUST_STORE_FORMAT,
+    keys: mergeTrustKeys(configuredCatalogTrust.keys, {
+      algorithm: 'ed25519',
+      keyId: catalogKeyId,
+      publicKey: catalogPublicKey,
+      status: 'active',
+    }),
+    revokedKeyIds: Array.isArray(configuredCatalogTrust.revokedKeyIds)
+      ? [...configuredCatalogTrust.revokedKeyIds].sort()
+      : [],
+  });
+  await writeFile(
+    path.join(outDir, 'catalog-trust.json'),
+    JSON.stringify(catalogTrustStore, null, 2),
+    'utf-8',
+  );
 }
 
 console.log(`catalog ${catalogPath}`);

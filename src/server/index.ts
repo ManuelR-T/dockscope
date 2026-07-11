@@ -50,6 +50,9 @@ function pluginEnvironment(opts: ServerOptions): NodeJS.ProcessEnv {
   if (opts.pluginCatalogPublicKey !== undefined) {
     env.DOCKSCOPE_PLUGIN_CATALOG_PUBLIC_KEY = opts.pluginCatalogPublicKey;
   }
+  if (opts.pluginCatalogTrust !== undefined) {
+    env.DOCKSCOPE_PLUGIN_CATALOG_TRUST = opts.pluginCatalogTrust;
+  }
   if (opts.pluginRegistry !== undefined) {
     env.DOCKSCOPE_PLUGIN_REGISTRY = opts.pluginRegistry;
   }

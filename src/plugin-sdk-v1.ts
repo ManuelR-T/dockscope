@@ -86,6 +86,13 @@ export type {
   PluginConnectionProviderDescriptor,
   PluginConnectionStatus,
 } from './core/plugin-connections.js';
+export type {
+  PluginProcessHealthSnapshot,
+  PluginProcessMetrics,
+  PluginProcessState,
+  PluginRuntimeCrash,
+  PluginRuntimeHealth,
+} from './core/plugin-runtime.js';
 export {
   PluginConnectionError,
   validatePluginConnectionProvider,

@@ -5,6 +5,9 @@ import { validatePluginManifest, type PluginManifest } from '../core/plugins.js'
 import { validateExternalPluginManifests } from './loader.js';
 
 export const PLUGIN_PACKAGE_FORMAT = 'dockscope-plugin-package/v1';
+export const MAX_PLUGIN_PACKAGE_BYTES = 64 * 1024 * 1024;
+export const MAX_PLUGIN_PACKAGE_FILES = 10_000;
+export const MAX_PLUGIN_UNPACKED_BYTES = 256 * 1024 * 1024;
 
 export interface PluginPackageFile {
   path: string;
@@ -72,6 +75,7 @@ function isSafePackagePath(filePath: string): boolean {
   return (
     filePath.length > 0 &&
     !path.isAbsolute(filePath) &&
+    !filePath.includes('\\') &&
     !filePath.split(/[\\/]/).some((part) => part === '..' || part.length === 0)
   );
 }
@@ -119,9 +123,14 @@ function parsePackageBundle(raw: unknown): PluginPackageBundle {
   if (!Array.isArray(raw.files)) {
     throw new Error('Plugin package files must be an array');
   }
+  if (raw.files.length > MAX_PLUGIN_PACKAGE_FILES) {
+    throw new Error(`Plugin package contains more than ${MAX_PLUGIN_PACKAGE_FILES} files`);
+  }
   if (typeof raw.sha256 !== 'string') {
     throw new Error('Plugin package sha256 is required');
   }
+  const filePaths = new Set<string>();
+  let unpackedBytes = 0;
   const files = raw.files.map((file, index): PluginPackageFile => {
     if (!isRecord(file)) {
       throw new Error(`Plugin package file ${index} must be an object`);
@@ -136,25 +145,43 @@ function parsePackageBundle(raw: unknown): PluginPackageBundle {
     if (!isSafePackagePath(file.path)) {
       throw new Error(`Unsafe plugin package path: ${file.path}`);
     }
+    if (filePaths.has(file.path)) {
+      throw new Error(`Duplicate plugin package path: ${file.path}`);
+    }
+    filePaths.add(file.path);
+    const contents = Buffer.from(file.contentBase64, 'base64');
+    if (contents.toString('base64') !== file.contentBase64) {
+      throw new Error(`Plugin package file is not canonical base64: ${file.path}`);
+    }
+    unpackedBytes += contents.byteLength;
+    if (unpackedBytes > MAX_PLUGIN_UNPACKED_BYTES) {
+      throw new Error(`Plugin package expands beyond ${MAX_PLUGIN_UNPACKED_BYTES} bytes`);
+    }
     return {
       path: file.path,
       contentBase64: file.contentBase64,
       sha256: file.sha256,
     };
   });
-  const signature: PluginPackageSignature | undefined =
-    isRecord(raw.signature) &&
-    (raw.signature.algorithm === 'hmac-sha256' || raw.signature.algorithm === 'ed25519') &&
-    typeof raw.signature.value === 'string'
-      ? {
-          algorithm: raw.signature.algorithm,
-          value: raw.signature.value,
-          keyId:
-            typeof raw.signature.keyId === 'string' && raw.signature.keyId.trim()
-              ? raw.signature.keyId
-              : undefined,
-        }
-      : undefined;
+  if (
+    raw.signature !== undefined &&
+    (!isRecord(raw.signature) ||
+      (raw.signature.algorithm !== 'hmac-sha256' && raw.signature.algorithm !== 'ed25519') ||
+      typeof raw.signature.value !== 'string' ||
+      !raw.signature.value)
+  ) {
+    throw new Error('Plugin package signature is invalid');
+  }
+  const signature: PluginPackageSignature | undefined = isRecord(raw.signature)
+    ? {
+        algorithm: raw.signature.algorithm as PluginPackageSignature['algorithm'],
+        value: raw.signature.value as string,
+        keyId:
+          typeof raw.signature.keyId === 'string' && raw.signature.keyId.trim()
+            ? raw.signature.keyId
+            : undefined,
+      }
+    : undefined;
   return {
     format: PLUGIN_PACKAGE_FORMAT,
     manifest: validatePluginManifest(raw.manifest),
@@ -176,8 +203,12 @@ export async function createPluginPackageFromPath(options: {
   }
   const sourcePath = path.resolve(options.sourcePath);
   const manifest = await validateSingleManifest(sourcePath);
+  const collectedFiles = await collectFiles(sourcePath);
+  if (collectedFiles.length > MAX_PLUGIN_PACKAGE_FILES) {
+    throw new Error(`Plugin package contains more than ${MAX_PLUGIN_PACKAGE_FILES} files`);
+  }
   const files = await Promise.all(
-    (await collectFiles(sourcePath)).map(async (filePath): Promise<PluginPackageFile> => {
+    collectedFiles.map(async (filePath): Promise<PluginPackageFile> => {
       const contents = await readFile(path.join(sourcePath, filePath));
       return {
         path: filePath,
@@ -186,6 +217,13 @@ export async function createPluginPackageFromPath(options: {
       };
     }),
   );
+  const unpackedBytes = files.reduce(
+    (total, file) => total + Buffer.from(file.contentBase64, 'base64').byteLength,
+    0,
+  );
+  if (unpackedBytes > MAX_PLUGIN_UNPACKED_BYTES) {
+    throw new Error(`Plugin package expands beyond ${MAX_PLUGIN_UNPACKED_BYTES} bytes`);
+  }
   const baseBundle = {
     format: PLUGIN_PACKAGE_FORMAT,
     manifest,
@@ -210,19 +248,27 @@ export async function createPluginPackageFromPath(options: {
         : undefined,
   };
   await mkdir(path.dirname(path.resolve(options.outFile)), { recursive: true });
-  await writeFile(path.resolve(options.outFile), JSON.stringify(bundle, null, 2), 'utf-8');
+  const serialized = JSON.stringify(bundle, null, 2);
+  if (Buffer.byteLength(serialized) > MAX_PLUGIN_PACKAGE_BYTES) {
+    throw new Error(`Plugin package exceeds ${MAX_PLUGIN_PACKAGE_BYTES} bytes`);
+  }
+  await writeFile(path.resolve(options.outFile), serialized, 'utf-8');
   return bundle;
 }
 
 export async function verifyPluginPackage(
   packagePath: string,
-  options: { signingKey?: string; publicKey?: string } = {},
+  options: { signingKey?: string; publicKey?: string; keyId?: string } = {},
 ): Promise<VerifiedPluginPackage> {
   if (options.signingKey && options.publicKey) {
     throw new Error('Use either signingKey or publicKey, not both');
   }
+  const resolvedPackagePath = path.resolve(packagePath);
+  if ((await stat(resolvedPackagePath)).size > MAX_PLUGIN_PACKAGE_BYTES) {
+    throw new Error(`Plugin package exceeds ${MAX_PLUGIN_PACKAGE_BYTES} bytes`);
+  }
   const bundle = parsePackageBundle(
-    JSON.parse(await readFile(path.resolve(packagePath), 'utf-8')) as unknown,
+    JSON.parse(await readFile(resolvedPackagePath, 'utf-8')) as unknown,
   );
   for (const file of bundle.files) {
     const contents = Buffer.from(file.contentBase64, 'base64');
@@ -240,6 +286,27 @@ export async function verifyPluginPackage(
   );
   if (actualPackageHash !== bundle.sha256) {
     throw new Error('Plugin package hash mismatch');
+  }
+  const manifestFile = bundle.files.find((file) => file.path === 'plugin.json');
+  if (!manifestFile) {
+    throw new Error('Plugin package does not contain plugin.json');
+  }
+  let packagedManifest: PluginManifest;
+  try {
+    packagedManifest = validatePluginManifest(
+      JSON.parse(Buffer.from(manifestFile.contentBase64, 'base64').toString('utf-8')) as unknown,
+    );
+  } catch (error) {
+    throw new Error(
+      `Plugin package plugin.json is invalid: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
+  }
+  if (JSON.stringify(packagedManifest) !== JSON.stringify(bundle.manifest)) {
+    throw new Error('Plugin package manifest does not match plugin.json');
+  }
+  if (options.keyId && bundle.signature?.keyId !== options.keyId) {
+    throw new Error(`Plugin package signing key id is ${bundle.signature?.keyId ?? 'missing'}`);
   }
   let signatureVerified = false;
   if (bundle.signature?.algorithm === 'hmac-sha256' && options.signingKey) {

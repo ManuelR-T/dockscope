@@ -1,5 +1,5 @@
 import { mkdir, mkdtemp, readFile, writeFile } from 'fs/promises';
-import { generateKeyPairSync } from 'crypto';
+import { createHash, generateKeyPairSync } from 'crypto';
 import { tmpdir } from 'os';
 import path from 'path';
 import { describe, expect, it } from 'vitest';
@@ -95,5 +95,72 @@ describe('plugin packages', () => {
 
     expect(bundle.signature).toMatchObject({ algorithm: 'ed25519', keyId: 'test-key' });
     expect(verified.signatureVerified).toBe(true);
+  });
+
+  it('creates reproducible package artifacts from identical inputs', async () => {
+    const pluginDir = await createPluginDir();
+    const outputDir = await mkdtemp(path.join(tmpdir(), 'dockscope-package-reproducible-'));
+    const firstPath = path.join(outputDir, 'first.dockscope-plugin');
+    const secondPath = path.join(outputDir, 'second.dockscope-plugin');
+    const { privateKey } = generateKeyPairSync('ed25519');
+    const privateKeyPem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+
+    await createPluginPackageFromPath({
+      sourcePath: pluginDir,
+      outFile: firstPath,
+      privateKey: privateKeyPem,
+      keyId: 'reproducible-key',
+    });
+    await createPluginPackageFromPath({
+      sourcePath: pluginDir,
+      outFile: secondPath,
+      privateKey: privateKeyPem,
+      keyId: 'reproducible-key',
+    });
+
+    expect(await readFile(secondPath)).toEqual(await readFile(firstPath));
+  });
+
+  it('rejects duplicate paths and manifests that differ from plugin.json', async () => {
+    const pluginDir = await createPluginDir();
+    const outputDir = await mkdtemp(path.join(tmpdir(), 'dockscope-package-hardening-'));
+    const packagePath = path.join(outputDir, 'plugin.dockscope-plugin');
+    const bundle = await createPluginPackageFromPath({
+      sourcePath: pluginDir,
+      outFile: packagePath,
+    });
+
+    await writeFile(
+      packagePath,
+      JSON.stringify({ ...bundle, files: [...bundle.files, bundle.files[0]] }),
+      'utf-8',
+    );
+    await expect(verifyPluginPackage(packagePath)).rejects.toThrow('Duplicate plugin package path');
+
+    const files = bundle.files.map((file) => ({ ...file }));
+    const manifestFile = files.find((file) => file.path === 'plugin.json');
+    if (!manifestFile) {
+      throw new Error('Test package did not contain plugin.json');
+    }
+    const changedManifest = JSON.parse(
+      Buffer.from(manifestFile.contentBase64, 'base64').toString('utf-8'),
+    ) as Record<string, unknown>;
+    changedManifest.version = '2.0.0';
+    const changedContents = Buffer.from(JSON.stringify(changedManifest), 'utf-8');
+    manifestFile.contentBase64 = changedContents.toString('base64');
+    manifestFile.sha256 = createHash('sha256').update(changedContents).digest('hex');
+    const changedBundle = {
+      format: bundle.format,
+      manifest: bundle.manifest,
+      files,
+      sha256: createHash('sha256')
+        .update(JSON.stringify({ format: bundle.format, manifest: bundle.manifest, files }))
+        .digest('hex'),
+    };
+    await writeFile(packagePath, JSON.stringify(changedBundle), 'utf-8');
+
+    await expect(verifyPluginPackage(packagePath)).rejects.toThrow(
+      'Plugin package manifest does not match plugin.json',
+    );
   });
 });

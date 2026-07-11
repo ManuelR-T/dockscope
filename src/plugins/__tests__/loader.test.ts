@@ -641,12 +641,14 @@ describe('external plugin loader', () => {
   it('recovers with a fresh process after an isolated plugin crashes', async () => {
     const pluginDir = await createPluginDir();
     const events: { type: string; payload: unknown }[] = [];
+    const runtimeCrashes: Array<{ pluginId: string; message: string; restartCount: number }> = [];
     await writePlugin(
       pluginDir,
       manifest({
         capabilities: ['ui.command'],
         commands: [
           { id: 'pid', title: 'PID' },
+          { id: 'slow', title: 'Slow' },
           { id: 'crash', title: 'Crash' },
         ],
         execution: { isolation: 'process', operationTimeoutMs: 2000 },
@@ -658,6 +660,9 @@ describe('external plugin loader', () => {
             async runCommand(commandId) {
               if (commandId === 'crash') {
                 process.exit(23);
+              }
+              if (commandId === 'slow') {
+                Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1200);
               }
               return { ok: true, data: { pid: process.pid } };
             }
@@ -673,8 +678,31 @@ describe('external plugin loader', () => {
         events.push({ type, payload });
         return { id: 'event', pluginId: 'external.demo', type, payload, time: Date.now() };
       },
+      onRuntimeCrash: (pluginId, crash) => {
+        runtimeCrashes.push({ pluginId, message: crash.message, restartCount: crash.restartCount });
+      },
+    });
+    await expect(result.plugins[0].getRuntimeHealth?.()).resolves.toMatchObject({
+      state: 'running',
+      pid: expect.any(Number),
+      restartCount: 0,
+      memoryLimitMb: 128,
+      metrics: {
+        rssBytes: expect.any(Number),
+        heapUsedBytes: expect.any(Number),
+        cpuUserMicros: expect.any(Number),
+        cpuPercent: expect.any(Number),
+      },
     });
     const first = await result.plugins[0].runCommand?.('pid');
+
+    const slowCommand = result.plugins[0].runCommand?.('slow');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await expect(result.plugins[0].getRuntimeHealth?.()).resolves.toMatchObject({
+      state: 'running',
+      metrics: undefined,
+    });
+    await expect(slowCommand).resolves.toMatchObject({ ok: true });
 
     await expect(result.plugins[0].runCommand?.('crash')).rejects.toThrow('Plugin process exited');
     const second = await result.plugins[0].runCommand?.('pid');
@@ -688,6 +716,18 @@ describe('external plugin loader', () => {
         payload: expect.objectContaining({ restartCount: 1 }),
       }),
     ]);
+    expect(runtimeCrashes).toEqual([
+      expect.objectContaining({
+        pluginId: 'external.demo',
+        restartCount: 1,
+        message: expect.stringContaining('Plugin process exited'),
+      }),
+    ]);
+    await expect(result.plugins[0].getRuntimeHealth?.()).resolves.toMatchObject({
+      state: 'running',
+      restartCount: 1,
+      metrics: { rssBytes: expect.any(Number) },
+    });
     await result.plugins[0].stop?.();
   });
 

@@ -1,10 +1,10 @@
 import { sign, verify } from 'crypto';
-import { mkdtemp, readFile, writeFile } from 'fs/promises';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { installPluginFromPath, type InstalledPlugin } from './install.js';
-import { verifyPluginPackage } from './package.js';
+import { MAX_PLUGIN_PACKAGE_BYTES, verifyPluginPackage } from './package.js';
 import type { PluginCapability, PluginPermission } from '../core/capabilities.js';
 import { isPluginCapability, isPluginPermission } from '../core/capabilities.js';
 import {
@@ -15,10 +15,15 @@ import {
 import { PKG_VERSION } from '../version.js';
 
 export const PLUGIN_CATALOG_FORMAT = 'dockscope-plugin-catalog/v1';
+export const PLUGIN_CATALOG_TRUST_STORE_FORMAT = 'dockscope-plugin-catalog-trust/v1';
+export const MAX_PLUGIN_CATALOG_BYTES = 4 * 1024 * 1024;
+export const PLUGIN_CATALOG_FETCH_TIMEOUT_MS = 15_000;
+
+const CATALOG_PLUGIN_ID_PATTERN = /^[a-z0-9][a-z0-9.-]*$/;
 
 export interface PluginCatalogEntrySignature {
   algorithm: 'ed25519';
-  publicKey: string;
+  publicKey?: string;
   keyId?: string;
 }
 
@@ -29,6 +34,41 @@ export interface PluginCatalogSignature {
 }
 
 export type PluginCatalogEntryStatus = 'active' | 'deprecated' | 'yanked';
+export type PluginCatalogTrustKeyStatus = 'active' | 'retiring';
+
+export interface PluginCatalogTrustKey {
+  algorithm: 'ed25519';
+  keyId: string;
+  publicKey: string;
+  status: PluginCatalogTrustKeyStatus;
+  notBefore?: string;
+  notAfter?: string;
+}
+
+export interface PluginCatalogPackageRevocation {
+  pluginId: string;
+  version?: string;
+  sha256?: string;
+  reason?: string;
+  revokedAt?: string;
+}
+
+export interface PluginCatalogTrustPolicy {
+  packageKeys: readonly PluginCatalogTrustKey[];
+  revokedPackageKeyIds: readonly string[];
+  revokedPackages: readonly PluginCatalogPackageRevocation[];
+}
+
+export interface PluginCatalogTrustStore {
+  format: typeof PLUGIN_CATALOG_TRUST_STORE_FORMAT;
+  keys: readonly PluginCatalogTrustKey[];
+  revokedKeyIds: readonly string[];
+}
+
+export interface PluginCatalogLoadOptions {
+  publicKey?: string;
+  trustStore?: PluginCatalogTrustStore;
+}
 
 export interface PluginCatalogEntry {
   id: string;
@@ -60,6 +100,7 @@ export interface PluginCatalog {
   format: typeof PLUGIN_CATALOG_FORMAT;
   name: string;
   updatedAt?: string;
+  trust?: PluginCatalogTrustPolicy;
   signature?: PluginCatalogSignature;
   entries: readonly PluginCatalogEntry[];
 }
@@ -98,6 +139,14 @@ function optionalString(value: unknown, field: string): string | undefined {
   return value;
 }
 
+function optionalSha256(value: unknown, field: string): string | undefined {
+  const hash = optionalString(value, field);
+  if (hash !== undefined && !/^[a-f0-9]{64}$/i.test(hash)) {
+    throw new PluginCatalogError(`Plugin catalog field "${field}" must be SHA-256`);
+  }
+  return hash?.toLowerCase();
+}
+
 function stringList(raw: unknown, field: string): string[] {
   if (raw === undefined) {
     return [];
@@ -113,6 +162,134 @@ function stringList(raw: unknown, field: string): string[] {
     }
     return item;
   });
+}
+
+function optionalTimestamp(value: unknown, field: string): string | undefined {
+  const timestamp = optionalString(value, field);
+  if (timestamp !== undefined && !Number.isFinite(Date.parse(timestamp))) {
+    throw new PluginCatalogError(`Plugin catalog field "${field}" must be an ISO timestamp`);
+  }
+  return timestamp;
+}
+
+function validateTrustKey(raw: unknown, field: string): PluginCatalogTrustKey {
+  if (!isRecord(raw)) {
+    throw new PluginCatalogError(`Plugin catalog field "${field}" must be an object`);
+  }
+  if (raw.algorithm !== 'ed25519') {
+    throw new PluginCatalogError(
+      `Unsupported plugin catalog trust key algorithm: ${String(raw.algorithm)}`,
+    );
+  }
+  if (!isNonEmptyString(raw.keyId)) {
+    throw new PluginCatalogError(`Plugin catalog field "${field}.keyId" is required`);
+  }
+  if (!isNonEmptyString(raw.publicKey)) {
+    throw new PluginCatalogError(`Plugin catalog field "${field}.publicKey" is required`);
+  }
+  if (raw.status !== undefined && raw.status !== 'active' && raw.status !== 'retiring') {
+    throw new PluginCatalogError(
+      `Unsupported plugin catalog trust key status: ${String(raw.status)}`,
+    );
+  }
+  const notBefore = optionalTimestamp(raw.notBefore, `${field}.notBefore`);
+  const notAfter = optionalTimestamp(raw.notAfter, `${field}.notAfter`);
+  if (notBefore && notAfter && Date.parse(notAfter) <= Date.parse(notBefore)) {
+    throw new PluginCatalogError(
+      `Plugin catalog field "${field}.notAfter" must be later than notBefore`,
+    );
+  }
+  return {
+    algorithm: 'ed25519',
+    keyId: raw.keyId,
+    publicKey: raw.publicKey,
+    status: raw.status ?? 'active',
+    notBefore,
+    notAfter,
+  };
+}
+
+function validateTrustKeys(raw: unknown, field: string): PluginCatalogTrustKey[] {
+  if (raw === undefined) {
+    return [];
+  }
+  if (!Array.isArray(raw)) {
+    throw new PluginCatalogError(`Plugin catalog field "${field}" must be an array`);
+  }
+  const keys = raw.map((key, index) => validateTrustKey(key, `${field}.${index}`));
+  const keyIds = new Set<string>();
+  for (const key of keys) {
+    if (keyIds.has(key.keyId)) {
+      throw new PluginCatalogError(`Duplicate plugin catalog trust key: ${key.keyId}`);
+    }
+    keyIds.add(key.keyId);
+  }
+  return keys;
+}
+
+function validatePackageRevocation(raw: unknown, index: number): PluginCatalogPackageRevocation {
+  const field = `trust.revokedPackages.${index}`;
+  if (!isRecord(raw)) {
+    throw new PluginCatalogError(`Plugin catalog field "${field}" must be an object`);
+  }
+  if (!isNonEmptyString(raw.pluginId)) {
+    throw new PluginCatalogError(`Plugin catalog field "${field}.pluginId" is required`);
+  }
+  const sha = optionalSha256(raw.sha256, `${field}.sha256`);
+  return {
+    pluginId: raw.pluginId,
+    version: optionalString(raw.version, `${field}.version`),
+    sha256: sha?.toLowerCase(),
+    reason: optionalString(raw.reason, `${field}.reason`),
+    revokedAt: optionalTimestamp(raw.revokedAt, `${field}.revokedAt`),
+  };
+}
+
+function validateTrustPolicy(raw: unknown): PluginCatalogTrustPolicy | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (!isRecord(raw)) {
+    throw new PluginCatalogError('Plugin catalog field "trust" must be an object');
+  }
+  if (raw.revokedPackages !== undefined && !Array.isArray(raw.revokedPackages)) {
+    throw new PluginCatalogError('Plugin catalog field "trust.revokedPackages" must be an array');
+  }
+  const revokedPackageKeyIds = stringList(raw.revokedPackageKeyIds, 'trust.revokedPackageKeyIds');
+  return {
+    packageKeys: validateTrustKeys(raw.packageKeys, 'trust.packageKeys'),
+    revokedPackageKeyIds: [...new Set(revokedPackageKeyIds)],
+    revokedPackages: (raw.revokedPackages ?? []).map(validatePackageRevocation),
+  };
+}
+
+export function validatePluginCatalogTrustStore(raw: unknown): PluginCatalogTrustStore {
+  if (!isRecord(raw)) {
+    throw new PluginCatalogError('Plugin catalog trust store must be an object');
+  }
+  if (raw.format !== PLUGIN_CATALOG_TRUST_STORE_FORMAT) {
+    throw new PluginCatalogError(
+      `Unsupported plugin catalog trust store format: ${String(raw.format)}`,
+    );
+  }
+  return {
+    format: PLUGIN_CATALOG_TRUST_STORE_FORMAT,
+    keys: validateTrustKeys(raw.keys, 'keys'),
+    revokedKeyIds: [...new Set(stringList(raw.revokedKeyIds, 'revokedKeyIds'))],
+  };
+}
+
+export function parsePluginCatalogTrustStore(value: string): PluginCatalogTrustStore {
+  try {
+    return validatePluginCatalogTrustStore(JSON.parse(value) as unknown);
+  } catch (error) {
+    if (error instanceof PluginCatalogError) {
+      throw error;
+    }
+    throw new PluginCatalogError(
+      `Invalid plugin catalog trust store JSON: ${catalogErrorMessage(error)}`,
+    );
+  }
 }
 
 function capabilityList(raw: unknown): PluginCapability[] {
@@ -155,12 +332,15 @@ function validateSignature(raw: unknown): PluginCatalogEntrySignature | undefine
   if (raw.algorithm !== 'ed25519') {
     throw new PluginCatalogError(`Unsupported plugin catalog signature: ${String(raw.algorithm)}`);
   }
-  if (!isNonEmptyString(raw.publicKey)) {
-    throw new PluginCatalogError('Plugin catalog signature requires a publicKey');
+  if (raw.publicKey !== undefined && !isNonEmptyString(raw.publicKey)) {
+    throw new PluginCatalogError('Plugin catalog signature publicKey must be non-empty');
+  }
+  if (!isNonEmptyString(raw.publicKey) && !isNonEmptyString(raw.keyId)) {
+    throw new PluginCatalogError('Plugin catalog entry signature requires a keyId or publicKey');
   }
   return {
     algorithm: 'ed25519',
-    publicKey: raw.publicKey,
+    publicKey: isNonEmptyString(raw.publicKey) ? raw.publicKey : undefined,
     keyId: optionalString(raw.keyId, 'signature.keyId'),
   };
 }
@@ -202,6 +382,9 @@ function validateEntry(raw: unknown): PluginCatalogEntry {
   if (!isNonEmptyString(raw.id)) {
     throw new PluginCatalogError('Plugin catalog entry field "id" is required');
   }
+  if (!CATALOG_PLUGIN_ID_PATTERN.test(raw.id)) {
+    throw new PluginCatalogError(`Invalid plugin catalog entry id: ${raw.id}`);
+  }
   if (!isNonEmptyString(raw.name)) {
     throw new PluginCatalogError(`Plugin catalog entry "${raw.id}" requires a name`);
   }
@@ -233,7 +416,7 @@ function validateEntry(raw: unknown): PluginCatalogEntry {
     capabilities: capabilityList(raw.capabilities),
     permissions: permissionList(raw.permissions),
     packageUrl: raw.packageUrl,
-    packageSha256: optionalString(raw.packageSha256, 'packageSha256'),
+    packageSha256: optionalSha256(raw.packageSha256, 'packageSha256'),
     signature: validateSignature(raw.signature),
   };
 }
@@ -263,6 +446,7 @@ export function validatePluginCatalog(raw: unknown): PluginCatalog {
     format: PLUGIN_CATALOG_FORMAT,
     name: raw.name,
     updatedAt: optionalString(raw.updatedAt, 'updatedAt'),
+    trust: validateTrustPolicy(raw.trust),
     signature: validateCatalogSignature(raw.signature),
     entries,
   };
@@ -273,26 +457,114 @@ function catalogPayload(catalog: Omit<PluginCatalog, 'signature'>): string {
     format: catalog.format,
     name: catalog.name,
     updatedAt: catalog.updatedAt,
+    trust: catalog.trust,
     entries: catalog.entries,
   });
 }
 
 function verifyCatalogSignature(
   catalog: PluginCatalog,
-  publicKey: string | undefined,
+  options: PluginCatalogLoadOptions,
 ): boolean | undefined {
   if (!catalog.signature) {
     return undefined;
   }
-  if (!publicKey) {
+  if (
+    catalog.signature.keyId &&
+    options.trustStore?.revokedKeyIds.includes(catalog.signature.keyId)
+  ) {
+    throw new PluginCatalogError(
+      `Plugin catalog signing key is revoked: ${catalog.signature.keyId}`,
+    );
+  }
+  const now = Date.now();
+  const keys = [
+    ...(options.publicKey ? [{ algorithm: 'ed25519' as const, publicKey: options.publicKey }] : []),
+    ...(options.trustStore?.keys.filter((key) => trustKeyIsUsable(key, now)) ?? []),
+  ].filter(
+    (key) =>
+      !('keyId' in key) || !catalog.signature?.keyId || key.keyId === catalog.signature.keyId,
+  );
+  if (keys.length === 0) {
     return false;
   }
-  return verify(
-    null,
-    Buffer.from(catalogPayload(catalog), 'utf-8'),
-    publicKey,
-    Buffer.from(catalog.signature.value, 'base64'),
+  return keys.some((key) => {
+    try {
+      return verify(
+        null,
+        Buffer.from(catalogPayload(catalog), 'utf-8'),
+        key.publicKey,
+        Buffer.from(catalog.signature?.value ?? '', 'base64'),
+      );
+    } catch {
+      return false;
+    }
+  });
+}
+
+function trustKeyIsUsable(key: PluginCatalogTrustKey, now: number): boolean {
+  return (
+    (key.notBefore === undefined || Date.parse(key.notBefore) <= now) &&
+    (key.notAfter === undefined || Date.parse(key.notAfter) > now)
   );
+}
+
+function packageRevocation(
+  policy: PluginCatalogTrustPolicy,
+  entry: PluginCatalogEntry,
+): PluginCatalogPackageRevocation | undefined {
+  return policy.revokedPackages.find(
+    (revocation) =>
+      revocation.pluginId === entry.id &&
+      (revocation.version === undefined || revocation.version === entry.version) &&
+      (revocation.sha256 === undefined || revocation.sha256 === entry.packageSha256?.toLowerCase()),
+  );
+}
+
+function trustedPackagePublicKey(
+  catalog: ResolvedPluginCatalog,
+  entry: ResolvedPluginCatalogEntry,
+  allowUnsigned: boolean,
+): string | undefined {
+  const policy = catalog.trust;
+  if (!policy) {
+    if (entry.signature && !entry.signature.publicKey) {
+      throw new PluginCatalogError(
+        `Plugin catalog entry signature requires a public key: ${entry.id}`,
+      );
+    }
+    return entry.signature?.publicKey;
+  }
+  if (catalog.signatureVerified !== true && !allowUnsigned) {
+    throw new PluginCatalogError(
+      'Plugin catalog trust policy requires a verified catalog signature',
+    );
+  }
+  if (!entry.packageSha256) {
+    throw new PluginCatalogError(`Trusted catalog entry requires a package hash: ${entry.id}`);
+  }
+  const revocation = packageRevocation(policy, entry);
+  if (revocation) {
+    const reason = revocation.reason ? `: ${revocation.reason}` : '';
+    throw new PluginCatalogError(`Plugin catalog package is revoked: ${entry.id}${reason}`);
+  }
+  const keyId = entry.signature?.keyId;
+  if (!keyId) {
+    throw new PluginCatalogError(`Trusted catalog entry requires a package key id: ${entry.id}`);
+  }
+  if (policy.revokedPackageKeyIds.includes(keyId)) {
+    throw new PluginCatalogError(`Plugin catalog package key is revoked: ${keyId}`);
+  }
+  const key = policy.packageKeys.find((candidate) => candidate.keyId === keyId);
+  if (!key) {
+    throw new PluginCatalogError(`Plugin catalog package key is not trusted: ${keyId}`);
+  }
+  if (!trustKeyIsUsable(key, Date.now())) {
+    throw new PluginCatalogError(
+      `Plugin catalog package key is outside its validity window: ${keyId}`,
+    );
+  }
+  return key.publicKey;
 }
 
 function isHttpUrl(value: string): boolean {
@@ -328,16 +600,56 @@ function catalogErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+async function readHttpSource(
+  source: string,
+  maxBytes: number,
+  label: 'catalog' | 'package',
+): Promise<Buffer> {
+  const response = await fetch(source, {
+    signal: AbortSignal.timeout(PLUGIN_CATALOG_FETCH_TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    throw new PluginCatalogError(`Plugin ${label} fetch failed with HTTP ${response.status}`);
+  }
+  const declaredLength = Number.parseInt(response.headers.get('content-length') ?? '', 10);
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    throw new PluginCatalogError(`Plugin ${label} exceeds ${maxBytes} bytes`);
+  }
+  if (!response.body) {
+    return Buffer.alloc(0);
+  }
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  const reader = response.body.getReader();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    bytes += value.byteLength;
+    if (bytes > maxBytes) {
+      await reader.cancel();
+      throw new PluginCatalogError(`Plugin ${label} exceeds ${maxBytes} bytes`);
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks, bytes);
+}
+
+async function readLocalSource(source: string, maxBytes: number, label: string): Promise<Buffer> {
+  const filePath = isFileUrl(source) ? fileURLToPath(source) : path.resolve(source);
+  if ((await stat(filePath)).size > maxBytes) {
+    throw new PluginCatalogError(`Plugin ${label} exceeds ${maxBytes} bytes`);
+  }
+  return readFile(filePath);
+}
+
 async function readTextSource(source: string): Promise<string> {
   try {
-    if (isHttpUrl(source)) {
-      const response = await fetch(source);
-      if (!response.ok) {
-        throw new PluginCatalogError(`Plugin catalog fetch failed with HTTP ${response.status}`);
-      }
-      return response.text();
-    }
-    return readFile(isFileUrl(source) ? fileURLToPath(source) : path.resolve(source), 'utf-8');
+    const contents = isHttpUrl(source)
+      ? await readHttpSource(source, MAX_PLUGIN_CATALOG_BYTES, 'catalog')
+      : await readLocalSource(source, MAX_PLUGIN_CATALOG_BYTES, 'catalog');
+    return contents.toString('utf-8');
   } catch (error) {
     if (error instanceof PluginCatalogError) {
       throw error;
@@ -350,14 +662,9 @@ async function readTextSource(source: string): Promise<string> {
 
 async function readPackageSource(source: string): Promise<Buffer> {
   try {
-    if (isHttpUrl(source)) {
-      const response = await fetch(source);
-      if (!response.ok) {
-        throw new PluginCatalogError(`Plugin package fetch failed with HTTP ${response.status}`);
-      }
-      return Buffer.from(await response.arrayBuffer());
-    }
-    return readFile(isFileUrl(source) ? fileURLToPath(source) : path.resolve(source));
+    return isHttpUrl(source)
+      ? readHttpSource(source, MAX_PLUGIN_PACKAGE_BYTES, 'package')
+      : readLocalSource(source, MAX_PLUGIN_PACKAGE_BYTES, 'package');
   } catch (error) {
     if (error instanceof PluginCatalogError) {
       throw error;
@@ -370,7 +677,7 @@ async function readPackageSource(source: string): Promise<Buffer> {
 
 export async function loadPluginCatalog(
   source: string,
-  options: { publicKey?: string } = {},
+  options: PluginCatalogLoadOptions = {},
 ): Promise<ResolvedPluginCatalog> {
   const text = await readTextSource(source);
   let raw: unknown;
@@ -380,11 +687,12 @@ export async function loadPluginCatalog(
     throw new PluginCatalogError(`Invalid plugin catalog JSON: ${catalogErrorMessage(error)}`);
   }
   const catalog = validatePluginCatalog(raw);
-  const signatureVerified = verifyCatalogSignature(catalog, options.publicKey);
-  if (options.publicKey && catalog.signature && !signatureVerified) {
+  const signatureVerified = verifyCatalogSignature(catalog, options);
+  const verificationConfigured = Boolean(options.publicKey || options.trustStore);
+  if (verificationConfigured && catalog.signature && !signatureVerified) {
     throw new PluginCatalogError('Plugin catalog signature mismatch');
   }
-  if (options.publicKey && !catalog.signature) {
+  if (verificationConfigured && !catalog.signature) {
     throw new PluginCatalogError('Plugin catalog is not signed');
   }
   return {
@@ -402,11 +710,13 @@ export async function installPluginFromCatalog(options: {
   pluginId: string;
   registryDir?: string;
   catalogPublicKey?: string;
+  catalogTrustStore?: PluginCatalogTrustStore;
   allowUnsigned?: boolean;
   dockscopeVersion?: string;
 }): Promise<InstalledPlugin> {
   const catalog = await loadPluginCatalog(options.catalogSource, {
     publicKey: options.catalogPublicKey,
+    trustStore: options.catalogTrustStore,
   });
   const entry = catalog.entries.find((candidate) => candidate.id === options.pluginId);
   if (!entry) {
@@ -427,27 +737,40 @@ export async function installPluginFromCatalog(options: {
       `Plugin catalog entry is incompatible: ${compatibilityWarnings.join('; ')}`,
     );
   }
+  const packagePublicKey = trustedPackagePublicKey(catalog, entry, options.allowUnsigned === true);
   const packageContents = await readPackageSource(entry.resolvedPackageUrl);
   const tempDir = await mkdtemp(path.join(tmpdir(), 'dockscope-catalog-package-'));
-  const packagePath = path.join(tempDir, `${entry.id}.dockscope-plugin`);
-  await writeFile(packagePath, packageContents);
-  const verifiedPackage = await verifyPluginPackage(packagePath, {
-    publicKey: entry.signature?.publicKey,
-  });
-  if (entry.packageSha256 && verifiedPackage.bundle.sha256 !== entry.packageSha256) {
-    throw new PluginCatalogError(`Plugin catalog package hash mismatch: ${entry.id}`);
+  const packagePath = path.join(tempDir, 'plugin.dockscope-plugin');
+  try {
+    await writeFile(packagePath, packageContents);
+    const verifiedPackage = await verifyPluginPackage(packagePath, {
+      publicKey: packagePublicKey,
+      keyId: entry.signature?.keyId,
+    });
+    if (entry.packageSha256 && verifiedPackage.bundle.sha256 !== entry.packageSha256) {
+      throw new PluginCatalogError(`Plugin catalog package hash mismatch: ${entry.id}`);
+    }
+    if (
+      entry.signature?.keyId &&
+      verifiedPackage.bundle.signature?.keyId !== entry.signature.keyId
+    ) {
+      throw new PluginCatalogError(`Plugin catalog package key id mismatch: ${entry.id}`);
+    }
+    const installed = await installPluginFromPath({
+      sourcePath: packagePath,
+      source: entry.resolvedPackageUrl,
+      registryDir: options.registryDir,
+      publicKey: packagePublicKey,
+    });
+    if (installed.id !== entry.id || installed.version !== entry.version) {
+      throw new PluginCatalogError(
+        `Installed package ${installed.id}@${installed.version} does not match catalog ${entry.id}@${entry.version}`,
+      );
+    }
+    return installed;
+  } finally {
+    await rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
   }
-  const installed = await installPluginFromPath({
-    sourcePath: packagePath,
-    registryDir: options.registryDir,
-    publicKey: entry.signature?.publicKey,
-  });
-  if (installed.id !== entry.id || installed.version !== entry.version) {
-    throw new PluginCatalogError(
-      `Installed package ${installed.id}@${installed.version} does not match catalog ${entry.id}@${entry.version}`,
-    );
-  }
-  return installed;
 }
 
 export async function signPluginCatalogFile(options: {
@@ -461,6 +784,7 @@ export async function signPluginCatalogFile(options: {
     format: catalog.format,
     name: catalog.name,
     updatedAt: catalog.updatedAt,
+    trust: catalog.trust,
     entries: catalog.entries,
   };
   const signed: PluginCatalog = {

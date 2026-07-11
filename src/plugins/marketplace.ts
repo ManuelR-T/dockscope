@@ -16,10 +16,15 @@ import {
 import { PKG_VERSION } from '../version.js';
 import type {
   PluginCatalogEntrySignature,
+  PluginCatalogLoadOptions,
   ResolvedPluginCatalog,
   ResolvedPluginCatalogEntry,
 } from './catalog.js';
-import { installPluginFromCatalog, loadPluginCatalog } from './catalog.js';
+import {
+  installPluginFromCatalog,
+  loadPluginCatalog,
+  parsePluginCatalogTrustStore,
+} from './catalog.js';
 import {
   defaultPluginRegistryDir,
   listInstalledPlugins,
@@ -92,6 +97,16 @@ function catalogSource(env: NodeJS.ProcessEnv): string | undefined {
 
 function catalogPublicKey(env: NodeJS.ProcessEnv): string | undefined {
   return env.DOCKSCOPE_PLUGIN_CATALOG_PUBLIC_KEY?.trim() || undefined;
+}
+
+export function pluginCatalogLoadOptionsFromEnv(env: NodeJS.ProcessEnv): PluginCatalogLoadOptions {
+  const serializedTrustStore = env.DOCKSCOPE_PLUGIN_CATALOG_TRUST?.trim();
+  return {
+    publicKey: catalogPublicKey(env),
+    trustStore: serializedTrustStore
+      ? parsePluginCatalogTrustStore(serializedTrustStore)
+      : undefined,
+  };
 }
 
 function allowUnsignedPackages(env: NodeJS.ProcessEnv): boolean {
@@ -190,7 +205,7 @@ export class PluginMarketplaceService {
   async list(): Promise<PluginMarketplaceSnapshot> {
     const source = catalogSource(this.env);
     const catalog = source
-      ? await loadPluginCatalog(source, { publicKey: catalogPublicKey(this.env) })
+      ? await loadPluginCatalog(source, pluginCatalogLoadOptionsFromEnv(this.env))
       : undefined;
     const installed = await listInstalledPlugins(pluginRegistryDir(this.env));
     return this.snapshot(catalog, installed);
@@ -212,6 +227,7 @@ export class PluginMarketplaceService {
         pluginId,
         registryDir: pluginRegistryDir(this.env),
         catalogPublicKey: catalogPublicKey(this.env),
+        catalogTrustStore: pluginCatalogLoadOptionsFromEnv(this.env).trustStore,
         allowUnsigned: allowUnsignedPackages(this.env),
       });
       await this.registerInstalledPlugin(installed, {
@@ -219,6 +235,7 @@ export class PluginMarketplaceService {
           ? (runtime?.enabled ?? (await this.stateStore.loadEnabled(pluginId)))
           : true,
       });
+      await this.discardInstalledPluginSnapshot(snapshot);
       return this.list();
     } catch (error) {
       await this.restoreInstalledPluginSnapshot(snapshot);
@@ -242,9 +259,11 @@ export class PluginMarketplaceService {
         pluginId,
         registryDir: pluginRegistryDir(this.env),
         catalogPublicKey: catalogPublicKey(this.env),
+        catalogTrustStore: pluginCatalogLoadOptionsFromEnv(this.env).trustStore,
         allowUnsigned: allowUnsignedPackages(this.env),
       });
       await this.registerInstalledPlugin(updated, { enabled });
+      await this.discardInstalledPluginSnapshot(snapshot);
       return this.list();
     } catch (error) {
       await this.restoreInstalledPluginSnapshot(snapshot);
@@ -324,9 +343,10 @@ export class PluginMarketplaceService {
   }
 
   private async requireCatalogEntry(pluginId: string): Promise<ResolvedPluginCatalogEntry> {
-    const catalog = await loadPluginCatalog(this.requireCatalogSource(), {
-      publicKey: catalogPublicKey(this.env),
-    });
+    const catalog = await loadPluginCatalog(
+      this.requireCatalogSource(),
+      pluginCatalogLoadOptionsFromEnv(this.env),
+    );
     const entry = catalog.entries.find((candidate) => candidate.id === pluginId);
     if (!entry) {
       throw new PluginOperationError(404, `Plugin catalog entry not found: ${pluginId}`);
@@ -380,6 +400,14 @@ export class PluginMarketplaceService {
     }
   }
 
+  private async discardInstalledPluginSnapshot(snapshot: InstalledPluginSnapshot): Promise<void> {
+    if (snapshot.backupPath) {
+      await rm(path.dirname(snapshot.backupPath), { recursive: true, force: true }).catch(
+        () => undefined,
+      );
+    }
+  }
+
   private async registerInstalledPlugin(
     installed: InstalledPlugin,
     options: { enabled?: boolean } = {},
@@ -399,6 +427,7 @@ export class PluginMarketplaceService {
       secretStore: this.secretStore,
       publishEvent: (pluginId, type, payload) =>
         this.registry.publishPluginEvent(pluginId, type, payload),
+      onRuntimeCrash: (pluginId, crash) => this.registry.recordRuntimeCrash(pluginId, crash),
       cacheBust: true,
     });
     for (const error of loaded.errors) {
