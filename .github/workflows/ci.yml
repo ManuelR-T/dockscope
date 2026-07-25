@@ -11,6 +11,48 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      plugins: ${{ steps.filter.outputs.plugins }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Detect plugin-related changes
+        id: filter
+        run: |
+          # Paths whose changes require re-running the plugin jobs. Includes the
+          # workflow itself so changes to the plugin jobs are exercised.
+          PATTERNS='^(plugins/|src/plugins/|src/plugin-sdk|schemas/|scripts/build-plugin-catalog\.mjs|\.github/workflows/ci\.yml)'
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+            HEAD="${{ github.event.pull_request.head.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+            HEAD="${{ github.sha }}"
+          fi
+
+          # New branch, force push, or unknown base: can't diff, so run to be safe.
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BASE" 2>/dev/null; then
+            echo "No usable base ref ($BASE); running plugin jobs."
+            echo "plugins=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          CHANGED="$(git diff --name-only "$BASE" "$HEAD")"
+          echo "Changed files:"
+          echo "$CHANGED"
+          if echo "$CHANGED" | grep -qE "$PATTERNS"; then
+            echo "Plugin-related changes detected."
+            echo "plugins=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No plugin-related changes; skipping plugin jobs."
+            echo "plugins=false" >> "$GITHUB_OUTPUT"
+          fi
+
   commitlint:
     name: Commit Messages
     runs-on: ubuntu-latest
@@ -103,7 +145,8 @@ jobs:
   plugin-compatibility:
     name: Plugin Compatibility (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
-    needs: [build]
+    needs: [build, changes]
+    if: needs.changes.outputs.plugins == 'true'
     strategy:
       matrix:
         node: [20, 22, 24]
@@ -152,7 +195,8 @@ jobs:
   plugin-catalog:
     name: Official Plugin Catalog
     runs-on: ubuntu-latest
-    needs: [build, plugin-compatibility]
+    needs: [build, plugin-compatibility, changes]
+    if: needs.changes.outputs.plugins == 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -198,7 +242,7 @@ jobs:
   docker:
     name: Docker Build
     runs-on: ubuntu-latest
-    needs: [build, plugin-catalog]
+    needs: [build]
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
