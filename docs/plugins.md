@@ -26,7 +26,16 @@ That creates a runnable command plugin. Pass `--template graph` instead to scaff
 
 The scaffold is plain JavaScript annotated with `// @ts-check` and typed through `dockscope/plugin-sdk/v1`. You get editor completion for the factory, host, and provider types without compiling anything.
 
-### 2. Run it
+### 2. Install the SDK types
+
+```bash
+cd my-plugin
+npm install
+```
+
+The scaffold declares `dockscope` as a peer dependency. Installing it is what lets `// @ts-check` resolve `dockscope/plugin-sdk/v1`, so editors report real type errors instead of an unresolved import. The plugin itself runs without this step; it is purely for authoring.
+
+### 3. Run it
 
 ```bash
 dockscope plugin:dev --plugins ./my-plugin
@@ -36,7 +45,7 @@ dockscope plugin:dev --plugins ./my-plugin
 
 Use `dockscope plugin:watch --plugins ./my-plugin` to continuously revalidate the manifest while editing.
 
-### 3. Validate and test
+### 4. Validate and test
 
 ```bash
 dockscope plugin:validate --plugins ./my-plugin --plugin-permissions all
@@ -45,7 +54,7 @@ dockscope plugin:test --plugins ./my-plugin --plugin-permissions all
 
 `plugin:validate` checks the manifest without importing plugin code, which makes it fast and safe to run against untrusted sources. `plugin:test` also imports the module in a process-isolated sandbox and reports load errors. Both exit non-zero on failure, so they work directly as CI steps.
 
-### 4. Package
+### 5. Package
 
 ```bash
 dockscope plugin:pack --source ./my-plugin --out ./dist/acme.hello.dockscope-plugin

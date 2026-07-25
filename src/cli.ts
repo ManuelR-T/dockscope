@@ -260,8 +260,13 @@ export default createPlugin;
           moduleResolution: 'NodeNext',
           noEmit: true,
           strict: true,
+          // Without these, `checkJs` reports errors from third-party JavaScript
+          // inside node_modules and buries the plugin's own diagnostics.
+          skipLibCheck: true,
+          maxNodeModuleJsDepth: 0,
         },
         include: ['plugin.mjs'],
+        exclude: ['node_modules'],
       },
       null,
       2,
@@ -273,6 +278,14 @@ export default createPlugin;
     `# ${options.name}
 
 DockScope plugin id: \`${options.id}\`
+
+## Setup
+
+Install the SDK types so editors can type-check \`plugin.mjs\` against \`dockscope/plugin-sdk/v1\`:
+
+\`\`\`bash
+npm install
+\`\`\`
 
 ## Development
 
