@@ -122,6 +122,65 @@ jobs:
         with:
           path: dist/plugin-pages
 
+      - name: Lowercase image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Build the image and verify it actually serves the bundled UI BEFORE the
+      # irreversible publish steps below, so a broken image can never ship after
+      # npm has already gone public. The multi-arch push at the end reuses this
+      # build via the shared gha cache.
+      - name: Build image for smoke test
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          push: false
+          tags: dockscope:release-smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify bundled UI
+        run: |
+          cleanup() {
+            docker rm --force dockscope-release-smoke >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          docker run --detach \
+            --name dockscope-release-smoke \
+            --publish 127.0.0.1:4681:4681 \
+            --env DOCKSCOPE_DISABLE_OFFICIAL_PLUGIN_CATALOG=1 \
+            dockscope:release-smoke
+
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:4681/ \
+              --output /tmp/dockscope-index.html; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              docker logs dockscope-release-smoke
+              exit 1
+            fi
+            sleep 1
+          done
+
+          grep --fixed-strings '<title>DockScope</title>' /tmp/dockscope-index.html
+          asset_path="$(sed -n 's/.*src="\([^"?]*\.js\)[^"]*".*/\1/p' \
+            /tmp/dockscope-index.html | head -n 1)"
+          test -n "$asset_path"
+          # The SPA fallback returns index.html (HTTP 200) for unknown paths, so
+          # a status check alone can't distinguish a real bundle from a missing
+          # one. Assert the asset is actually served as JavaScript.
+          content_type="$(curl --fail --silent --show-error --output /dev/null \
+            --write-out '%{content_type}' "http://127.0.0.1:4681${asset_path}")"
+          case "$content_type" in
+            *javascript*) ;;
+            *) echo "Expected JavaScript at ${asset_path}, got '${content_type}'"; exit 1 ;;
+          esac
+
       - name: Publish to npm
         run: npm publish --ignore-scripts --provenance --access public
 
@@ -148,14 +207,8 @@ jobs:
             dist/plugin-pages/plugins/package.public.pem
             dist/plugin-pages/plugins/packages/*.dockscope-plugin
 
-      - name: Lowercase image name
-        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
@@ -172,6 +225,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           provenance: false
           sbom: false
+          cache-from: type=gha
           tags: |
             ${{ env.IMAGE }}:latest
             ${{ env.IMAGE }}:${{ steps.version.outputs.version }}
