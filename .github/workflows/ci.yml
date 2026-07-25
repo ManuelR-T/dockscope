@@ -122,11 +122,32 @@ jobs:
         run: npm run typecheck:plugin-compat
       - name: Verify published package contents
         run: npm pack --dry-run
+      - name: Validate official plugin manifest
+        run: >-
+          node dist/cli.js plugin:validate
+          --plugins plugins/official/kubernetes
+          --plugin-permissions all
       - name: Smoke test process-isolated official plugin
         run: >-
           node dist/cli.js plugin:test
           --plugins plugins/official/kubernetes
           --plugin-permissions all
+      # The command/graph scaffolds are what plugin authors start from, so an
+      # SDK change that breaks them must fail CI rather than ship a dead template.
+      - name: Verify plugin scaffold templates load
+        run: |
+          scaffold_dir="$(mktemp -d)"
+          for template in command graph; do
+            plugin_dir="${scaffold_dir}/${template}"
+            node dist/cli.js plugin:init \
+              --dir "$plugin_dir" \
+              --id "scaffold.${template}" \
+              --name "Scaffold ${template}" \
+              --template "$template"
+            node dist/cli.js plugin:test \
+              --plugins "$plugin_dir" \
+              --plugin-permissions all
+          done
 
   plugin-catalog:
     name: Official Plugin Catalog
