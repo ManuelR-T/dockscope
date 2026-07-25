@@ -697,12 +697,18 @@ program
   .option('--signing-key <key>', 'HMAC signing key required to verify signed packages')
   .option('--public-key <file>', 'Ed25519 public key PEM file required to verify signed packages')
   .action(async (opts) => {
-    const installed = await installPluginFromPath({
-      sourcePath: opts.source,
-      registryDir: opts.registryDir,
-      signingKey: opts.signingKey,
-      publicKey: await readOptionalTextFile(opts.publicKey),
-    });
+    let installed;
+    try {
+      installed = await installPluginFromPath({
+        sourcePath: opts.source,
+        registryDir: opts.registryDir,
+        signingKey: opts.signingKey,
+        publicKey: await readOptionalTextFile(opts.publicKey),
+      });
+    } catch (error) {
+      console.error(`  install error ${error instanceof Error ? error.message : String(error)}`);
+      process.exit(1);
+    }
     console.log(`  installed ${installed.id} v${installed.version}`);
     if (installed.packageSha256) {
       console.log(`  package ${installed.packageSha256}`);

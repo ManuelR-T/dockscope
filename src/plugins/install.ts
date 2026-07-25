@@ -3,6 +3,7 @@ import { homedir } from 'os';
 import path from 'path';
 import { validateExternalPluginManifests } from './loader.js';
 import { extractPluginPackage, isPluginPackageFile, verifyPluginPackage } from './package.js';
+import { assertReservedPluginNamespace } from './namespace.js';
 import type { PluginManifest } from '../core/plugins.js';
 import { isPluginPermission, type PluginPermission } from '../core/capabilities.js';
 
@@ -235,6 +236,12 @@ async function installPluginFromPathUnlocked(
       })
     : undefined;
   const manifest = verifiedPackage?.bundle.manifest ?? (await validateSingleManifest(sourcePath));
+  // Installing is the consent step and the only place a signature is available,
+  // so the reserved namespace is enforced here rather than at load time.
+  assertReservedPluginNamespace({
+    id: manifest.id,
+    signatureVerified: verifiedPackage?.signatureVerified,
+  });
   const targetDir = installDir(registryDir, manifest.id);
   const index = await readIndex(registryDir);
   const now = Date.now();

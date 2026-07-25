@@ -102,6 +102,14 @@ DockScope uses its official GitHub Pages catalog by default and pins the `offici
 
 Every external plugin must include `plugin.json`:
 
+### Plugin ids and the reserved namespace
+
+Ids follow `<publisher>.<name>`, for example `acme.hello`. Pick a publisher segment that identifies you or your organisation, and keep it stable across your plugins. Ids must match `^[a-z0-9][a-z0-9.-]*$` and are unique per registry, so a colliding id fails to load.
+
+The `official.` prefix is **reserved for plugins published by the DockScope project**. Installing a plugin whose id starts with `official.` requires a verified package signature, so an unsigned or unverified plugin cannot present itself as first-party. Use your own publisher segment instead.
+
+When developing a first-party plugin against an unsigned local directory, set `DOCKSCOPE_ALLOW_RESERVED_PLUGIN_NAMESPACE=1` to bypass the check. It is intended for local development only.
+
 ```json
 {
   "$schema": "https://raw.githubusercontent.com/ManuelR-T/dockscope/main/schemas/plugin-manifest.schema.json",
