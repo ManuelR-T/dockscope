@@ -2,6 +2,68 @@
 
 DockScope loads built-in features and external integrations through the same typed plugin registry. A plugin is a data-oriented module: it declares a manifest, the capabilities it provides, the permissions it needs, and optional providers for graph data, metrics, logs, lifecycle actions, exec, projects, resources, diagnostics, and UI-facing metadata.
 
+If you are writing a plugin, start with [Your First Plugin](#your-first-plugin). The sections after it are reference material for operators and plugin authors.
+
+## Your First Plugin
+
+This walkthrough goes from an empty directory to a packaged plugin using only the DockScope CLI. There is no build step and no TypeScript compilation.
+
+### 1. Scaffold
+
+```bash
+dockscope plugin:init --dir ./my-plugin --id acme.hello --name "Acme Hello"
+```
+
+That creates a runnable command plugin. Pass `--template graph` instead to scaffold a plugin that contributes graph nodes.
+
+| File            | Purpose                                                             |
+| --------------- | ------------------------------------------------------------------- |
+| `plugin.json`   | Manifest: id, version, capabilities, permissions, declared commands |
+| `plugin.mjs`    | Entry module exporting the plugin factory                           |
+| `jsconfig.json` | Enables `checkJs`, so editors type-check the plugin against the SDK |
+| `package.json`  | Convenience `validate`, `test`, and `pack` scripts                  |
+| `README.md`     | Command reference for the generated plugin                          |
+
+The scaffold is plain JavaScript annotated with `// @ts-check` and typed through `dockscope/plugin-sdk/v1`. You get editor completion for the factory, host, and provider types without compiling anything.
+
+### 2. Run it
+
+```bash
+dockscope plugin:dev --plugins ./my-plugin
+```
+
+`plugin:dev` starts DockScope with development defaults. It grants all plugin permissions by default, so you are not re-approving the plugin on each restart. Open the dashboard and trigger the plugin command from the plugin UI.
+
+Use `dockscope plugin:watch --plugins ./my-plugin` to continuously revalidate the manifest while editing.
+
+### 3. Validate and test
+
+```bash
+dockscope plugin:validate --plugins ./my-plugin --plugin-permissions all
+dockscope plugin:test --plugins ./my-plugin --plugin-permissions all
+```
+
+`plugin:validate` checks the manifest without importing plugin code, which makes it fast and safe to run against untrusted sources. `plugin:test` also imports the module in a process-isolated sandbox and reports load errors. Both exit non-zero on failure, so they work directly as CI steps.
+
+### 4. Package
+
+```bash
+dockscope plugin:pack --source ./my-plugin --out ./dist/acme.hello.dockscope-plugin
+dockscope plugin:verify --package ./dist/acme.hello.dockscope-plugin
+```
+
+`plugin:pack` produces a distributable package and prints its SHA-256. Signing is optional for local installs and required for catalog distribution, covered in [Packaging and Signing](#packaging-and-signing).
+
+### Where to go next
+
+- [Manifest](#manifest) for the full manifest schema
+- [Data Providers](#data-providers) to contribute graph data, metrics, logs, or lifecycle actions
+- [UI Extensions](#ui-extensions) for panels and sandboxed frontend bundles
+- [Commands and Events](#commands-and-events) for command input schemas and event publishing
+- [Permissions](#permissions) for the permission model and what each permission unlocks
+- [Module Contract](#module-contract) for the exact factory and provider shapes
+- [Catalogs](#catalogs) to distribute through a signed catalog
+
 ## Loading
 
 External plugins are loaded from the local plugin registry and any explicit plugin paths.

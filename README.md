@@ -19,6 +19,7 @@ A browser-based 3D dependency graph of your Docker services with live health, lo
 - [Features](#features)
 - [Keyboard Shortcuts](#keyboard-shortcuts)
 - [API](#api)
+- [Plugins](#plugins)
 - [Development](#development)
 - [Tech Stack](#tech-stack)
 - [Contributing](#contributing)
@@ -164,6 +165,19 @@ Opens `http://localhost:4681`.
 | POST   | `/api/plugins/:pluginId/enable`       | Enable an external plugin                                          |
 | POST   | `/api/plugins/:pluginId/disable`      | Disable an external plugin                                         |
 | WS     | `/ws`                                 | Real-time graph, stats, events, logs, exec, anomalies, diagnostics |
+
+## Plugins
+
+DockScope is extensible through a typed plugin system. Plugins can contribute graph data, metrics, logs, lifecycle actions, UI panels, and commands. Kubernetes support ships as an official external plugin.
+
+Scaffold a plugin and run it, with no build step:
+
+```bash
+dockscope plugin:init --dir ./my-plugin --id acme.hello --name "Acme Hello"
+dockscope plugin:dev --plugins ./my-plugin
+```
+
+See **[docs/plugins.md](docs/plugins.md)** for the full guide, starting with [Your First Plugin](docs/plugins.md#your-first-plugin). It covers the manifest schema, data providers, UI extensions, process isolation, permissions, packaging, signing, and catalog distribution.
 
 ## Development
 

@@ -49,9 +49,20 @@ The codebase is split into small, focused modules. Key directories:
 
 - `src/docker/` — Docker API integration (client, logs, metrics, links, compose parser)
 - `src/server/` — Express server + WebSocket + REST routes
+- `src/core/` — Plugin registry, capabilities, entity model
+- `src/plugins/` — Plugin loader, process sandbox, packaging, catalog, marketplace
 - `src/web/components/` — Svelte 5 UI components
 - `src/web/lib/` — Shared utilities (formatting, constants, node rendering, clustering, animations)
 - `src/web/stores/` — Reactive state (docker data, toast notifications)
+
+## Writing a Plugin
+
+Most integrations belong in a plugin rather than in core. See [docs/plugins.md](docs/plugins.md) for the full guide, starting with [Your First Plugin](docs/plugins.md#your-first-plugin).
+
+```bash
+dockscope plugin:init --dir ./my-plugin --id acme.hello --name "Acme Hello"
+dockscope plugin:dev --plugins ./my-plugin
+```
 
 ## CI Checks
 
