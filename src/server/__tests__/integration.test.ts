@@ -470,4 +470,31 @@ describe('server integration', () => {
     ws.close();
     await waitFor(() => stopLogs.mock.calls.length === 1);
   });
+
+  it('rejects a WebSocket handshake from a forged cross-origin Origin', async () => {
+    server = await startTestServer();
+    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`, {
+      origin: 'https://evil.example',
+    });
+
+    const outcome = await new Promise<'open' | 'rejected'>((resolve) => {
+      ws.once('open', () => resolve('open'));
+      ws.once('error', () => resolve('rejected'));
+      ws.once('unexpected-response', () => resolve('rejected'));
+    });
+
+    expect(outcome).toBe('rejected');
+    ws.close();
+  });
+
+  it('accepts a same-origin WebSocket handshake', async () => {
+    server = await startTestServer();
+    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`, {
+      origin: `http://127.0.0.1:${server.port}`,
+    });
+
+    const initial = await readWsMessage(ws);
+    expect(initial).toEqual({ type: 'graph', data: mockGraph });
+    ws.close();
+  });
 });

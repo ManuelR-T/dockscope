@@ -47,6 +47,8 @@ docker run --rm --pull always -p 4681:4681 -v /var/run/docker.sock:/var/run/dock
 > **Note:** The Docker image does not include Compose project management (up/down/destroy) since it cannot access host compose files. All other features work normally.
 
 > **Security:** Mounting `/var/run/docker.sock` gives DockScope control over the host Docker daemon, including container actions and exec access. Only run it on trusted machines and networks.
+>
+> The API and WebSocket reject cross-origin browser requests, so a website you visit cannot reach a DockScope instance running on your machine. Same-origin and loopback access work out of the box. If you serve DockScope behind a reverse proxy or custom domain, list the browser-facing origins in `DOCKSCOPE_ALLOWED_ORIGINS` (comma-separated, e.g. `https://dock.example.com`).
 
 Opens `http://localhost:4681`.
 

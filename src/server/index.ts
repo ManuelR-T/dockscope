@@ -1,5 +1,6 @@
 import express from 'express';
 import { createServer } from 'http';
+import type { IncomingMessage } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import cors from 'cors';
 import path from 'path';
@@ -9,6 +10,7 @@ import { initHosts } from '../docker/hosts.js';
 import { setupRoutes } from './routes.js';
 import type { ServerOptions, ServerHandle, WSMessage } from '../types.js';
 import { setupWebSocketHandlers } from './websocket.js';
+import { isAllowedCorsOrigin, isAllowedWsOrigin, parseAllowedOrigins } from './origin.js';
 import { createServerMonitor } from './monitor.js';
 import { createPluginRegistry } from '../plugins/internal.js';
 import {
@@ -88,12 +90,23 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
   const marketplace = createPluginMarketplaceService(pluginEnv, plugins);
   await plugins.startAll();
 
+  // Reject cross-origin browser access so a random website can't drive the API
+  // or WebSocket (exec, lifecycle actions) against a user's Docker daemon.
+  const allowedOrigins = parseAllowedOrigins(process.env);
+
   const app = express();
-  app.use(cors());
+  app.use(
+    cors({ origin: (origin, cb) => cb(null, isAllowedCorsOrigin({ origin, allowedOrigins })) }),
+  );
   app.use(express.json());
 
   const server = createServer(app);
-  const wss = new WebSocketServer({ server, path: '/ws' });
+  const wss = new WebSocketServer({
+    server,
+    path: '/ws',
+    verifyClient: (info: { origin: string; req: IncomingMessage }) =>
+      isAllowedWsOrigin({ origin: info.origin, host: info.req.headers.host, allowedOrigins }),
+  });
 
   // Metric history storage (shared with routes)
   const metricHistory = new Map<string, { cpu: number; memory: number; time: number }[]>();
