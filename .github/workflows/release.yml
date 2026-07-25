@@ -39,12 +39,12 @@ jobs:
     # Skip the bot's own release commit so a release doesn't re-trigger itself
     if: "!contains(github.event.head_commit.message, 'chore: release')"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: npm
@@ -118,7 +118,7 @@ jobs:
           --require-signatures
 
       - name: Upload plugin catalog Pages artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: dist/plugin-pages
 
@@ -126,14 +126,14 @@ jobs:
         run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       # Build the image and verify it actually serves the bundled UI BEFORE the
       # irreversible publish steps below, so a broken image can never ship after
       # npm has already gone public. The multi-arch push at the end reuses this
       # build via the shared gha cache.
       - name: Build image for smoke test
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           load: true
@@ -195,7 +195,7 @@ jobs:
           git push origin main --tags
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.version.outputs.version }}
           name: ${{ steps.version.outputs.version }}
@@ -208,17 +208,17 @@ jobs:
             dist/plugin-pages/plugins/packages/*.dockscope-plugin
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
@@ -243,4 +243,4 @@ jobs:
     steps:
       - name: Deploy catalog to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
