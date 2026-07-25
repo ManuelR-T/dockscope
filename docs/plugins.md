@@ -63,6 +63,8 @@ dockscope plugin:verify --package ./dist/acme.hello.dockscope-plugin
 
 `plugin:pack` produces a distributable package and prints its SHA-256. Signing is optional for local installs and required for catalog distribution, covered in [Packaging and Signing](#packaging-and-signing).
 
+To get the plugin into someone else's DockScope, see [Publishing Your Plugin](#publishing-your-plugin).
+
 ### Where to go next
 
 - [Manifest](#manifest) for the full manifest schema
@@ -71,7 +73,7 @@ dockscope plugin:verify --package ./dist/acme.hello.dockscope-plugin
 - [Commands and Events](#commands-and-events) for command input schemas and event publishing
 - [Permissions](#permissions) for the permission model and what each permission unlocks
 - [Module Contract](#module-contract) for the exact factory and provider shapes
-- [Catalogs](#catalogs) to distribute through a signed catalog
+- [Publishing Your Plugin](#publishing-your-plugin) to get it into someone else's DockScope
 
 ## Loading
 
@@ -491,6 +493,113 @@ Configure these GitHub Actions secrets before releasing:
 Generate each pair with `dockscope plugin:keys`. Keep private keys outside the repository and retain them between releases. The catalog builder derives and publishes `package.public.pem` and `catalog.public.pem`; it also accepts the corresponding `DOCKSCOPE_PLUGIN_*_PRIVATE_KEY` environment variables in CI. Release builds use `--require-signatures` and fail closed when either secret is absent.
 
 GitHub Pages must use **GitHub Actions** as its deployment source. Once enabled, the stable catalog URL is `https://<owner>.github.io/<repository>/plugins/catalog.json`.
+
+## Publishing Your Plugin
+
+There are three ways to get a plugin into someone else's DockScope. Pick the lightest one that fits your audience. All three use only the `dockscope` CLI from npm, with no clone of this repository.
+
+### Option 1: Load it from a path
+
+For your own machine, a teammate's checkout, or a plugin you never intend to distribute:
+
+```bash
+dockscope up --plugins /path/to/my-plugin --plugin-permissions all
+```
+
+No packaging and no signing. Plugins loaded this way receive no permissions unless you grant them explicitly, either with `--plugin-permissions` or `DOCKSCOPE_PLUGIN_PERMISSIONS`.
+
+### Option 2: Distribute a package file
+
+The simplest real distribution. Produce a single package file and attach it to a GitHub release:
+
+```bash
+dockscope plugin:pack --source ./my-plugin --out ./my-plugin.dockscope-plugin
+```
+
+Users install it directly, and can inspect it first:
+
+```bash
+dockscope plugin:verify  --package ./my-plugin.dockscope-plugin
+dockscope plugin:install --source  ./my-plugin.dockscope-plugin
+```
+
+Sign the package so users can verify provenance. `plugin:pack` accepts `--private-key` and `--key-id`, and `plugin:verify` accepts the matching `--public-key`.
+
+### Option 3: Publish a signed catalog
+
+A catalog gives your users the same browse-and-install experience as the official plugins, with signature verification on both the catalog and each package.
+
+Generate a signing key pair once and keep the private keys out of your repository:
+
+```bash
+dockscope plugin:keys --out-dir ./keys --name acme
+```
+
+Pack the plugin with a signature, then generate its catalog entry:
+
+```bash
+dockscope plugin:pack --source ./my-plugin --out ./acme.hello.dockscope-plugin \
+  --private-key ./keys/acme.private.pem --key-id acme-v1
+
+dockscope plugin:catalog:entry --package ./acme.hello.dockscope-plugin \
+  --public-key ./keys/acme.public.pem --key-id acme-v1 \
+  --category Utilities --license MIT > entry.json
+```
+
+`plugin:catalog:entry` writes the entry to stdout. Its `packageUrl` defaults to the package filename, so **edit it to the URL users will download from** before publishing.
+
+Assemble `catalog.json` around one or more entries. The `format` value is exact:
+
+```json
+{
+  "format": "dockscope-plugin-catalog/v1",
+  "name": "Acme Plugins",
+  "updatedAt": "2026-07-25T00:00:00.000Z",
+  "entries": [{ "...": "contents of entry.json" }]
+}
+```
+
+Sign the catalog in place, which adds its `signature` block:
+
+```bash
+dockscope plugin:catalog:sign --catalog ./catalog.json \
+  --private-key ./keys/acme.private.pem --key-id acme-catalog-v1
+```
+
+Publish `catalog.json` and the package file at stable URLs. Users need your catalog public key to verify the signature, either passed directly or through a trust store that supports key rotation and revocation:
+
+```json
+{
+  "format": "dockscope-plugin-catalog-trust/v1",
+  "keys": [
+    {
+      "algorithm": "ed25519",
+      "keyId": "acme-catalog-v1",
+      "publicKey": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----\n",
+      "status": "active"
+    }
+  ],
+  "revokedKeyIds": []
+}
+```
+
+Users then browse and install from it:
+
+```bash
+dockscope plugin:catalog --catalog https://acme.example/catalog.json \
+  --trust ./acme-trust.json
+dockscope plugin:catalog:install acme.hello \
+  --catalog https://acme.example/catalog.json \
+  --catalog-trust ./acme-trust.json
+```
+
+To use your catalog for a whole session, pass `--plugin-catalog` and `--plugin-catalog-trust` to `dockscope up`, or set `DOCKSCOPE_PLUGIN_CATALOG` and `DOCKSCOPE_PLUGIN_CATALOG_TRUST`.
+
+> **Current limitation:** configuring a custom catalog **replaces** the official one rather than adding to it, so a user can browse either your catalog or the official catalog, but not both at once. Distributing a package file (option 2) avoids this.
+
+### Choosing an id
+
+Publish under your own publisher segment, for example `acme.hello`. The `official.` prefix is reserved and requires a verified package signature, as described in [Plugin ids and the reserved namespace](#plugin-ids-and-the-reserved-namespace).
 
 ## Catalogs
 
