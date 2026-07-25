@@ -34,14 +34,56 @@ export interface PluginCatalogConfiguration {
   disableOfficial?: boolean;
 }
 
+/**
+ * Catalog sources are comma-separated. A comma cannot appear in an unencoded
+ * URL authority or path, unlike the platform path delimiter used for plugin
+ * paths, which would split `https://`.
+ */
+export function parsePluginCatalogSources(value: string | undefined): string[] {
+  return (value ?? '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Ordered catalog sources. The official catalog comes first unless explicitly
+ * disabled, and configured catalogs are added after it rather than replacing
+ * it, so a user can browse official and third-party plugins together. Earlier
+ * sources win when the same plugin id appears in more than one catalog.
+ */
+export function resolvePluginCatalogSources(
+  configuration: PluginCatalogConfiguration,
+): readonly string[] {
+  const sources = configuration.disableOfficial ? [] : [OFFICIAL_PLUGIN_CATALOG_URL];
+  for (const source of parsePluginCatalogSources(configuration.source)) {
+    if (!sources.includes(source)) {
+      sources.push(source);
+    }
+  }
+  return sources;
+}
+
+/** @deprecated Use {@link resolvePluginCatalogSources}; returns the first source. */
 export function resolvePluginCatalogSource(
   configuration: PluginCatalogConfiguration,
 ): string | undefined {
-  const source = configuration.source?.trim();
-  if (source) {
-    return source;
+  return resolvePluginCatalogSources(configuration)[0];
+}
+
+function mergeTrustStores(
+  base: PluginCatalogTrustStore,
+  extra: PluginCatalogTrustStore | undefined,
+): PluginCatalogTrustStore {
+  if (!extra) {
+    return base;
   }
-  return configuration.disableOfficial ? undefined : OFFICIAL_PLUGIN_CATALOG_URL;
+  const keyIds = new Set(base.keys.map((key) => key.keyId));
+  return {
+    format: base.format,
+    keys: [...base.keys, ...extra.keys.filter((key) => !keyIds.has(key.keyId))],
+    revokedKeyIds: [...new Set([...base.revokedKeyIds, ...extra.revokedKeyIds])],
+  };
 }
 
 export function resolvePluginCatalogLoadOptions(
@@ -50,17 +92,24 @@ export function resolvePluginCatalogLoadOptions(
 ): PluginCatalogLoadOptions {
   const publicKey = configuration.publicKey?.trim() || undefined;
   const serializedTrustStore = configuration.serializedTrustStore?.trim();
-  if (publicKey || serializedTrustStore) {
+  const trustStore = serializedTrustStore
+    ? parsePluginCatalogTrustStore(serializedTrustStore)
+    : undefined;
+
+  // The official catalog keeps its pinned key even when extra verification
+  // settings are configured for another catalog, otherwise adding a key for a
+  // third-party catalog would silently unpin the official one. Configured keys
+  // stay usable alongside the pin, so an official mirror still verifies.
+  if (source === OFFICIAL_PLUGIN_CATALOG_URL && !configuration.disableOfficial) {
     return {
       publicKey,
-      trustStore: serializedTrustStore
-        ? parsePluginCatalogTrustStore(serializedTrustStore)
-        : undefined,
+      trustStore: mergeTrustStores(OFFICIAL_PLUGIN_CATALOG_TRUST_STORE, trustStore),
     };
   }
-  return source === OFFICIAL_PLUGIN_CATALOG_URL
-    ? { trustStore: OFFICIAL_PLUGIN_CATALOG_TRUST_STORE }
-    : {};
+  if (publicKey || trustStore) {
+    return { publicKey, trustStore };
+  }
+  return {};
 }
 
 function pluginCatalogConfigurationFromEnv(env: NodeJS.ProcessEnv): PluginCatalogConfiguration {
@@ -72,8 +121,17 @@ function pluginCatalogConfigurationFromEnv(env: NodeJS.ProcessEnv): PluginCatalo
   };
 }
 
+export function pluginCatalogSourcesFromEnv(env: NodeJS.ProcessEnv): readonly string[] {
+  return resolvePluginCatalogSources(pluginCatalogConfigurationFromEnv(env));
+}
+
+/** @deprecated Use {@link pluginCatalogSourcesFromEnv}; returns the first source. */
 export function pluginCatalogSourceFromEnv(env: NodeJS.ProcessEnv): string | undefined {
-  return resolvePluginCatalogSource(pluginCatalogConfigurationFromEnv(env));
+  return pluginCatalogSourcesFromEnv(env)[0];
+}
+
+export function pluginCatalogConfigFromEnv(env: NodeJS.ProcessEnv): PluginCatalogConfiguration {
+  return pluginCatalogConfigurationFromEnv(env);
 }
 
 export function pluginCatalogLoadOptionsFromEnv(

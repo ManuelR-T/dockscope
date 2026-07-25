@@ -7,11 +7,8 @@ import { PluginEventError } from '../core/plugin-events.js';
 import { EntityActionError } from '../core/entity-actions.js';
 import { PluginConnectionError } from '../core/plugin-connections.js';
 import { PluginCompatibilityError } from '../core/plugin-compatibility.js';
-import { loadPluginCatalog, PluginCatalogError } from '../plugins/catalog.js';
-import {
-  resolvePluginCatalogLoadOptions,
-  resolvePluginCatalogSource,
-} from '../plugins/catalogConfig.js';
+import { PluginCatalogError } from '../plugins/catalog.js';
+import { loadAggregatedPluginCatalogs } from '../plugins/catalogAggregate.js';
 import type { PluginMarketplaceService } from '../plugins/marketplace.js';
 import type { EntityRef } from '../core/operations.js';
 import type { GraphData, ServerOptions, ServiceNode } from '../types.js';
@@ -545,16 +542,22 @@ export function setupRoutes(
           opts.disableOfficialPluginCatalog ||
           process.env.DOCKSCOPE_DISABLE_OFFICIAL_PLUGIN_CATALOG === '1',
       };
-      const source = resolvePluginCatalogSource(configuration);
-      if (!source) {
-        res.json({ configured: false, entries: [] });
+      const aggregated = await loadAggregatedPluginCatalogs(configuration);
+      if (aggregated.catalogs.length === 0) {
+        res.json({ configured: false, catalogs: [], entries: [] });
         return;
       }
-      const catalog = await loadPluginCatalog(
-        source,
-        resolvePluginCatalogLoadOptions(source, configuration),
-      );
-      res.json({ configured: true, ...catalog });
+      res.json({
+        configured: true,
+        catalogs: aggregated.catalogs,
+        shadowedIds: aggregated.shadowedIds,
+        entries: aggregated.entries.map((aggregatedEntry) => ({
+          ...aggregatedEntry.entry,
+          catalogName: aggregatedEntry.catalogName,
+          catalogSource: aggregatedEntry.source,
+          official: aggregatedEntry.official,
+        })),
+      });
     }),
   );
 

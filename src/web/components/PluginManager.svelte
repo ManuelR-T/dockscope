@@ -62,6 +62,7 @@
     configured: false,
     registryDir: '',
     approvals: [],
+    catalogs: [],
     entries: [],
   });
   let compatibility = $state<PluginCompatibilityReport[]>([]);
@@ -682,6 +683,11 @@
   }
 
   function catalogTrustText(): string {
+    const loaded = (marketplace.catalogs ?? []).filter((catalog) => !catalog.error);
+    if (loaded.length > 1) {
+      const signed = loaded.filter((catalog) => catalog.signatureVerified === true).length;
+      return `${signed} / ${loaded.length} catalogs signed`;
+    }
     if (marketplace.catalogSignatureVerified === true) {
       return 'catalog signed';
     }
@@ -689,6 +695,27 @@
       return 'catalog signature unverified';
     }
     return 'catalog unsigned';
+  }
+
+  function failedCatalogs() {
+    return (marketplace.catalogs ?? []).filter((catalog) => catalog.error);
+  }
+
+  function catalogSummaryText(): string {
+    const loaded = (marketplace.catalogs ?? []).filter((catalog) => !catalog.error);
+    if (loaded.length > 1) {
+      return `${loaded.length} catalogs`;
+    }
+    return loaded[0]?.name ?? marketplace.catalogName ?? 'Local plugins';
+  }
+
+  /** Provenance label shown per entry once more than one catalog is configured. */
+  function entryCatalogLabel(entry: PluginMarketplaceEntry): string | undefined {
+    const loaded = (marketplace.catalogs ?? []).filter((catalog) => !catalog.error);
+    if (loaded.length < 2 || !entry.catalogName) {
+      return undefined;
+    }
+    return entry.catalogName;
   }
 </script>
 
@@ -1070,9 +1097,9 @@
           </div>
         {/if}
       {:else if tab === 'marketplace'}
-        {#if marketplace.catalogError}
+        {#each failedCatalogs() as failed (failed.source)}
           <div class="marketplace-alert">
-            <span>Catalog unavailable: {marketplace.catalogError}</span>
+            <span>Catalog unavailable: {failed.name ?? failed.source} — {failed.error}</span>
             <button
               class="marketplace-retry"
               title="Retry catalog"
@@ -1082,16 +1109,16 @@
               <Icon name="restart" size={13} />
             </button>
           </div>
-        {/if}
+        {/each}
         {#if !marketplace.configured && marketplace.entries.length === 0}
           <div class="empty-msg">No plugin marketplace configured.</div>
         {:else if marketplace.entries.length === 0}
-          {#if !marketplace.catalogError}
+          {#if failedCatalogs().length === 0}
             <div class="empty-msg">{marketplace.catalogName ?? 'Plugin marketplace'} is empty.</div>
           {/if}
         {:else}
           <div class="summary-row">
-            <span>{marketplace.catalogName ?? 'Local plugins'}</span>
+            <span>{catalogSummaryText()}</span>
             <span
               >{catalogTrustText()} · {marketplaceEntries.length} / {marketplace.entries.length} entries</span
             >
@@ -1149,6 +1176,11 @@
                       <span>{entry.category}</span>
                     {/if}
                     <span>{entry.tags.length} tags</span>
+                    {#if entryCatalogLabel(entry)}
+                      <span class="entry-catalog" title={entry.catalogSource}
+                        >{entryCatalogLabel(entry)}</span
+                      >
+                    {/if}
                   </div>
                   {#if entry.installed}
                     <div class="item-desc">
@@ -1735,6 +1767,13 @@
   .marketplace-registry {
     margin: -4px 0 10px;
     overflow-wrap: anywhere;
+  }
+
+  .entry-catalog {
+    padding: 0 5px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    opacity: 0.85;
   }
 
   .marketplace-controls {

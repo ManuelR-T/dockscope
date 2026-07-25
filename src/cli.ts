@@ -374,7 +374,7 @@ program
   .option('--plugin-secret-key <key>', 'Encrypt plugin secrets with this local key')
   .option('--plugin-events <file>', 'Plugin event history JSON file')
   .option('--plugin-approvals <file>', 'Plugin approval JSON file')
-  .option('--plugin-catalog <source>', 'Plugin catalog file or URL')
+  .option('--plugin-catalog <sources>', 'Extra plugin catalog files or URLs (comma-separated)')
   .option(
     '--plugin-catalog-public-key <file>',
     'Verify signed plugin catalogs with this public key',
@@ -574,7 +574,7 @@ program
   .option('--plugin-secret-key <key>', 'Encrypt plugin secrets with this local key')
   .option('--plugin-events <file>', 'Plugin event history JSON file')
   .option('--plugin-approvals <file>', 'Plugin approval JSON file')
-  .option('--plugin-catalog <source>', 'Plugin catalog file or URL')
+  .option('--plugin-catalog <sources>', 'Extra plugin catalog files or URLs (comma-separated)')
   .option(
     '--plugin-catalog-public-key <file>',
     'Verify signed plugin catalogs with this public key',

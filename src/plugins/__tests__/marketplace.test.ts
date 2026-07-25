@@ -124,6 +124,7 @@ describe('plugin marketplace', () => {
     const service = createPluginMarketplaceService(
       {
         DOCKSCOPE_PLUGIN_CATALOG: catalogPath,
+        DOCKSCOPE_DISABLE_OFFICIAL_PLUGIN_CATALOG: '1',
         DOCKSCOPE_PLUGIN_CATALOG_PUBLIC_KEY: publicKeyPem,
         DOCKSCOPE_PLUGIN_REGISTRY: registryDir,
         DOCKSCOPE_PLUGIN_PERMISSIONS: 'all',
@@ -195,6 +196,7 @@ describe('plugin marketplace', () => {
     const registry = new PluginRegistry();
     const env = {
       DOCKSCOPE_PLUGIN_CATALOG: catalogPath,
+      DOCKSCOPE_DISABLE_OFFICIAL_PLUGIN_CATALOG: '1',
       DOCKSCOPE_PLUGIN_CATALOG_PUBLIC_KEY: publicKeyPem,
       DOCKSCOPE_PLUGIN_REGISTRY: registryDir,
       DOCKSCOPE_PLUGIN_PATHS: registryDir,
@@ -270,6 +272,7 @@ describe('plugin marketplace', () => {
     const service = createPluginMarketplaceService(
       {
         DOCKSCOPE_PLUGIN_CATALOG: catalogPath,
+        DOCKSCOPE_DISABLE_OFFICIAL_PLUGIN_CATALOG: '1',
         DOCKSCOPE_PLUGIN_CATALOG_PUBLIC_KEY: publicKeyPem,
         DOCKSCOPE_PLUGIN_REGISTRY: registryDir,
         DOCKSCOPE_PLUGIN_CONFIG: path.join(outputDir, 'config.json'),
@@ -313,6 +316,7 @@ describe('plugin marketplace', () => {
     const service = createPluginMarketplaceService(
       {
         DOCKSCOPE_PLUGIN_CATALOG: catalogPath,
+        DOCKSCOPE_DISABLE_OFFICIAL_PLUGIN_CATALOG: '1',
         DOCKSCOPE_PLUGIN_CATALOG_PUBLIC_KEY: publicKeyPem,
         DOCKSCOPE_PLUGIN_REGISTRY: registryDir,
         DOCKSCOPE_PLUGIN_PERMISSIONS: 'all',
@@ -361,6 +365,7 @@ describe('plugin marketplace', () => {
     const service = createPluginMarketplaceService(
       {
         DOCKSCOPE_PLUGIN_CATALOG: catalogPath,
+        DOCKSCOPE_DISABLE_OFFICIAL_PLUGIN_CATALOG: '1',
         DOCKSCOPE_PLUGIN_CATALOG_PUBLIC_KEY: publicKeyPem,
         DOCKSCOPE_PLUGIN_REGISTRY: registryDir,
         DOCKSCOPE_PLUGIN_PERMISSIONS: 'all',

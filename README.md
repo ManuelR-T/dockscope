@@ -66,7 +66,7 @@ Opens `http://localhost:4681`.
 | `--plugin-secret-key <key>`          | —           | Encrypt plugin secrets with a local key                                |
 | `--plugin-events <file>`             | —           | Plugin event history JSON file                                         |
 | `--plugin-approvals <file>`          | —           | Plugin approval JSON file                                              |
-| `--plugin-catalog <source>`          | —           | Plugin catalog JSON file or URL                                        |
+| `--plugin-catalog <sources>`         | —           | Extra plugin catalogs (comma-separated files or URLs), added to the official one |
 | `--plugin-catalog-public-key <file>` | —           | Verify the configured plugin catalog signature                         |
 | `--plugin-catalog-trust <file>`      | —           | Catalog signer rotation and revocation trust store                     |
 | `--no-official-plugin-catalog`       | —           | Disable the default signed DockScope catalog                           |

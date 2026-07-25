@@ -107,7 +107,7 @@ DOCKSCOPE_DISABLE_EXTERNAL_PLUGINS=1 dockscope up
 
 An explicit Marketplace or CLI install persists the exact permissions reviewed at install time. The grant is bound to the installed plugin ID and registry path, and is reused on restart and hot reload. Plugins loaded directly from `DOCKSCOPE_PLUGIN_PATHS` receive no permissions by default and rely on `DOCKSCOPE_PLUGIN_PERMISSIONS` or `--plugin-permissions` for globally allowed permissions.
 
-DockScope uses its official GitHub Pages catalog by default and pins the `official-catalog-v1` Ed25519 public key in the application. `DOCKSCOPE_PLUGIN_CATALOG` replaces the official URL with a custom catalog. `DOCKSCOPE_PLUGIN_CATALOG_PUBLIC_KEY` contains one custom pinned public key, while `DOCKSCOPE_PLUGIN_CATALOG_TRUST` contains a JSON trust store for key overlap or revocation. Use `--no-official-plugin-catalog` or `DOCKSCOPE_DISABLE_OFFICIAL_PLUGIN_CATALOG=1` for an intentionally catalog-free instance. `DOCKSCOPE_PLUGIN_ALLOW_UNSIGNED=1` is intended for local development only; by default marketplace installs require each catalog entry to include an Ed25519 package signature.
+DockScope uses its official GitHub Pages catalog by default and pins the `official-catalog-v1` Ed25519 public key in the application. `DOCKSCOPE_PLUGIN_CATALOG` adds one or more comma-separated catalogs alongside the official one, described in [Catalogs](#catalogs). `DOCKSCOPE_PLUGIN_CATALOG_PUBLIC_KEY` contains one custom pinned public key, while `DOCKSCOPE_PLUGIN_CATALOG_TRUST` contains a JSON trust store for key overlap or revocation. Use `--no-official-plugin-catalog` or `DOCKSCOPE_DISABLE_OFFICIAL_PLUGIN_CATALOG=1` to trust only the catalogs you configure, or none at all. `DOCKSCOPE_PLUGIN_ALLOW_UNSIGNED=1` is intended for local development only; by default marketplace installs require each catalog entry to include an Ed25519 package signature.
 
 ## Manifest
 
@@ -595,7 +595,7 @@ dockscope plugin:catalog:install acme.hello \
 
 To use your catalog for a whole session, pass `--plugin-catalog` and `--plugin-catalog-trust` to `dockscope up`, or set `DOCKSCOPE_PLUGIN_CATALOG` and `DOCKSCOPE_PLUGIN_CATALOG_TRUST`.
 
-> **Current limitation:** configuring a custom catalog **replaces** the official one rather than adding to it, so a user can browse either your catalog or the official catalog, but not both at once. Distributing a package file (option 2) avoids this.
+Configured catalogs are added to the official one rather than replacing it, so your plugins appear alongside the official ones. Users who want only your catalog can pass `--no-official-plugin-catalog`.
 
 ### Choosing an id
 
@@ -603,7 +603,28 @@ Publish under your own publisher segment, for example `acme.hello`. The `officia
 
 ## Catalogs
 
-A plugin catalog is a signed-package index. DockScope connects to the pinned official catalog by default. A local JSON file or another HTTP(S) URL configured with `--plugin-catalog` or `DOCKSCOPE_PLUGIN_CATALOG` replaces that default.
+A plugin catalog is a signed-package index. DockScope connects to the pinned official catalog by default.
+
+`--plugin-catalog` and `DOCKSCOPE_PLUGIN_CATALOG` accept a **comma-separated list** of local JSON files or HTTP(S) URLs. Those catalogs are added to the official one, so official and third-party plugins are browsable together:
+
+```bash
+dockscope up \
+  --plugin-catalog https://acme.example/catalog.json,https://team.internal/catalog.json \
+  --plugin-catalog-trust ./trust.json
+```
+
+Catalogs are loaded independently and in order. Rules that follow from that:
+
+- One unreachable or untrusted catalog does not hide the others. Each failure is reported separately in the Plugins panel.
+- When the same plugin id appears in more than one catalog, the **earlier** catalog wins. The official catalog is first unless disabled, so a third-party catalog cannot shadow an official plugin.
+- Each entry records which catalog it came from, shown next to the entry once more than one catalog is configured.
+- The official catalog always keeps its pinned key. A key configured for a third-party catalog is used in addition to the pin, never instead of it.
+
+Use `--no-official-plugin-catalog` or `DOCKSCOPE_DISABLE_OFFICIAL_PLUGIN_CATALOG=1` for an instance that trusts only the catalogs you configure.
+
+A single trust store can hold the signing keys of several catalogs, since keys are matched by `keyId`, so configuring multiple catalogs does not require multiple trust files.
+
+A catalog document looks like this:
 
 ```json
 {

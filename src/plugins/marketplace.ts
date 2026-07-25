@@ -14,19 +14,20 @@ import {
   type PluginCompatibility,
 } from '../core/plugin-compatibility.js';
 import { PKG_VERSION } from '../version.js';
-import { errorMessage } from '../utils.js';
-import type {
-  PluginCatalogEntrySignature,
-  ResolvedPluginCatalog,
-  ResolvedPluginCatalogEntry,
-} from './catalog.js';
-import { installPluginFromCatalog, loadPluginCatalog } from './catalog.js';
+import type { PluginCatalogEntrySignature, ResolvedPluginCatalogEntry } from './catalog.js';
+import { installPluginFromCatalog } from './catalog.js';
 import {
-  OFFICIAL_PLUGIN_CATALOG_NAME,
-  OFFICIAL_PLUGIN_CATALOG_URL,
-  pluginCatalogLoadOptionsFromEnv,
-  pluginCatalogSourceFromEnv,
+  pluginCatalogConfigFromEnv,
+  resolvePluginCatalogLoadOptions,
+  resolvePluginCatalogSources,
 } from './catalogConfig.js';
+import {
+  findAggregatedEntry,
+  loadAggregatedPluginCatalogs,
+  type AggregatedPluginCatalogEntry,
+  type AggregatedPluginCatalogs,
+  type PluginCatalogSourceStatus,
+} from './catalogAggregate.js';
 import {
   defaultPluginRegistryDir,
   listInstalledPlugins,
@@ -67,6 +68,10 @@ export interface PluginMarketplaceEntry {
   packageSha256?: string;
   signature?: PluginCatalogEntrySignature;
   catalogSignatureVerified?: boolean;
+  /** Which catalog provided this entry, for provenance in the UI. */
+  catalogName?: string;
+  catalogSource?: string;
+  official?: boolean;
   resolvedPackageUrl?: string;
   installed?: InstalledPlugin;
   runtime?: PluginRuntimeInfo;
@@ -76,11 +81,15 @@ export interface PluginMarketplaceEntry {
 
 export interface PluginMarketplaceSnapshot {
   configured: boolean;
+  /** Name of the first successfully loaded catalog. */
   catalogName?: string;
   registryDir: string;
   approvals: readonly PluginApprovalSnapshot[];
   catalogSignatureVerified?: boolean;
+  /** First catalog error, kept so single-catalog consumers keep working. */
   catalogError?: string;
+  /** Every configured catalog, in resolution order, including failed ones. */
+  catalogs: readonly PluginCatalogSourceStatus[];
   entries: readonly PluginMarketplaceEntry[];
 }
 
@@ -119,6 +128,9 @@ function catalogMarketplaceEntry(options: {
   installed?: InstalledPlugin;
   runtime?: PluginRuntimeInfo;
   catalogSignatureVerified?: boolean;
+  catalogName?: string;
+  catalogSource?: string;
+  official?: boolean;
 }): PluginMarketplaceEntry {
   const hasUpdate = updateAvailable(options.catalogEntry, options.installed);
   return {
@@ -149,6 +161,9 @@ function catalogMarketplaceEntry(options: {
     packageSha256: options.catalogEntry.packageSha256,
     signature: options.catalogEntry.signature,
     catalogSignatureVerified: options.catalogSignatureVerified,
+    catalogName: options.catalogName,
+    catalogSource: options.catalogSource,
+    official: options.official,
     resolvedPackageUrl: options.catalogEntry.resolvedPackageUrl,
     installed: options.installed,
     runtime: options.runtime,
@@ -188,31 +203,19 @@ export class PluginMarketplaceService {
   ) {}
 
   async list(): Promise<PluginMarketplaceSnapshot> {
-    const source = pluginCatalogSourceFromEnv(this.env);
     const installed = await listInstalledPlugins(pluginRegistryDir(this.env));
-    if (!source) {
-      return this.snapshot(undefined, installed);
-    }
-    try {
-      const catalog = await loadPluginCatalog(
-        source,
-        pluginCatalogLoadOptionsFromEnv(this.env, source),
-      );
-      return this.snapshot(catalog, installed, { configured: true });
-    } catch (error) {
-      return this.snapshot(undefined, installed, {
-        configured: true,
-        catalogName:
-          source === OFFICIAL_PLUGIN_CATALOG_URL ? OFFICIAL_PLUGIN_CATALOG_NAME : undefined,
-        catalogError: errorMessage(error),
-      });
-    }
+    const aggregated = await loadAggregatedPluginCatalogs(pluginCatalogConfigFromEnv(this.env));
+    return this.snapshot(aggregated, installed);
   }
 
   async install(pluginId: string): Promise<PluginMarketplaceSnapshot> {
-    const source = this.requireCatalogSource();
-    const catalogVerification = pluginCatalogLoadOptionsFromEnv(this.env, source);
-    const entry = await this.requireCatalogEntry(pluginId);
+    const found = await this.requireCatalogEntry(pluginId);
+    const source = found.source;
+    const catalogVerification = resolvePluginCatalogLoadOptions(
+      source,
+      pluginCatalogConfigFromEnv(this.env),
+    );
+    const entry = found.entry;
     this.assertInstallable(entry);
     const runtime = this.runtimePlugin(pluginId);
     if (runtime?.manifest.builtin) {
@@ -247,13 +250,16 @@ export class PluginMarketplaceService {
     if (!installed) {
       throw new PluginOperationError(404, `Plugin is not installed: ${pluginId}`);
     }
-    const entry = await this.requireCatalogEntry(pluginId);
-    this.assertInstallable(entry);
+    const found = await this.requireCatalogEntry(pluginId);
+    this.assertInstallable(found.entry);
     const enabled =
       this.runtimePlugin(pluginId)?.enabled ?? (await this.stateStore.loadEnabled(pluginId));
     const snapshot = await this.snapshotInstalledPlugin(pluginId);
-    const source = this.requireCatalogSource();
-    const catalogVerification = pluginCatalogLoadOptionsFromEnv(this.env, source);
+    const source = found.source;
+    const catalogVerification = resolvePluginCatalogLoadOptions(
+      source,
+      pluginCatalogConfigFromEnv(this.env),
+    );
     try {
       const updated = await installPluginFromCatalog({
         catalogSource: source,
@@ -288,25 +294,27 @@ export class PluginMarketplaceService {
   }
 
   private async snapshot(
-    catalog: ResolvedPluginCatalog | undefined,
+    aggregated: AggregatedPluginCatalogs,
     installed: readonly InstalledPlugin[],
-    options: { configured?: boolean; catalogName?: string; catalogError?: string } = {},
   ): Promise<PluginMarketplaceSnapshot> {
     const installedById = new Map(installed.map((plugin) => [plugin.id, plugin]));
     const runtimeById = new Map(
       this.registry.listPlugins().map((runtime) => [runtime.manifest.id, runtime]),
     );
     const entries: PluginMarketplaceEntry[] = [];
-    const catalogSignatureVerified = catalog?.signatureVerified;
 
-    for (const catalogEntry of catalog?.entries ?? []) {
+    for (const aggregatedEntry of aggregated.entries) {
+      const { entry: catalogEntry } = aggregatedEntry;
       const installedPlugin = installedById.get(catalogEntry.id);
       entries.push(
         catalogMarketplaceEntry({
           catalogEntry,
           installed: installedPlugin,
           runtime: runtimeById.get(catalogEntry.id),
-          catalogSignatureVerified,
+          catalogSignatureVerified: aggregatedEntry.catalogSignatureVerified,
+          catalogName: aggregatedEntry.catalogName,
+          catalogSource: aggregatedEntry.source,
+          official: aggregatedEntry.official,
         }),
       );
       installedById.delete(catalogEntry.id);
@@ -316,19 +324,23 @@ export class PluginMarketplaceService {
       entries.push(localMarketplaceEntry(installedPlugin, runtimeById.get(installedPlugin.id)));
     }
 
+    const firstLoaded = aggregated.catalogs.find((catalog) => !catalog.error);
+    const firstError = aggregated.catalogs.find((catalog) => catalog.error);
+
     return {
-      configured: options.configured ?? Boolean(catalog),
-      catalogName: catalog?.name ?? options.catalogName,
+      configured: aggregated.catalogs.length > 0,
+      catalogName: firstLoaded?.name ?? firstError?.name,
       registryDir: pluginRegistryDir(this.env),
       approvals: this.registry.listPluginApprovals(),
-      catalogSignatureVerified: catalog?.signatureVerified,
-      catalogError: options.catalogError,
+      catalogSignatureVerified: firstLoaded?.signatureVerified,
+      catalogError: firstError?.error,
+      catalogs: aggregated.catalogs,
       entries: entries.sort((a, b) => a.id.localeCompare(b.id)),
     };
   }
 
   private requireCatalogSource(): string {
-    const source = pluginCatalogSourceFromEnv(this.env);
+    const source = resolvePluginCatalogSources(pluginCatalogConfigFromEnv(this.env))[0];
     if (!source) {
       throw new PluginOperationError(400, 'Plugin catalog is not configured');
     }
@@ -345,17 +357,25 @@ export class PluginMarketplaceService {
     return this.registry.listPlugins().find((plugin) => plugin.manifest.id === pluginId);
   }
 
-  private async requireCatalogEntry(pluginId: string): Promise<ResolvedPluginCatalogEntry> {
-    const source = this.requireCatalogSource();
-    const catalog = await loadPluginCatalog(
-      source,
-      pluginCatalogLoadOptionsFromEnv(this.env, source),
-    );
-    const entry = catalog.entries.find((candidate) => candidate.id === pluginId);
-    if (!entry) {
+  /**
+   * Resolves the entry together with the catalog that provided it, so installs
+   * fetch from the right source instead of assuming a single configured catalog.
+   */
+  private async requireCatalogEntry(pluginId: string): Promise<AggregatedPluginCatalogEntry> {
+    this.requireCatalogSource();
+    const aggregated = await loadAggregatedPluginCatalogs(pluginCatalogConfigFromEnv(this.env));
+    const found = findAggregatedEntry(aggregated, pluginId);
+    if (!found) {
+      const failed = aggregated.catalogs.find((catalog) => catalog.error);
+      if (failed) {
+        throw new PluginOperationError(
+          502,
+          `Plugin catalog entry not found: ${pluginId} (catalog ${failed.source} failed: ${failed.error})`,
+        );
+      }
       throw new PluginOperationError(404, `Plugin catalog entry not found: ${pluginId}`);
     }
-    return entry;
+    return found;
   }
 
   private assertInstallable(entry: ResolvedPluginCatalogEntry): void {
