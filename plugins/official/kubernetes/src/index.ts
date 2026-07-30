@@ -1,8 +1,10 @@
 import { DockscopePlugin, PluginFactoryContext } from 'dockscope/plugin-sdk';
+import { KubeConfig } from '@kubernetes/client-node';
+import { makeKubeClient } from './client';
 
 // const KUBERNETES_SOURCE_ID = 'kubernetes';
 
-export default function createPlugin({ manifest }: PluginFactoryContext): DockscopePlugin {
+export default function createPlugin({ manifest, config }: PluginFactoryContext): DockscopePlugin {
   //   const _descriptor = {
   //     id: KUBERNETES_SOURCE_ID,
   //     label: 'Kubernetes',
@@ -11,6 +13,12 @@ export default function createPlugin({ manifest }: PluginFactoryContext): Docksc
   //     capabilities: manifest.capabilities,
   //     status: 'unknown',
   //   };
+
+  const kubeConfig = new KubeConfig();
+
+  kubeConfig.loadFromFile(config['KUBE_CONFIG'] as string);
+
+  const client = makeKubeClient(kubeConfig);
 
   return {
     manifest,

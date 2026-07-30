@@ -2,11 +2,14 @@ import { defineConfig } from 'vite';
 import { resolve } from 'path';
 
 export default defineConfig({
-  publicDir: resolve(__dirname, 'public'),
+  resolve: {
+    conditions: ['node', 'default'],
+  },
   build: {
+    target: 'node18',
+    ssr: true,
     lib: {
       entry: resolve(__dirname, 'src/index.ts'),
-      name: 'dockscope-kubernetes-plugin',
       formats: ['es'],
       fileName: () => 'index.mjs',
     },
@@ -15,5 +18,8 @@ export default defineConfig({
     rollupOptions: {
       external: [],
     },
+  },
+  ssr: {
+    noExternal: true,
   },
 });
