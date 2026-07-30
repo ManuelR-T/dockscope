@@ -1864,11 +1864,11 @@
     overflow-wrap: anywhere;
   }
 
+  /* Plain text, not a chip: every sibling in .item-meta is unstyled text, so a
+     padded box here was the only thing making that row taller. Colour alone is
+     enough to mark provenance. */
   .entry-catalog {
-    padding: 3px 6px;
-    border-radius: 5px;
-    background: rgba(0, 228, 255, 0.07);
-    color: rgba(226, 232, 240, 0.72);
+    color: rgba(0, 228, 255, 0.72);
   }
 
   .catalog-manager {
