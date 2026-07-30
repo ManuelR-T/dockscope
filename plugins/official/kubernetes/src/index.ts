@@ -1,18 +1,20 @@
 import { DockscopePlugin, PluginFactoryContext } from 'dockscope/plugin-sdk';
 import { KubeConfig } from '@kubernetes/client-node';
 import { makeKubeClient } from './client';
+import listResources from './resources';
+import { buildGraph } from './graph';
 
-// const KUBERNETES_SOURCE_ID = 'kubernetes';
+const KUBERNETES_SOURCE_ID = 'kubernetes';
 
 export default function createPlugin({ manifest, config }: PluginFactoryContext): DockscopePlugin {
-  //   const _descriptor = {
-  //     id: KUBERNETES_SOURCE_ID,
-  //     label: 'Kubernetes',
-  //     kind: 'kubernetes',
-  //     pluginId: manifest.id,
-  //     capabilities: manifest.capabilities,
-  //     status: 'unknown',
-  //   };
+  const descriptor = {
+    id: KUBERNETES_SOURCE_ID,
+    label: 'Kubernetes',
+    kind: 'kubernetes' as const,
+    pluginId: manifest.id,
+    capabilities: manifest.capabilities,
+    status: 'unknown' as const,
+  };
 
   const kubeConfig = new KubeConfig();
 
@@ -22,23 +24,23 @@ export default function createPlugin({ manifest, config }: PluginFactoryContext)
 
   return {
     manifest,
-    //     getGraphSources() {
-    //       return [
-    //         {
-    //           describe() {
-    //             return descriptor;
-    //           },
-    //           async collectGraph() {
-    //             const resources = await listResources(host);
-    //             return {
-    //               source: descriptor,
-    //               graph: buildGraph(resources),
-    //               collectedAt: Date.now(),
-    //             };
-    //           },
-    //         },
-    //       ];
-    //     },
+    getGraphSources() {
+      return [
+        {
+          describe() {
+            return descriptor;
+          },
+          async collectGraph() {
+            const resources = await listResources(client);
+            return {
+              source: descriptor,
+              graph: buildGraph(resources),
+              collectedAt: Date.now(),
+            };
+          },
+        },
+      ];
+    },
     //     getLogsProviders() {
     //       return [
     //         {

@@ -11,12 +11,17 @@ export default defineConfig({
     lib: {
       entry: resolve(__dirname, 'src/index.ts'),
       formats: ['es'],
-      fileName: () => 'index.mjs',
+      name: 'dockscope-kubernetes-plugin',
+      fileName: 'plugin.mjs',
     },
     outDir: 'dist',
     emptyOutDir: true,
     rollupOptions: {
       external: [],
+      output: {
+        // forcing the name here cause idk why it doesnt let me do what I want
+        entryFileNames: 'plugin.mjs',
+      },
     },
   },
   ssr: {
