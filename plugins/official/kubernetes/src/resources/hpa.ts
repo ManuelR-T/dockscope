@@ -1,6 +1,6 @@
-import { V1HorizontalPodAutoscaler, V1Pod, V1PodList } from '@kubernetes/client-node';
+import { V2HorizontalPodAutoscaler, V1Pod, V1PodList } from '@kubernetes/client-node';
 
-export function getPodsForHpa(hpa: V1HorizontalPodAutoscaler, pods: V1PodList): V1Pod[] {
+export function getPodsForHpa(hpa: V2HorizontalPodAutoscaler, pods: V1PodList): V1Pod[] {
   const namespace = hpa.metadata?.namespace || 'default';
 
   const target = hpa.spec?.scaleTargetRef;

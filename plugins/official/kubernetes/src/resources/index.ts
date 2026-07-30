@@ -1,5 +1,5 @@
 import {
-  V1HorizontalPodAutoscalerList,
+  V2HorizontalPodAutoscalerList,
   V1IngressList,
   V1PodList,
   V1ServiceList,
@@ -9,7 +9,7 @@ import { KubeClient } from '../client';
 export interface Resources {
   pods: V1PodList;
   services: V1ServiceList;
-  hpa: V1HorizontalPodAutoscalerList;
+  hpa: V2HorizontalPodAutoscalerList;
   ingresses: V1IngressList;
 }
 

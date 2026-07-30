@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type {
-  V1HorizontalPodAutoscalerList,
+  V2HorizontalPodAutoscalerList,
   V1IngressList,
   V1PodList,
   V1ServiceList,
@@ -28,7 +28,7 @@ function resources(overrides: Partial<Resources> = {}): Resources {
     pods: { items: [] } as unknown as V1PodList,
     services: { items: [] } as unknown as V1ServiceList,
     ingresses: { items: [] } as unknown as V1IngressList,
-    hpa: { items: [] } as unknown as V1HorizontalPodAutoscalerList,
+    hpa: { items: [] } as unknown as V2HorizontalPodAutoscalerList,
   };
   return { ...base, ...overrides } as Resources;
 }
@@ -82,7 +82,9 @@ describe('buildGraph', () => {
           ],
         } as unknown as V1PodList,
         services: {
-          items: [{ metadata: { namespace: 'default', name: 'web' }, spec: { selector: { app: 'web' } } }],
+          items: [
+            { metadata: { namespace: 'default', name: 'web' }, spec: { selector: { app: 'web' } } },
+          ],
         } as unknown as V1ServiceList,
       }),
     );
@@ -115,10 +117,14 @@ describe('buildGraph', () => {
           items: [
             {
               metadata: { namespace: 'default', name: 'web' },
-              spec: { scaleTargetRef: { kind: 'Deployment', name: 'web' }, minReplicas: 2, maxReplicas: 5 },
+              spec: {
+                scaleTargetRef: { kind: 'Deployment', name: 'web' },
+                minReplicas: 2,
+                maxReplicas: 5,
+              },
             },
           ],
-        } as unknown as V1HorizontalPodAutoscalerList,
+        } as unknown as V2HorizontalPodAutoscalerList,
       }),
     );
 
@@ -128,11 +134,75 @@ describe('buildGraph', () => {
     );
   });
 
+  function hpa(status: Record<string, unknown>) {
+    return resources({
+      hpa: {
+        items: [
+          {
+            metadata: { namespace: 'default', name: 'web' },
+            spec: {
+              scaleTargetRef: { kind: 'Deployment', name: 'web' },
+              minReplicas: 2,
+              maxReplicas: 5,
+            },
+            status,
+          },
+        ],
+      } as unknown as V2HorizontalPodAutoscalerList,
+    });
+  }
+
+  it('reports a scaling HPA as healthy with its replica ratio', () => {
+    const node = buildGraph(hpa({ currentReplicas: 2, desiredReplicas: 2 })).nodes[0];
+    expect(node).toMatchObject({ health: 'healthy', image: 'HPA 2/2 replicas' });
+    // an HPA has no ports; its facts belong in metadata
+    expect(node.ports).toEqual([]);
+    expect(node.metadata).toMatchObject({ replicas: '2/2 replicas', range: '2-5' });
+  });
+
+  it('reports an HPA that is still scaling up as starting', () => {
+    const node = buildGraph(hpa({ currentReplicas: 2, desiredReplicas: 4 })).nodes[0];
+    expect(node).toMatchObject({ health: 'starting', image: 'HPA 2/4 replicas' });
+  });
+
+  // Regression: an HPA that cannot compute a target leaves desiredReplicas at 0
+  // and sets ScalingActive=False. Reading only the counts rendered it healthy
+  // with a meaningless "2/0 replicas".
+  it('reports an HPA that cannot scale as unhealthy, with the reason', () => {
+    const node = buildGraph(
+      hpa({
+        currentReplicas: 2,
+        desiredReplicas: 0,
+        conditions: [
+          { type: 'AbleToScale', status: 'True', reason: 'SucceededGetScale' },
+          {
+            type: 'ScalingActive',
+            status: 'False',
+            reason: 'FailedGetResourceMetric',
+            message: 'unable to get metrics for resource cpu',
+          },
+        ],
+      }),
+    ).nodes[0];
+
+    expect(node.health).toBe('unhealthy');
+    expect(node.image).toBe('HPA 2 replicas, scaling inactive');
+    expect(node.image).not.toContain('2/0');
+    expect(node.ports).toEqual([]);
+    expect(node.metadata).toMatchObject({
+      scalingActive: false,
+      desiredReplicas: 0,
+      scalingActiveReason: 'FailedGetResourceMetric',
+    });
+  });
+
   it('links an ingress to the service it routes to', () => {
     const graph = buildGraph(
       resources({
         services: {
-          items: [{ metadata: { namespace: 'default', name: 'web' }, spec: { selector: { app: 'web' } } }],
+          items: [
+            { metadata: { namespace: 'default', name: 'web' }, spec: { selector: { app: 'web' } } },
+          ],
         } as unknown as V1ServiceList,
         ingresses: {
           items: [
@@ -142,7 +212,9 @@ describe('buildGraph', () => {
                 rules: [
                   {
                     host: 'web.local',
-                    http: { paths: [{ backend: { service: { name: 'web', port: { number: 80 } } } }] },
+                    http: {
+                      paths: [{ backend: { service: { name: 'web', port: { number: 80 } } } }],
+                    },
                   },
                 ],
               },

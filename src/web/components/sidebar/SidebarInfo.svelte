@@ -35,6 +35,18 @@
         : `${formatBytes(stats.memory)} used`
       : '',
   );
+
+  let metadataEntries = $derived(
+    Object.entries(node.metadata ?? {}).filter(
+      ([, value]) => value !== '' && value !== null && String(value).length <= 80,
+    ),
+  );
+
+  function humanizeKey(key: string): string {
+    const spaced = key.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ');
+    return spaced.charAt(0).toUpperCase() + spaced.slice(1).toLowerCase();
+  }
+
   let cpuHistory = $derived(history.map((p) => p.cpu));
   let memHistory = $derived(
     stats && hasMemoryLimit
@@ -125,6 +137,20 @@
             </div>
           </div>
         {/if}
+      </div>
+    </div>
+  {/if}
+
+  {#if metadataEntries.length > 0}
+    <div class="node-section">
+      <div class="node-section-head">Details</div>
+      <div class="node-section-body">
+        {#each metadataEntries as [key, value]}
+          <div class="field-row">
+            <span class="field-key">{humanizeKey(key)}</span>
+            <span class="field-val">{value}</span>
+          </div>
+        {/each}
       </div>
     </div>
   {/if}
