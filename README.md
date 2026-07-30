@@ -111,6 +111,8 @@ The `plugin:*` commands are documented in [docs/plugins.md](docs/plugins.md).
 
 ### Read the whole stack at a glance
 
+<img src="assets/screenshots/graph.png" alt="Compose stack rendered as a 3D graph, with cache sized largest because everything depends on it" width="620">
+
 Containers are spheres in a 3D graph, coloured by health, wired together by
 `depends_on` arrows and shared networks. Size is not decorative: it scales with
 how central a container is, weighing exposed ports, connections, dependency
@@ -123,6 +125,8 @@ image, filter by running, stopped or unhealthy, and colour the links by network
 when you need to see the wiring rather than the workload.
 
 ### A container just died. Why?
+
+<img src="assets/screenshots/sidebar-info.png" alt="Info tab showing status, image, id, ports, networks and live CPU and memory" width="400">
 
 DockScope reads the exit code, checks whether the kernel OOM-killed it, and
 pulls the last log lines, then puts the likely cause in the sidebar instead of
@@ -140,10 +144,18 @@ useful when something is already broken and you want the blast radius.
 
 ### What is actually going on in there?
 
+<img src="assets/screenshots/sidebar-exec.png" alt="Exec tab with an interactive shell running redis-cli" width="400">
+
 Each container opens a sidebar of tabs: live logs with ANSI colour, in-log
 search and `.txt` export; an interactive `/bin/sh` terminal; env vars with
 secrets masked by default; labels, mounts, running processes, and the
 filesystem diff against the image.
+
+| Environment and labels | Processes |
+| ---------------------- | --------- |
+| <img src="assets/screenshots/sidebar-env.png" alt="Env tab with environment variables and Compose labels" width="330"> | <img src="assets/screenshots/sidebar-top.png" alt="Processes running inside the container" width="330"> |
+| **Filesystem diff** | **Logs** |
+| <img src="assets/screenshots/sidebar-diff.png" alt="Filesystem changes against the image, added, changed and deleted" width="330"> | <img src="assets/screenshots/sidebar-logs.png" alt="Live log stream with in-log search" width="330"> |
 
 Start, stop, restart, pause, unpause, kill and remove are there too, with a
 confirmation step on the destructive ones. Whole Compose projects go up and
