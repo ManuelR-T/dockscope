@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { GraphData } from '../../types';
-import { collectSourceGraphs } from '../sources';
-import type { DataSourceDescriptor, GraphSourceAdapter } from '../model';
+import { collectSourceGraphs } from '../sources/collect';
+import type { DataSourceDescriptor, GraphSourceAdapter } from '../sources/model';
 
 function descriptor(id: string): DataSourceDescriptor {
   return {

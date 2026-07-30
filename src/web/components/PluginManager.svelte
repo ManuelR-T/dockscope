@@ -8,14 +8,14 @@
     PluginLoadWarning,
     PluginReviewReport,
     PluginRuntimeInfo,
-  } from '../../core/plugins';
-  import type { PluginRuntimeHealth } from '../../core/plugin-runtime';
-  import type { PluginConfigField, PluginConfigValue } from '../../core/plugin-config';
-  import type { PluginSecretSnapshot } from '../../core/plugin-secrets';
-  import type { PluginUiExtension } from '../../core/plugin-ui';
-  import type { PluginCommand, PluginCommandResult } from '../../core/plugin-commands';
-  import type { PluginEvent } from '../../core/plugin-events';
-  import type { PluginCompatibilityReport } from '../../core/plugin-compatibility';
+  } from '../../core/plugin-contract/manifest';
+  import type { PluginRuntimeHealth } from '../../core/plugin-contract/runtime';
+  import type { PluginConfigField, PluginConfigValue } from '../../core/plugin-contract/config';
+  import type { PluginSecretSnapshot } from '../../core/plugin-contract/secrets';
+  import type { PluginUiExtension } from '../../core/plugin-contract/ui';
+  import type { PluginCommand, PluginCommandResult } from '../../core/plugin-contract/commands';
+  import type { PluginEvent } from '../../core/plugin-contract/events';
+  import type { PluginCompatibilityReport } from '../../core/plugin-contract/compatibility';
   import PluginExtension from './PluginExtension.svelte';
   import { clearPluginFrontendCache, invokePluginUiAction } from '../lib/pluginUi';
   import type {

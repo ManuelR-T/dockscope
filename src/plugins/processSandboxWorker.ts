@@ -1,7 +1,7 @@
 import { pathToFileURL } from 'url';
-import type { PluginCommandResult } from '../core/plugin-commands.js';
-import { validatePluginCommandResult } from '../core/plugin-commands.js';
-import type { GraphSourceAdapter } from '../core/model.js';
+import type { PluginCommandResult } from '../core/plugin-contract/commands.js';
+import { validatePluginCommandResult } from '../core/plugin-contract/commands.js';
+import type { GraphSourceAdapter } from '../core/sources/model.js';
 import type {
   EntityActionProvider,
   EntityDiagnosticProvider,
@@ -14,24 +14,24 @@ import type {
   EntityStatsProvider,
   ProjectProvider,
   ResourceProvider,
-} from '../core/operations.js';
-import { validateEntityActionResult, validateEntityActions } from '../core/entity-actions.js';
-import type { MetricAnalysisProvider } from '../core/plugin-analysis.js';
-import { validateMetricAnalysisResult } from '../core/plugin-analysis.js';
-import type { PluginSystemProvider } from '../core/plugin-system.js';
-import { validatePluginSystems } from '../core/plugin-system.js';
-import type { PluginConnectionProvider } from '../core/plugin-connections.js';
+} from '../core/entities/operations.js';
+import { validateEntityActionResult, validateEntityActions } from '../core/entities/actions.js';
+import type { MetricAnalysisProvider } from '../core/plugin-contract/analysis.js';
+import { validateMetricAnalysisResult } from '../core/plugin-contract/analysis.js';
+import type { PluginSystemProvider } from '../core/plugin-contract/system.js';
+import { validatePluginSystems } from '../core/plugin-contract/system.js';
+import type { PluginConnectionProvider } from '../core/plugin-contract/connections.js';
 import {
   validatePluginConnectionProvider,
   validatePluginConnections,
-} from '../core/plugin-connections.js';
-import type { DockscopePlugin, PluginManifest } from '../core/plugins.js';
-import { validatePluginManifest } from '../core/plugins.js';
-import type { PluginUiExtensionDeclaration } from '../core/plugin-ui.js';
-import { validatePluginUiExtensions } from '../core/plugin-ui.js';
+} from '../core/plugin-contract/connections.js';
+import type { DockscopePlugin, PluginManifest } from '../core/plugin-contract/manifest.js';
+import { validatePluginManifest } from '../core/plugin-contract/manifest.js';
+import type { PluginUiExtensionDeclaration } from '../core/plugin-contract/ui.js';
+import { validatePluginUiExtensions } from '../core/plugin-contract/ui.js';
 import { errorMessage } from '../utils.js';
 import type { PluginHostApi } from './hostApi.js';
-import type { PluginFactory, PluginFactoryContext } from '../core/plugin-api.js';
+import type { PluginFactory, PluginFactoryContext } from '../core/plugin-contract/api.js';
 import type {
   SandboxBootstrap,
   SandboxHostCall,

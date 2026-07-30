@@ -5,14 +5,14 @@ export type {
   GraphSourceAdapter,
   SourceEvent,
   SourceGraphSnapshot,
-} from './core/model.js';
+} from './core/sources/model.js';
 export type {
   DockscopePlugin,
   PluginManifest,
   PluginManifestValidationResult,
   PluginManifestWarning,
   PluginManifestWarningCode,
-} from './core/plugins.js';
+} from './core/plugin-contract/manifest.js';
 export {
   DOCKSCOPE_PLUGIN_API_VERSION,
   DOCKSCOPE_PLUGIN_HOST_API_VERSION,
@@ -21,7 +21,7 @@ export {
   pluginManifestDeprecationWarnings,
   validatePluginManifest,
   validatePluginManifestWithWarnings,
-} from './core/plugins.js';
+} from './core/plugin-contract/manifest.js';
 export type {
   EntityDiagnosticProvider,
   EntityActionProvider,
@@ -47,7 +47,7 @@ export type {
   ResourceAction,
   ResourceActionOptions,
   ResourceProvider,
-} from './core/operations.js';
+} from './core/entities/operations.js';
 export type {
   EntityAction,
   EntityActionConfirmation,
@@ -57,27 +57,27 @@ export type {
   EntityActionPlacement,
   EntityActionResult,
   EntityActionTone,
-} from './core/entity-actions.js';
+} from './core/entities/actions.js';
 export {
   EntityActionError,
   hydrateEntityAction,
   validateEntityActionResult,
   validateEntityActions,
-} from './core/entity-actions.js';
+} from './core/entities/actions.js';
 export type {
   MetricAnalysisFinding,
   MetricAnalysisId,
   MetricAnalysisProvider,
   MetricAnalysisResult,
   MetricAnalysisSample,
-} from './core/plugin-analysis.js';
+} from './core/plugin-contract/analysis.js';
 export type {
   PluginSystemDeclaration,
   PluginSystemProvider,
   PluginSystemSnapshot,
   PluginSystemStatus,
-} from './core/plugin-system.js';
-export { PluginSystemError, validatePluginSystems } from './core/plugin-system.js';
+} from './core/plugin-contract/system.js';
+export { PluginSystemError, validatePluginSystems } from './core/plugin-contract/system.js';
 export type {
   PluginConnection,
   PluginConnectionDeclaration,
@@ -85,27 +85,30 @@ export type {
   PluginConnectionProviderDeclaration,
   PluginConnectionProviderDescriptor,
   PluginConnectionStatus,
-} from './core/plugin-connections.js';
+} from './core/plugin-contract/connections.js';
 export type {
   PluginProcessHealthSnapshot,
   PluginProcessMetrics,
   PluginProcessState,
   PluginRuntimeCrash,
   PluginRuntimeHealth,
-} from './core/plugin-runtime.js';
+} from './core/plugin-contract/runtime.js';
 export {
   PluginConnectionError,
   validatePluginConnectionProvider,
   validatePluginConnections,
-} from './core/plugin-connections.js';
-export { MetricAnalysisError, validateMetricAnalysisResult } from './core/plugin-analysis.js';
-export type { PluginCapability, PluginPermission } from './core/capabilities.js';
+} from './core/plugin-contract/connections.js';
+export {
+  MetricAnalysisError,
+  validateMetricAnalysisResult,
+} from './core/plugin-contract/analysis.js';
+export type { PluginCapability, PluginPermission } from './core/plugin-contract/capabilities.js';
 export {
   PLUGIN_CAPABILITIES,
   PLUGIN_PERMISSIONS,
   isPluginCapability,
   isPluginPermission,
-} from './core/capabilities.js';
+} from './core/plugin-contract/capabilities.js';
 export type {
   PluginConfig,
   PluginConfigField,
@@ -113,8 +116,8 @@ export type {
   PluginConfigOption,
   PluginConfigSchema,
   PluginConfigValue,
-} from './core/plugin-config.js';
-export { PluginConfigError } from './core/plugin-config.js';
+} from './core/plugin-contract/config.js';
+export { PluginConfigError } from './core/plugin-contract/config.js';
 export type {
   PluginUiAction,
   PluginUiContent,
@@ -132,36 +135,36 @@ export type {
   PluginFrontendApi,
   PluginFrontendMount,
   PluginFrontendRoot,
-} from './core/plugin-ui.js';
+} from './core/plugin-contract/ui.js';
 export {
   PLUGIN_UI_SLOTS,
   PluginUiError,
   pluginUiContextMatches,
   validatePluginUiContext,
-} from './core/plugin-ui.js';
+} from './core/plugin-contract/ui.js';
 export type {
   PluginCommand,
   PluginCommandDeclaration,
   PluginCommandResult,
-} from './core/plugin-commands.js';
-export { PluginCommandError } from './core/plugin-commands.js';
-export type { PluginEvent, PluginEventFilter } from './core/plugin-events.js';
+} from './core/plugin-contract/commands.js';
+export { PluginCommandError } from './core/plugin-contract/commands.js';
+export type { PluginEvent, PluginEventFilter } from './core/plugin-contract/events.js';
 export type {
   PluginCompatibility,
   PluginCompatibilityReport,
   PluginMigration,
-} from './core/plugin-compatibility.js';
+} from './core/plugin-contract/compatibility.js';
 export {
   compareVersions,
   PluginCompatibilityError,
   pluginCompatibilityWarnings,
-} from './core/plugin-compatibility.js';
+} from './core/plugin-contract/compatibility.js';
 export type {
   PluginSecretDeclaration,
   PluginSecretSnapshot,
   PluginSecretStatus,
-} from './core/plugin-secrets.js';
-export { PluginSecretError } from './core/plugin-secrets.js';
+} from './core/plugin-contract/secrets.js';
+export { PluginSecretError } from './core/plugin-contract/secrets.js';
 export type {
   PluginApiDescriptor,
   PluginFactory,
@@ -169,7 +172,7 @@ export type {
   PluginHostApi,
   PluginHostExecResult,
   PluginLogger,
-} from './core/plugin-api.js';
+} from './core/plugin-contract/api.js';
 export type {
   Anomaly,
   ContainerDiffEntry,
@@ -184,14 +187,14 @@ export type {
   ServiceNode,
 } from './types.js';
 
-import type { DockscopePlugin, PluginManifest } from './core/plugins.js';
+import type { DockscopePlugin, PluginManifest } from './core/plugin-contract/manifest.js';
 import {
   DOCKSCOPE_PLUGIN_API_VERSION,
   DOCKSCOPE_PLUGIN_HOST_API_VERSION,
   DOCKSCOPE_PLUGIN_MANIFEST_VERSION,
-} from './core/plugins.js';
-import type { PluginApiDescriptor, PluginFactory } from './core/plugin-api.js';
-import { PLUGIN_CAPABILITIES, PLUGIN_PERMISSIONS } from './core/capabilities.js';
+} from './core/plugin-contract/manifest.js';
+import type { PluginApiDescriptor, PluginFactory } from './core/plugin-contract/api.js';
+import { PLUGIN_CAPABILITIES, PLUGIN_PERMISSIONS } from './core/plugin-contract/capabilities.js';
 
 export const PLUGIN_API_V1: PluginApiDescriptor = Object.freeze({
   pluginApiVersion: DOCKSCOPE_PLUGIN_API_VERSION,

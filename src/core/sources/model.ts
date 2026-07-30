@@ -1,5 +1,5 @@
-import type { DockerEvent, GraphData, ServiceLink, ServiceNode } from '../types.js';
-import type { PluginCapability } from './capabilities.js';
+import type { DockerEvent, GraphData, ServiceLink, ServiceNode } from '../../types.js';
+import type { PluginCapability } from '../plugin-contract/capabilities.js';
 
 export type DataSourceKind = 'docker' | 'kubernetes' | 'plugin';
 export type DataSourceStatus = 'connected' | 'disconnected' | 'unknown';

@@ -1,6 +1,6 @@
 import { WebSocket, WebSocketServer } from 'ws';
-import type { PluginRegistry } from '../core/plugins.js';
-import type { EntityRef } from '../core/operations.js';
+import type { PluginRegistry } from '../core/plugin-contract/registry.js';
+import type { EntityRef } from '../core/entities/operations.js';
 import type { GraphData } from '../types.js';
 import { parseInboundWSMessage } from './wsMessages.js';
 import type { InboundWSMessage } from './wsMessages.js';

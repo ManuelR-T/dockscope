@@ -1,4 +1,4 @@
-import type { EntityRef } from './operations.js';
+import type { EntityRef } from '../entities/operations.js';
 
 export type MetricAnalysisId = 'cpu' | 'memory';
 

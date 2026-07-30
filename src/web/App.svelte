@@ -19,7 +19,7 @@
   import { buildScopeOptions, type StatusFilter } from './lib/graphFilters';
   import { resolveSelectedNode } from './lib/graphSelection';
   import type { ServiceNode } from '../types';
-  import { pluginUiContextMatches, type PluginUiExtension } from '../core/plugin-ui';
+  import { pluginUiContextMatches, type PluginUiExtension } from '../core/plugin-contract/ui';
   import {
     clearPluginFrontendCache,
     invokePluginUiAction,

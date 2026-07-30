@@ -1,6 +1,6 @@
 import Dockerode from 'dockerode';
-import { collectSourceGraphs } from '../core/sources.js';
-import type { DataSourceDescriptor, GraphSourceAdapter } from '../core/model.js';
+import { collectSourceGraphs } from '../core/sources/collect.js';
+import type { DataSourceDescriptor, GraphSourceAdapter } from '../core/sources/model.js';
 import { buildGraph, createDockerClient } from './client.js';
 import { DOCKER_SOURCE_CAPABILITIES } from './capabilities.js';
 import { watchEvents } from './events.js';

@@ -1,4 +1,4 @@
-import type { DockscopePlugin } from '../core/plugins.js';
+import type { DockscopePlugin } from '../core/plugin-contract/manifest.js';
 import type {
   EntityActionProvider,
   EntityDiagnosticProvider,
@@ -11,13 +11,13 @@ import type {
   EntityRef,
   EntityStatsProvider,
   LifecycleAction,
-} from '../core/operations.js';
-import type { EntityActionDeclaration } from '../core/entity-actions.js';
-import type { PluginSystemProvider } from '../core/plugin-system.js';
+} from '../core/entities/operations.js';
+import type { EntityActionDeclaration } from '../core/entities/actions.js';
+import type { PluginSystemProvider } from '../core/plugin-contract/system.js';
 import {
   PluginConnectionError,
   type PluginConnectionProvider,
-} from '../core/plugin-connections.js';
+} from '../core/plugin-contract/connections.js';
 import { DOCKER_SOURCE_CAPABILITIES } from './capabilities.js';
 import {
   containerAction,

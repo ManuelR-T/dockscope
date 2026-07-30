@@ -1,7 +1,10 @@
 import { mkdir, readFile, writeFile } from 'fs/promises';
 import { homedir } from 'os';
 import path from 'path';
-import type { PluginApprovalSnapshot, PluginApprovalWriter } from '../core/plugins.js';
+import type {
+  PluginApprovalSnapshot,
+  PluginApprovalWriter,
+} from '../core/plugin-contract/manifest.js';
 
 type StoredApprovals = Record<string, PluginApprovalSnapshot>;
 

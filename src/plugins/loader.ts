@@ -2,7 +2,11 @@ import { readdir, readFile, stat } from 'fs/promises';
 import path from 'path';
 import { pathToFileURL } from 'url';
 import { errorMessage } from '../utils.js';
-import type { GraphSourceAdapter, SourceEvent, SourceGraphSnapshot } from '../core/model.js';
+import type {
+  GraphSourceAdapter,
+  SourceEvent,
+  SourceGraphSnapshot,
+} from '../core/sources/model.js';
 import type {
   EntityActionProvider,
   EntityDiagnosticProvider,
@@ -16,15 +20,21 @@ import type {
   ProjectProvider,
   ProjectSummary,
   ResourceProvider,
-} from '../core/operations.js';
-import type { EntityActionDeclaration, EntityActionResult } from '../core/entity-actions.js';
-import type { MetricAnalysisProvider, MetricAnalysisResult } from '../core/plugin-analysis.js';
-import type { PluginSystemDeclaration, PluginSystemProvider } from '../core/plugin-system.js';
+} from '../core/entities/operations.js';
+import type { EntityActionDeclaration, EntityActionResult } from '../core/entities/actions.js';
+import type {
+  MetricAnalysisProvider,
+  MetricAnalysisResult,
+} from '../core/plugin-contract/analysis.js';
+import type {
+  PluginSystemDeclaration,
+  PluginSystemProvider,
+} from '../core/plugin-contract/system.js';
 import type {
   PluginConnectionDeclaration,
   PluginConnectionProvider,
-} from '../core/plugin-connections.js';
-import { defaultPluginConfig, type PluginConfig } from '../core/plugin-config.js';
+} from '../core/plugin-contract/connections.js';
+import { defaultPluginConfig, type PluginConfig } from '../core/plugin-contract/config.js';
 import {
   type DockscopePlugin,
   type PluginLoadError,
@@ -32,11 +42,11 @@ import {
   type PluginManifest,
   validatePluginManifest,
   validatePluginManifestWithWarnings,
-} from '../core/plugins.js';
-import { isPluginPermission, type PluginPermission } from '../core/capabilities.js';
+} from '../core/plugin-contract/manifest.js';
+import { isPluginPermission, type PluginPermission } from '../core/plugin-contract/capabilities.js';
 import { createPluginHostApi, type PluginHostApi } from './hostApi.js';
 import type { PluginSecretStore } from './secretStore.js';
-import type { PluginEvent } from '../core/plugin-events.js';
+import type { PluginEvent } from '../core/plugin-contract/events.js';
 import { PluginProcessSandbox } from './processSandbox.js';
 import type { SandboxEntityProviderKind, SandboxPluginDescriptor } from './processProtocol.js';
 import type {
@@ -46,9 +56,9 @@ import type {
   ContainerTopResult,
   CrashDiagnostic,
 } from '../types.js';
-import type { PluginCommandResult } from '../core/plugin-commands.js';
-import type { PluginFactory } from '../core/plugin-api.js';
-import type { PluginRuntimeCrash } from '../core/plugin-runtime.js';
+import type { PluginCommandResult } from '../core/plugin-contract/commands.js';
+import type { PluginFactory } from '../core/plugin-contract/api.js';
+import type { PluginRuntimeCrash } from '../core/plugin-contract/runtime.js';
 
 const PLUGIN_MANIFEST_FILE = 'plugin.json';
 const MAX_PLUGIN_FRONTEND_BYTES = 256 * 1024;

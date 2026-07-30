@@ -3,7 +3,7 @@
   import { addToast } from '../stores/toast.svelte';
   import { Button, CloseButton } from './ui';
 
-  import type { ProjectSummary } from '../../core/operations';
+  import type { ProjectSummary } from '../../core/entities/operations';
 
   interface Props {
     onClose: () => void;

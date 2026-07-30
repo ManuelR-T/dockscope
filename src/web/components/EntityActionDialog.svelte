@@ -1,12 +1,12 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import { Button, Select, TextInput } from './ui';
-  import type { EntityAction } from '../../core/entity-actions';
+  import type { EntityAction } from '../../core/entities/actions';
   import type {
     PluginConfig,
     PluginConfigField,
     PluginConfigValue,
-  } from '../../core/plugin-config';
+  } from '../../core/plugin-contract/config';
 
   interface Props {
     action: EntityAction;

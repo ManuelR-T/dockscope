@@ -1,4 +1,4 @@
-import { validatePluginConfigSchema, type PluginConfigSchema } from './plugin-config.js';
+import { validatePluginConfigSchema, type PluginConfigSchema } from './config.js';
 
 export interface PluginCommandDeclaration {
   id: string;

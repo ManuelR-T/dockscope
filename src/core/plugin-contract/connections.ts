@@ -2,7 +2,7 @@ import {
   validatePluginConfigSchema,
   type PluginConfig,
   type PluginConfigSchema,
-} from './plugin-config.js';
+} from './config.js';
 
 export type PluginConnectionStatus = 'connected' | 'disconnected' | 'unknown';
 

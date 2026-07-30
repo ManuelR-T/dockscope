@@ -1,11 +1,11 @@
-import type { PluginCommandDeclaration } from '../core/plugin-commands.js';
-import type { PluginConfig } from '../core/plugin-config.js';
-import type { PluginManifest } from '../core/plugins.js';
-import type { PluginUiExtensionDeclaration } from '../core/plugin-ui.js';
-import type { DataSourceDescriptor } from '../core/model.js';
-import type { EntityActionInput } from '../core/entity-actions.js';
-import type { MetricAnalysisSample } from '../core/plugin-analysis.js';
-import type { PluginConnectionProviderDeclaration } from '../core/plugin-connections.js';
+import type { PluginCommandDeclaration } from '../core/plugin-contract/commands.js';
+import type { PluginConfig } from '../core/plugin-contract/config.js';
+import type { PluginManifest } from '../core/plugin-contract/manifest.js';
+import type { PluginUiExtensionDeclaration } from '../core/plugin-contract/ui.js';
+import type { DataSourceDescriptor } from '../core/sources/model.js';
+import type { EntityActionInput } from '../core/entities/actions.js';
+import type { MetricAnalysisSample } from '../core/plugin-contract/analysis.js';
+import type { PluginConnectionProviderDeclaration } from '../core/plugin-contract/connections.js';
 import type {
   EntityRef,
   LifecycleAction,
@@ -14,7 +14,7 @@ import type {
   RemoveOptions,
   ResourceAction,
   ResourceActionOptions,
-} from '../core/operations.js';
+} from '../core/entities/operations.js';
 
 export interface SandboxBootstrap {
   entryPath: string;

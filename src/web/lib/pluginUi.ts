@@ -2,7 +2,7 @@ import type {
   PluginUiActionResult,
   PluginUiContext,
   PluginUiExtension,
-} from '../../core/plugin-ui';
+} from '../../core/plugin-contract/ui';
 import type { ServiceNode } from '../../types';
 import { requestJson } from './api';
 

@@ -6,12 +6,12 @@
   import type {
     PluginConnection,
     PluginConnectionProviderDescriptor,
-  } from '../../core/plugin-connections';
+  } from '../../core/plugin-contract/connections';
   import type {
     PluginConfig,
     PluginConfigField,
     PluginConfigValue,
-  } from '../../core/plugin-config';
+  } from '../../core/plugin-contract/config';
 
   interface Props {
     onClose: () => void;

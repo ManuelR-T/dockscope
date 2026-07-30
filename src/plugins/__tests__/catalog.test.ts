@@ -5,7 +5,7 @@ import path from 'path';
 import { describe, expect, it } from 'vitest';
 import { createPluginPackageFromPath } from '../package';
 import { listInstalledPlugins } from '../install';
-import type { PluginPermission } from '../../core/capabilities';
+import type { PluginPermission } from '../../core/plugin-contract/capabilities';
 import {
   installPluginFromCatalog,
   loadPluginCatalog,

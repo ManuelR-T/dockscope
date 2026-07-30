@@ -1,5 +1,5 @@
 import path from 'path';
-import { PluginRegistry } from '../core/plugins.js';
+import { PluginRegistry } from '../core/plugin-contract/registry.js';
 import { createComposePlugin } from '../docker/composePlugin.js';
 import { createDockerPlugin } from '../docker/plugin.js';
 import { createAnomalyPlugin } from '../server/anomalyPlugin.js';

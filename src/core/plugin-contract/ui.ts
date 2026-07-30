@@ -1,6 +1,6 @@
 import type { PluginCapability } from './capabilities.js';
-import type { PluginCommandResult } from './plugin-commands.js';
-import type { PluginConfigValue } from './plugin-config.js';
+import type { PluginCommandResult } from './commands.js';
+import type { PluginConfigValue } from './config.js';
 
 export const PLUGIN_UI_SLOTS = [
   'toolbar',

@@ -1,4 +1,4 @@
-import type { PluginCapability } from '../core/capabilities.js';
+import type { PluginCapability } from '../core/plugin-contract/capabilities.js';
 
 export const DOCKER_SOURCE_CAPABILITIES = [
   'source.graph',

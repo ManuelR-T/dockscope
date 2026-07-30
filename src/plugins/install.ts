@@ -4,8 +4,8 @@ import path from 'path';
 import { validateExternalPluginManifests } from './loader.js';
 import { extractPluginPackage, isPluginPackageFile, verifyPluginPackage } from './package.js';
 import { assertReservedPluginNamespace } from './namespace.js';
-import type { PluginManifest } from '../core/plugins.js';
-import { isPluginPermission, type PluginPermission } from '../core/capabilities.js';
+import type { PluginManifest } from '../core/plugin-contract/manifest.js';
+import { isPluginPermission, type PluginPermission } from '../core/plugin-contract/capabilities.js';
 
 const INSTALL_INDEX = 'installed.json';
 

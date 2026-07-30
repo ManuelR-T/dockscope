@@ -1,7 +1,7 @@
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'fs/promises';
 import { createHmac, createHash, sign, verify } from 'crypto';
 import path from 'path';
-import { validatePluginManifest, type PluginManifest } from '../core/plugins.js';
+import { validatePluginManifest, type PluginManifest } from '../core/plugin-contract/manifest.js';
 import { validateExternalPluginManifests } from './loader.js';
 
 export const PLUGIN_PACKAGE_FORMAT = 'dockscope-plugin-package/v1';

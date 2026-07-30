@@ -1,7 +1,7 @@
 import type { PluginCapability, PluginPermission } from './capabilities.js';
-import type { PluginEvent } from './plugin-events.js';
-import type { DockscopePlugin, PluginManifest } from './plugins.js';
-import type { PluginConfig } from './plugin-config.js';
+import type { PluginEvent } from './events.js';
+import type { DockscopePlugin, PluginManifest } from './manifest.js';
+import type { PluginConfig } from './config.js';
 
 export interface PluginHostExecResult {
   stdout: string;

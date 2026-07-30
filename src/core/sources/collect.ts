@@ -1,4 +1,4 @@
-import { errorMessage } from '../utils.js';
+import { errorMessage } from '../../utils.js';
 import { graphToTables, mergeSourceSnapshots, scopeGraphToSource } from './graph.js';
 import type {
   GraphSourceAdapter,

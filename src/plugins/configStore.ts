@@ -7,7 +7,7 @@ import {
   type PluginConfig,
   type PluginConfigSchema,
   type PluginConfigValue,
-} from '../core/plugin-config.js';
+} from '../core/plugin-contract/config.js';
 
 type StoredPluginConfig = Record<string, Record<string, PluginConfigValue>>;
 

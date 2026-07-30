@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { PluginUiExtension } from '../../../core/plugin-ui';
+import type { PluginUiExtension } from '../../../core/plugin-contract/ui';
 import type { ServiceNode } from '../../../types';
 import {
   clearPluginFrontendCache,

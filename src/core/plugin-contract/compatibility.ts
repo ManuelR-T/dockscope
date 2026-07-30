@@ -1,4 +1,4 @@
-import type { PluginManifest } from './plugins.js';
+import type { PluginManifest } from './manifest.js';
 
 export interface PluginMigration {
   from: string;

@@ -1,7 +1,7 @@
 import { pathToFileURL } from 'url';
 import path from 'path';
 import { describe, expect, it, vi } from 'vitest';
-import type { DockscopePlugin, PluginManifest } from '../../core/plugins';
+import type { DockscopePlugin, PluginManifest } from '../../core/plugin-contract/manifest';
 import type { PluginHostApi, PluginHostExecResult } from '../hostApi';
 
 interface OfficialKubernetesModule {

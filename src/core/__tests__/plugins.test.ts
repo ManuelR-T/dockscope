@@ -3,14 +3,14 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   PLUGIN_CRASH_QUARANTINE_THRESHOLD,
   PluginManifestError,
-  PluginRegistry,
   validatePluginManifest,
   type PluginConfigWriter,
   type DockscopePlugin,
   type PluginSecretWriter,
   type PluginStateWriter,
-} from '../plugins';
-import type { GraphSourceAdapter } from '../model';
+} from '../plugin-contract/manifest';
+import { PluginRegistry } from '../plugin-contract/registry';
+import type { GraphSourceAdapter } from '../sources/model';
 import type {
   EntityActionProvider,
   EntityExecProvider,
@@ -18,10 +18,10 @@ import type {
   EntityStatsProvider,
   ProjectProvider,
   ResourceProvider,
-} from '../operations';
-import type { MetricAnalysisProvider } from '../plugin-analysis';
-import type { PluginSystemProvider } from '../plugin-system';
-import type { PluginConnectionProvider } from '../plugin-connections';
+} from '../entities/operations';
+import type { MetricAnalysisProvider } from '../plugin-contract/analysis';
+import type { PluginSystemProvider } from '../plugin-contract/system';
+import type { PluginConnectionProvider } from '../plugin-contract/connections';
 
 const TEST_API_VERSIONS = {
   manifestVersion: '1',

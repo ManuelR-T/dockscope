@@ -1,5 +1,5 @@
-import type { DockscopePlugin } from '../core/plugins.js';
-import type { MetricAnalysisProvider } from '../core/plugin-analysis.js';
+import type { DockscopePlugin } from '../core/plugin-contract/manifest.js';
+import type { MetricAnalysisProvider } from '../core/plugin-contract/analysis.js';
 import { checkAnomaly } from './anomaly.js';
 
 const anomalyProvider: MetricAnalysisProvider = {

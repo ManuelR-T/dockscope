@@ -1,15 +1,15 @@
 import { fork, type ChildProcess } from 'child_process';
 import { Duplex } from 'stream';
 import { fileURLToPath } from 'url';
-import type { PluginConfig } from '../core/plugin-config.js';
-import type { PluginEvent } from '../core/plugin-events.js';
-import type { PluginManifest } from '../core/plugins.js';
-import type { EntityExecSession, EntityRef } from '../core/operations.js';
+import type { PluginConfig } from '../core/plugin-contract/config.js';
+import type { PluginEvent } from '../core/plugin-contract/events.js';
+import type { PluginManifest } from '../core/plugin-contract/manifest.js';
+import type { EntityExecSession, EntityRef } from '../core/entities/operations.js';
 import type {
   PluginProcessHealthSnapshot,
   PluginProcessMetrics,
   PluginProcessState,
-} from '../core/plugin-runtime.js';
+} from '../core/plugin-contract/runtime.js';
 import { createPluginHostApi, type PluginHostApi } from './hostApi.js';
 import type { PluginSecretStore } from './secretStore.js';
 import type {

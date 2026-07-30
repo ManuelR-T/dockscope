@@ -4,12 +4,8 @@ import type {
   ContainerStats,
   ContainerTopResult,
   CrashDiagnostic,
-} from '../types.js';
-import type {
-  EntityActionDeclaration,
-  EntityActionInput,
-  EntityActionResult,
-} from './entity-actions.js';
+} from '../../types.js';
+import type { EntityActionDeclaration, EntityActionInput, EntityActionResult } from './actions.js';
 
 export interface EntityContext {
   nodeId: string;

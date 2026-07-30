@@ -1,4 +1,4 @@
-import type { GraphData, ServiceLink, ServiceNode } from '../types.js';
+import type { GraphData, ServiceLink, ServiceNode } from '../../types.js';
 import type { DataGraphTables, SourceGraphSnapshot } from './model.js';
 
 function linkEndpointId(endpoint: ServiceLink['source'] | ServiceLink['target']): string {

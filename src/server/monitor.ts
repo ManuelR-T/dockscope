@@ -1,6 +1,6 @@
-import { collectSourceGraphs } from '../core/sources.js';
-import type { PluginRegistry } from '../core/plugins.js';
-import type { GraphSourceAdapter, SourceEvent } from '../core/model.js';
+import { collectSourceGraphs } from '../core/sources/collect.js';
+import type { PluginRegistry } from '../core/plugin-contract/registry.js';
+import type { GraphSourceAdapter, SourceEvent } from '../core/sources/model.js';
 import type { DockerEvent, GraphData, ServiceNode, WSMessage } from '../types.js';
 import { shortId } from '../utils.js';
 

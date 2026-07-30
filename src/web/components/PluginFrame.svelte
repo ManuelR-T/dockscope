@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type { PluginUiContext, PluginUiExtension } from '../../core/plugin-ui';
+  import type { PluginUiContext, PluginUiExtension } from '../../core/plugin-contract/ui';
   import { loadPluginFrontendSource } from '../lib/pluginUi';
 
   interface Props {

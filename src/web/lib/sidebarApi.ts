@@ -5,9 +5,9 @@ import type {
   MetricPoint,
   ServiceNode,
 } from '../../types';
-import type { EntityAction, EntityActionResult } from '../../core/entity-actions';
-import type { EntityOperationDescriptor, EntityOperationId } from '../../core/operations';
-import type { PluginConfig } from '../../core/plugin-config';
+import type { EntityAction, EntityActionResult } from '../../core/entities/actions';
+import type { EntityOperationDescriptor, EntityOperationId } from '../../core/entities/operations';
+import type { PluginConfig } from '../../core/plugin-contract/config';
 import { getJson, isAbortError, postJson } from './api';
 
 export interface SidebarNodeData {

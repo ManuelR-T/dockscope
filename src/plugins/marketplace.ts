@@ -4,15 +4,15 @@ import path from 'path';
 import {
   type PluginApprovalSnapshot,
   PluginOperationError,
-  type PluginRegistry,
   type PluginRuntimeInfo,
-} from '../core/plugins.js';
-import type { PluginCapability, PluginPermission } from '../core/capabilities.js';
+} from '../core/plugin-contract/manifest.js';
+import { type PluginRegistry } from '../core/plugin-contract/registry.js';
+import type { PluginCapability, PluginPermission } from '../core/plugin-contract/capabilities.js';
 import {
   compareVersions,
   pluginCompatibilityWarnings,
   type PluginCompatibility,
-} from '../core/plugin-compatibility.js';
+} from '../core/plugin-contract/compatibility.js';
 import { PKG_VERSION } from '../version.js';
 import type { PluginCatalogEntrySignature, ResolvedPluginCatalogEntry } from './catalog.js';
 import { installPluginFromCatalog } from './catalog.js';

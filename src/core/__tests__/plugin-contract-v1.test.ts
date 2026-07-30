@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { PLUGIN_CAPABILITIES, PLUGIN_PERMISSIONS } from '../capabilities';
+import { PLUGIN_CAPABILITIES, PLUGIN_PERMISSIONS } from '../plugin-contract/capabilities';
 import {
   DOCKSCOPE_PLUGIN_API_VERSION,
   DOCKSCOPE_PLUGIN_HOST_API_VERSION,
   DOCKSCOPE_PLUGIN_MANIFEST_VERSION,
   validatePluginManifest,
-} from '../plugins';
+} from '../plugin-contract/manifest';
 
 describe('plugin API v1 contract', () => {
   it('keeps the current plugin API version stable', () => {

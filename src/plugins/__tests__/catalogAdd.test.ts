@@ -3,7 +3,7 @@ import { mkdtemp, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import path from 'path';
 import { describe, expect, it } from 'vitest';
-import { PluginRegistry } from '../../core/plugins';
+import { PluginRegistry } from '../../core/plugin-contract/registry';
 import { PLUGIN_CATALOG_FORMAT, signPluginCatalogFile } from '../catalog';
 import { OFFICIAL_PLUGIN_CATALOG_URL } from '../catalogConfig';
 import { createPluginMarketplaceService } from '../marketplace';

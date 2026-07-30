@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { PluginUiContext, PluginUiExtension } from '../../core/plugin-ui';
+  import type { PluginUiContext, PluginUiExtension } from '../../core/plugin-contract/ui';
   import { Button } from './ui';
-  import { pluginUiContextMatches } from '../../core/plugin-ui';
+  import { pluginUiContextMatches } from '../../core/plugin-contract/ui';
   import Icon from './Icon.svelte';
   import PluginFrame from './PluginFrame.svelte';
 

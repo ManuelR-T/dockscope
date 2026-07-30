@@ -3,15 +3,15 @@ import { mkdir, readFile, rm, writeFile } from 'fs/promises';
 import { isNativeError } from 'util/types';
 import path from 'path';
 import { promisify } from 'util';
-import type { PluginCapability, PluginPermission } from '../core/capabilities.js';
-import type { PluginHostApi } from '../core/plugin-api.js';
-import type { PluginEvent } from '../core/plugin-events.js';
-import type { PluginSecretDeclaration } from '../core/plugin-secrets.js';
+import type { PluginCapability, PluginPermission } from '../core/plugin-contract/capabilities.js';
+import type { PluginHostApi } from '../core/plugin-contract/api.js';
+import type { PluginEvent } from '../core/plugin-contract/events.js';
+import type { PluginSecretDeclaration } from '../core/plugin-contract/secrets.js';
 import type { PluginSecretStore } from './secretStore.js';
 
 const execFileAsync = promisify(execFileCallback);
 
-export type { PluginHostApi, PluginHostExecResult } from '../core/plugin-api.js';
+export type { PluginHostApi, PluginHostExecResult } from '../core/plugin-contract/api.js';
 
 export class PluginPermissionError extends Error {
   constructor(

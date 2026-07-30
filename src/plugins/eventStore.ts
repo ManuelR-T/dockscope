@@ -1,8 +1,8 @@
 import { mkdir, readFile, writeFile } from 'fs/promises';
 import { homedir } from 'os';
 import path from 'path';
-import type { PluginEvent } from '../core/plugin-events.js';
-import type { PluginEventWriter } from '../core/plugins.js';
+import type { PluginEvent } from '../core/plugin-contract/events.js';
+import type { PluginEventWriter } from '../core/plugin-contract/manifest.js';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);

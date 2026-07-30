@@ -12,7 +12,7 @@
     stopRecording,
   } from '../stores/recorder.svelte';
   import type { DockerEvent, GraphData } from '../../types';
-  import type { PluginSystemSnapshot } from '../../core/plugin-system';
+  import type { PluginSystemSnapshot } from '../../core/plugin-contract/system';
 
   import type { ServiceNode } from '../../types';
 

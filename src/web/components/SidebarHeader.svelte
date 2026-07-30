@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { EntityAction } from '../../core/entity-actions';
+  import type { EntityAction } from '../../core/entities/actions';
   import type { ServiceNode } from '../../types';
   import { ICONS, type IconName } from '../lib/icons';
   import Icon from './Icon.svelte';

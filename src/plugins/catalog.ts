@@ -5,14 +5,14 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { installPluginFromPath, type InstalledPlugin } from './install.js';
 import { MAX_PLUGIN_PACKAGE_BYTES, verifyPluginPackage } from './package.js';
-import type { PluginCapability, PluginPermission } from '../core/capabilities.js';
-import { isPluginCapability, isPluginPermission } from '../core/capabilities.js';
-import type { PluginManifest } from '../core/plugins.js';
+import type { PluginCapability, PluginPermission } from '../core/plugin-contract/capabilities.js';
+import { isPluginCapability, isPluginPermission } from '../core/plugin-contract/capabilities.js';
+import type { PluginManifest } from '../core/plugin-contract/manifest.js';
 import {
   pluginCompatibilityWarnings,
   validatePluginCompatibility,
   type PluginCompatibility,
-} from '../core/plugin-compatibility.js';
+} from '../core/plugin-contract/compatibility.js';
 import { PKG_VERSION } from '../version.js';
 
 export const PLUGIN_CATALOG_FORMAT = 'dockscope-plugin-catalog/v1';

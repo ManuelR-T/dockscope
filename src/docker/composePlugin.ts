@@ -1,6 +1,6 @@
-import type { PluginCapability } from '../core/capabilities.js';
-import type { ProjectProvider } from '../core/operations.js';
-import type { DockscopePlugin } from '../core/plugins.js';
+import type { PluginCapability } from '../core/plugin-contract/capabilities.js';
+import type { ProjectProvider } from '../core/entities/operations.js';
+import type { DockscopePlugin } from '../core/plugin-contract/manifest.js';
 import { composeAction, listComposeProjects } from './projects.js';
 
 const COMPOSE_CAPABILITIES = [

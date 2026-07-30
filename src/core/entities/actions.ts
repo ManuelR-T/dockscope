@@ -2,8 +2,8 @@ import {
   validatePluginConfigSchema,
   type PluginConfig,
   type PluginConfigSchema,
-} from './plugin-config.js';
-import { isPluginCapability, type PluginCapability } from './capabilities.js';
+} from '../plugin-contract/config.js';
+import { isPluginCapability, type PluginCapability } from '../plugin-contract/capabilities.js';
 
 export type EntityActionPlacement = 'primary' | 'menu';
 export type EntityActionTone = 'neutral' | 'success' | 'warning' | 'danger';

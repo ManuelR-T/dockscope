@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { EntityAction } from '../../../core/entity-actions';
-import type { EntityOperationDescriptor, EntityOperationId } from '../../../core/operations';
+import type { EntityAction } from '../../../core/entities/actions';
+import type {
+  EntityOperationDescriptor,
+  EntityOperationId,
+} from '../../../core/entities/operations';
 import type { ServiceNode } from '../../../types';
 import {
   entityApiUrl,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { GraphData } from '../../types';
-import { graphToTables, mergeSourceSnapshots, scopeGraphToSource } from '../graph';
-import type { SourceGraphSnapshot } from '../model';
+import { graphToTables, mergeSourceSnapshots, scopeGraphToSource } from '../sources/graph';
+import type { SourceGraphSnapshot } from '../sources/model';
 
 const graph: GraphData = {
   nodes: [
