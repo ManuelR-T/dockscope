@@ -56,6 +56,11 @@ export const ICONS = {
     body: '<path d="M4 7h16M7 4v6M17 4v6M4 17h16M9 14v6M15 14v6" />',
     strokeWidth: 2,
   },
+  /* Points right when collapsed; callers rotate it to point down when open. */
+  chevron: {
+    body: '<path d="M9 5l7 7-7 7" />',
+    strokeWidth: 2.4,
+  },
 } as const satisfies Record<string, IconDef>;
 
 export type IconName = keyof typeof ICONS;

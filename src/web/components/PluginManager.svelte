@@ -39,17 +39,13 @@
 
   let { onClose }: Props = $props();
 
-  let tab = $state<
-    | 'plugins'
-    | 'extensions'
-    | 'commands'
-    | 'events'
-    | 'review'
-    | 'marketplace'
-    | 'compatibility'
-    | 'config'
-    | 'secrets'
-  >('plugins');
+  // Three destinations, not nine. Everything that is a property *of a plugin*
+  // (config, secrets, commands, extensions, review, compatibility) lives in that
+  // plugin's expandable detail on the Installed tab instead of in its own global
+  // tab, which is why seven of the old tabs read "No X" on a fresh install.
+  let tab = $state<'installed' | 'marketplace' | 'events'>('installed');
+  /** Plugin id whose detail is expanded, or null. One at a time. */
+  let expanded = $state<string | null>(null);
   let loading = $state(true);
   let plugins = $state<PluginRuntimeInfo[]>([]);
   let runtimeHealth = $state<PluginRuntimeHealth[]>([]);
@@ -99,25 +95,108 @@
   let marketplaceQuery = $state('');
   let marketplaceFilter = $state<MarketplaceFilter>('all');
 
-  const configurable = $derived(
-    configs.filter((config) => (config.schema?.fields.length ?? 0) > 0),
-  );
   const marketplaceEntries = $derived(
     marketplace.entries.filter((entry) => marketplaceEntryMatches(entry)),
-  );
-  const settingsExtensions = $derived(
-    extensions.filter((extension) => extension.slot === 'settings'),
   );
 
   onMount(() => {
     void loadPluginState();
     const runtimeRefresh = window.setInterval(() => {
-      if (tab === 'plugins' && !loading) {
+      if (tab === 'installed' && !loading) {
         void refreshRuntimeHealth();
       }
     }, 5000);
     return () => window.clearInterval(runtimeRefresh);
   });
+
+  // ---- per-plugin facet lookups ----
+  // Each of these used to back a whole tab. They are attributes of one plugin,
+  // so they are resolved per row and omitted entirely when empty.
+
+  function reviewFor(pluginId: string): PluginReviewReport | undefined {
+    return reviews.find((review) => review.pluginId === pluginId);
+  }
+
+  function compatibilityFor(pluginId: string): PluginCompatibilityReport | undefined {
+    const report = compatibility.find((entry) => entry.pluginId === pluginId);
+    if (!report) {
+      return undefined;
+    }
+    const hasContent =
+      report.warnings.length > 0 ||
+      report.deprecations.length > 0 ||
+      report.migrations.length > 0 ||
+      Boolean(report.minDockscopeVersion) ||
+      Boolean(report.maxDockscopeVersion);
+    return hasContent ? report : undefined;
+  }
+
+  /** Only returns a snapshot that actually declares fields, so the Save button
+      always has something to save. The old Config tab rendered a Save button per
+      plugin even when the schema was empty. */
+  function configFor(pluginId: string): PluginConfigSnapshot | undefined {
+    return configs.find(
+      (config) => config.pluginId === pluginId && (config.schema?.fields.length ?? 0) > 0,
+    );
+  }
+
+  function secretsFor(pluginId: string): PluginSecretSnapshot | undefined {
+    return secrets.find(
+      (snapshot) => snapshot.pluginId === pluginId && snapshot.secrets.length > 0,
+    );
+  }
+
+  function commandsFor(pluginId: string): PluginCommand[] {
+    return commands.filter((command) => command.pluginId === pluginId);
+  }
+
+  function extensionsFor(pluginId: string): PluginUiExtension[] {
+    return extensions.filter((extension) => extension.pluginId === pluginId);
+  }
+
+  function settingsExtensionsFor(pluginId: string): PluginUiExtension[] {
+    return extensions.filter(
+      (extension) => extension.pluginId === pluginId && extension.slot === 'settings',
+    );
+  }
+
+  /** Whether a plugin has anything worth expanding, so rows without detail do
+      not get a disclosure control that opens an empty box. */
+  function hasDetail(pluginId: string): boolean {
+    return (
+      Boolean(reviewFor(pluginId)) ||
+      Boolean(compatibilityFor(pluginId)) ||
+      Boolean(configFor(pluginId)) ||
+      Boolean(secretsFor(pluginId)) ||
+      commandsFor(pluginId).length > 0 ||
+      extensionsFor(pluginId).length > 0
+    );
+  }
+
+  /** Compact hint of what expanding will reveal. */
+  function detailSummary(pluginId: string): string {
+    const parts: string[] = [];
+    const commandCount = commandsFor(pluginId).length;
+    const extensionCount = extensionsFor(pluginId).length;
+    const secretSnapshot = secretsFor(pluginId);
+    if (configFor(pluginId)) {
+      parts.push('config');
+    }
+    if (secretSnapshot) {
+      parts.push(pluralize(secretSnapshot.secrets.length, 'secret', 'secrets'));
+    }
+    if (commandCount > 0) {
+      parts.push(pluralize(commandCount, 'command', 'commands'));
+    }
+    if (extensionCount > 0) {
+      parts.push(pluralize(extensionCount, 'extension', 'extensions'));
+    }
+    return parts.join(' · ');
+  }
+
+  function toggleExpanded(pluginId: string) {
+    expanded = expanded === pluginId ? null : pluginId;
+  }
 
   async function refreshRuntimeHealth() {
     try {
@@ -828,18 +907,10 @@
   <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
   <div class="panel" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
     <div class="header">
-      <TabBar wrap ariaLabel="Plugin views">
-        <Tab active={tab === 'plugins'} onclick={() => (tab = 'plugins')}>Plugins</Tab>
-        <Tab active={tab === 'extensions'} onclick={() => (tab = 'extensions')}>Extensions</Tab>
-        <Tab active={tab === 'commands'} onclick={() => (tab = 'commands')}>Commands</Tab>
-        <Tab active={tab === 'events'} onclick={() => (tab = 'events')}>Events</Tab>
-        <Tab active={tab === 'review'} onclick={() => (tab = 'review')}>Review</Tab>
+      <TabBar ariaLabel="Plugin views">
+        <Tab active={tab === 'installed'} onclick={() => (tab = 'installed')}>Installed</Tab>
         <Tab active={tab === 'marketplace'} onclick={() => (tab = 'marketplace')}>Marketplace</Tab>
-        <Tab active={tab === 'compatibility'} onclick={() => (tab = 'compatibility')}>
-          Compatibility
-        </Tab>
-        <Tab active={tab === 'config'} onclick={() => (tab = 'config')}>Config</Tab>
-        <Tab active={tab === 'secrets'} onclick={() => (tab = 'secrets')}>Secrets</Tab>
+        <Tab active={tab === 'events'} onclick={() => (tab = 'events')}>Events</Tab>
       </TabBar>
       <span class="header-close">
         <CloseButton label="Close plugins" onclick={onClose} />
@@ -849,7 +920,7 @@
     <div class="content">
       {#if loading}
         <div class="empty-msg">Loading plugins...</div>
-      {:else if tab === 'plugins'}
+      {:else if tab === 'installed'}
         <div class="summary-row">
           <span>{plugins.length} registered</span>
           {#if errors.length > 0}
@@ -862,54 +933,424 @@
 
         <div class="list">
           {#each plugins as plugin}
-            {@const health = healthFor(plugin.manifest.id)}
-            <div class="item">
-              <span class="status-dot {statusClass(plugin.status)}"></span>
-              <div class="item-main">
-                <div class="item-title">
-                  <span>{plugin.manifest.name}</span>
-                  <code>{plugin.manifest.id}</code>
-                </div>
-                <div class="item-meta">
-                  v{plugin.manifest.version}
-                  <span>api {plugin.manifest.dockscopeApiVersion}</span>
-                  {#if plugin.manifest.builtin}
-                    <span>built-in</span>
-                  {/if}
-                  <span>{plugin.status}</span>
-                  {#if plugin.manifest.execution?.isolation}
-                    <span>{plugin.manifest.execution.isolation}</span>
-                  {/if}
-                  {#if health?.pid}<span>pid {health.pid}</span>{/if}
-                  {#if health?.metrics}<span>rss {formatBytes(health.metrics.rssBytes)}</span>{/if}
-                  {#if health?.metrics}<span>cpu {health.metrics.cpuPercent.toFixed(1)}%</span>{/if}
-                  {#if health && health.crashCount > 0}
-                    <span>{health.crashCount} crashes</span>
-                  {/if}
-                </div>
-                {#if plugin.quarantineReason}
-                  <div class="warning-line">Quarantined: {plugin.quarantineReason}</div>
+            {@const id = plugin.manifest.id}
+            {@const health = healthFor(id)}
+            {@const review = reviewFor(id)}
+            {@const compat = compatibilityFor(id)}
+            {@const config = configFor(id)}
+            {@const secretSnapshot = secretsFor(id)}
+            {@const pluginCommands = commandsFor(id)}
+            {@const pluginSettings = settingsExtensionsFor(id)}
+            {@const otherExtensions = extensionsFor(id).filter((item) => item.slot !== 'settings')}
+            {@const expandable = hasDetail(id)}
+            {@const isOpen = expanded === id}
+            <div class="item plugin-item">
+              <div class="plugin-row">
+                {#if expandable}
+                  <IconButton
+                    variant="bare"
+                    size={20}
+                    title={isOpen ? 'Hide plugin detail' : 'Show plugin detail'}
+                    onclick={() => toggleExpanded(id)}
+                  >
+                    <span class="chevron" class:is-open={isOpen}>
+                      <Icon name="chevron" size={11} />
+                    </span>
+                  </IconButton>
+                {:else}
+                  <span class="chevron-spacer"></span>
                 {/if}
-                {#if plugin.error}
-                  <div class="error-line">{plugin.error}</div>
+                <span class="status-dot {statusClass(plugin.status)}"></span>
+                <div class="item-main">
+                  <div class="item-title">
+                    <span>{plugin.manifest.name}</span>
+                    <code>{id}</code>
+                  </div>
+                  <div class="item-meta">
+                    v{plugin.manifest.version}
+                    <span>api {plugin.manifest.dockscopeApiVersion}</span>
+                    {#if plugin.manifest.builtin}
+                      <span>built-in</span>
+                    {/if}
+                    <span>{plugin.status}</span>
+                    {#if plugin.manifest.execution?.isolation}
+                      <span>{plugin.manifest.execution.isolation}</span>
+                    {/if}
+                    {#if health?.pid}<span>pid {health.pid}</span>{/if}
+                    {#if health?.metrics}<span>rss {formatBytes(health.metrics.rssBytes)}</span
+                      >{/if}
+                    {#if health?.metrics}<span>cpu {health.metrics.cpuPercent.toFixed(1)}%</span
+                      >{/if}
+                    {#if health && health.crashCount > 0}
+                      <span>{health.crashCount} crashes</span>
+                    {/if}
+                  </div>
+                  {#if review}
+                    <div class="plugin-badges">
+                      <Chip tone={riskTone(review.riskLevel)} bold>{review.riskLevel} risk</Chip>
+                      {#if review.approvalStatus !== 'approved'}
+                        <Chip tone="warn">needs approval</Chip>
+                      {/if}
+                    </div>
+                  {/if}
+                  {#if plugin.quarantineReason}
+                    <div class="warning-line">Quarantined: {plugin.quarantineReason}</div>
+                  {/if}
+                  {#if plugin.error}
+                    <div class="error-line">{plugin.error}</div>
+                  {/if}
+                  {#if expandable && !isOpen && detailSummary(id)}
+                    <div class="item-desc">{detailSummary(id)}</div>
+                  {/if}
+                </div>
+                {#if !plugin.manifest.builtin}
+                  <div class="action-stack">
+                    <Button
+                      variant="secondary"
+                      disabled={reloading !== null}
+                      onclick={() => reloadPlugin(plugin)}
+                    >
+                      {reloading === id ? 'Reloading...' : 'Reload'}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      disabled={toggling !== null}
+                      onclick={() => togglePlugin(plugin)}
+                    >
+                      {plugin.enabled ? 'Disable' : 'Enable'}
+                    </Button>
+                  </div>
                 {/if}
               </div>
-              {#if !plugin.manifest.builtin}
-                <div class="action-stack">
-                  <Button
-                    variant="secondary"
-                    disabled={reloading !== null}
-                    onclick={() => reloadPlugin(plugin)}
-                  >
-                    {reloading === plugin.manifest.id ? 'Reloading...' : 'Reload'}
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    disabled={toggling !== null}
-                    onclick={() => togglePlugin(plugin)}
-                  >
-                    {plugin.enabled ? 'Disable' : 'Enable'}
-                  </Button>
+
+              {#if isOpen}
+                <div class="plugin-detail">
+                  {#if review}
+                    <div class="detail-section">
+                      <div class="section-title">Security review</div>
+                      <div class="item-meta">
+                        <span>{review.enabled ? 'enabled' : 'disabled'}</span>
+                        <span>{review.status}</span>
+                        <span>{review.executionIsolation}</span>
+                        <span>{review.approvalStatus}</span>
+                      </div>
+                      <div class="review-grid">
+                        <div>
+                          <span class="review-label">Capabilities</span>
+                          <span>{listText(review.capabilities)}</span>
+                        </div>
+                        <div>
+                          <span class="review-label">Permissions</span>
+                          <span>{listText(review.permissions)}</span>
+                        </div>
+                        <div>
+                          <span class="review-label">Commands</span>
+                          <span>{listText(review.commands)}</span>
+                        </div>
+                        <div>
+                          <span class="review-label">Secrets</span>
+                          <span>{listText(review.secrets)}</span>
+                        </div>
+                        <div>
+                          <span class="review-label">UI slots</span>
+                          <span>{listText(review.uiSlots)}</span>
+                        </div>
+                        <div>
+                          <span class="review-label">Frontend</span>
+                          <span>{listText(review.frontendSlots)}</span>
+                        </div>
+                        <div>
+                          <span class="review-label">Config</span>
+                          <span>{listText(review.configFields)}</span>
+                        </div>
+                      </div>
+                      {#each review.riskReasons as reason}
+                        <div class={review.riskLevel === 'high' ? 'error-line' : 'item-desc'}>
+                          {reason}
+                        </div>
+                      {/each}
+                      {#each review.compatibilityWarnings as warning}
+                        <div class="error-line">{warning}</div>
+                      {/each}
+                      <div class="approval-row">
+                        <code>{shortFingerprint(review.fingerprint)}</code>
+                        <span>
+                          {review.approvedAt
+                            ? `approved ${new Date(review.approvedAt).toLocaleString()}`
+                            : ''}
+                        </span>
+                        {#if review.approvalStatus !== 'approved'}
+                          <Button
+                            variant="secondary"
+                            disabled={saving !== null}
+                            onclick={() => approvePlugin(id)}
+                          >
+                            {saving === `${id}:approval` ? 'Saving...' : 'Approve'}
+                          </Button>
+                        {:else}
+                          <Button
+                            variant="secondary"
+                            disabled={saving !== null}
+                            onclick={() => revokeApproval(id)}
+                          >
+                            {saving === `${id}:approval` ? 'Saving...' : 'Revoke'}
+                          </Button>
+                        {/if}
+                      </div>
+                    </div>
+                  {/if}
+
+                  {#if compat}
+                    <div class="detail-section">
+                      <div class="section-title">Compatibility</div>
+                      <div class="item-meta">
+                        {#if compat.minDockscopeVersion}
+                          <span>min {compat.minDockscopeVersion}</span>
+                        {/if}
+                        {#if compat.maxDockscopeVersion}
+                          <span>max {compat.maxDockscopeVersion}</span>
+                        {/if}
+                        <span>{pluralize(compat.migrations.length, 'migration', 'migrations')}</span
+                        >
+                      </div>
+                      {#each compat.warnings as warning}
+                        <div class="error-line">{warning}</div>
+                      {/each}
+                      {#each compat.deprecations as deprecation}
+                        <div class="item-desc">{deprecation}</div>
+                      {/each}
+                      {#each compat.migrations as migration}
+                        <div class="migration-row">
+                          <span>{migration.from} -> {migration.to}</span>
+                          <span>{migration.notes ?? ''}</span>
+                          {#if migration.commandId}
+                            <Button
+                              variant="secondary"
+                              disabled={runningCommand !== null}
+                              onclick={() => runMigration(id, migration.from, migration.to)}
+                            >
+                              {runningCommand === `${id}:${migration.from}:${migration.to}`
+                                ? 'Running...'
+                                : 'Run'}
+                            </Button>
+                          {/if}
+                        </div>
+                      {/each}
+                    </div>
+                  {/if}
+
+                  {#if config || pluginSettings.length > 0}
+                    <div class="detail-section">
+                      <div class="section-title">Configuration</div>
+                      {#if config}
+                        {#each config.schema?.fields ?? [] as field}
+                          <label class="field">
+                            <span class="field-label">{field.label}</span>
+                            {#if field.type === 'boolean'}
+                              <input
+                                type="checkbox"
+                                checked={Boolean(fieldValue(id, field))}
+                                onchange={(event) =>
+                                  setDraftValue(id, field.key, checkedValue(event))}
+                              />
+                            {:else if field.type === 'select'}
+                              <Select
+                                ariaLabel={field.label}
+                                value={String(fieldValue(id, field))}
+                                options={(field.options ?? []).map((option) => ({
+                                  value: option.value,
+                                  label: option.label,
+                                }))}
+                                onchange={(value) => setDraftValue(id, field.key, value)}
+                              />
+                            {:else}
+                              <input
+                                type={field.type === 'number' ? 'number' : 'text'}
+                                value={String(fieldValue(id, field))}
+                                oninput={(event) =>
+                                  setDraftValue(
+                                    id,
+                                    field.key,
+                                    field.type === 'number'
+                                      ? Number(inputValue(event))
+                                      : inputValue(event),
+                                  )}
+                              />
+                            {/if}
+                            {#if field.description}
+                              <span class="field-desc">{field.description}</span>
+                            {/if}
+                          </label>
+                        {/each}
+                        <div class="detail-actions">
+                          <Button
+                            variant="secondary"
+                            disabled={saving !== null}
+                            onclick={() => saveConfig(id)}
+                          >
+                            {saving === id ? 'Saving...' : 'Save'}
+                          </Button>
+                        </div>
+                      {/if}
+                      {#each pluginSettings as extension (extension.pluginId + extension.id)}
+                        <PluginExtension {extension} context={{}} onAction={runExtensionAction} />
+                      {/each}
+                    </div>
+                  {/if}
+
+                  {#if secretSnapshot}
+                    <div class="detail-section">
+                      <div class="section-title">Secrets</div>
+                      {#each secretSnapshot.secrets as secret}
+                        <label class="field">
+                          <span class="field-label">{secret.label}</span>
+                          <div class="secret-row">
+                            <input
+                              type="password"
+                              placeholder={secret.configured ? 'Configured' : 'Not configured'}
+                              value={secretDrafts[id]?.[secret.key] ?? ''}
+                              oninput={(event) => setSecretDraft(id, secret.key, inputValue(event))}
+                            />
+                            <Button
+                              variant="secondary"
+                              disabled={!secretDrafts[id]?.[secret.key] || saving !== null}
+                              onclick={() => saveSecret(id, secret.key)}
+                            >
+                              {saving === `${id}:${secret.key}` ? 'Saving...' : 'Save'}
+                            </Button>
+                          </div>
+                          <span class="field-desc">
+                            {secret.configured ? 'Configured' : 'Missing'}
+                            {#if secret.required}
+                              · required
+                            {/if}
+                            {#if secret.description}
+                              · {secret.description}
+                            {/if}
+                          </span>
+                        </label>
+                      {/each}
+                    </div>
+                  {/if}
+
+                  {#if pluginCommands.length > 0}
+                    <div class="detail-section">
+                      <div class="section-title">Commands</div>
+                      {#each pluginCommands as command}
+                        <div class="detail-entry">
+                          <div class="detail-entry-main">
+                            <div class="item-title">
+                              <span>{command.title}</span>
+                              <code>{command.id}</code>
+                            </div>
+                            {#if command.description}
+                              <div class="item-desc">{command.description}</div>
+                            {/if}
+                            {#if command.input?.fields.length}
+                              <div class="command-inputs">
+                                {#each command.input.fields as field}
+                                  <label class="field command-field">
+                                    <span class="field-label">{field.label}</span>
+                                    {#if field.type === 'boolean'}
+                                      <input
+                                        type="checkbox"
+                                        checked={Boolean(commandFieldValue(command, field))}
+                                        onchange={(event) =>
+                                          setCommandInputValue(
+                                            command,
+                                            field.key,
+                                            checkedValue(event),
+                                          )}
+                                      />
+                                    {:else if field.type === 'select'}
+                                      <Select
+                                        ariaLabel={field.label}
+                                        value={String(commandFieldValue(command, field))}
+                                        options={(field.options ?? []).map((option) => ({
+                                          value: option.value,
+                                          label: option.label,
+                                        }))}
+                                        onchange={(value) =>
+                                          setCommandInputValue(command, field.key, value)}
+                                      />
+                                    {:else}
+                                      <input
+                                        type={field.type === 'number' ? 'number' : 'text'}
+                                        value={String(commandFieldValue(command, field))}
+                                        oninput={(event) =>
+                                          setCommandInputValue(
+                                            command,
+                                            field.key,
+                                            field.type === 'number'
+                                              ? Number(inputValue(event))
+                                              : inputValue(event),
+                                          )}
+                                      />
+                                    {/if}
+                                    {#if field.description}
+                                      <span class="field-desc">{field.description}</span>
+                                    {/if}
+                                  </label>
+                                {/each}
+                              </div>
+                            {/if}
+                          </div>
+                          <Button
+                            variant="secondary"
+                            disabled={runningCommand !== null}
+                            onclick={() => runCommand(command)}
+                          >
+                            {runningCommand === commandKey(command) ? 'Running...' : 'Run'}
+                          </Button>
+                        </div>
+                      {/each}
+                    </div>
+                  {/if}
+
+                  {#if otherExtensions.length > 0}
+                    <div class="detail-section">
+                      <div class="section-title">UI extensions</div>
+                      {#each otherExtensions as extension}
+                        <div class="detail-entry">
+                          <div class="detail-entry-main">
+                            <div class="item-title">
+                              <span>{extension.title}</span>
+                              <code>{extension.id}</code>
+                            </div>
+                            {#if extension.description}
+                              <div class="item-desc">{extension.description}</div>
+                            {/if}
+                            {#if extension.content}
+                              <pre class="content-preview">{extensionContentPreview(
+                                  extension,
+                                )}</pre>
+                            {/if}
+                            <div class="item-meta">
+                              <span>slot {extension.slot}</span>
+                              {#if extension.frontendView}
+                                <span>frontend {extension.frontendView}</span>
+                              {/if}
+                              {#if extension.context?.runtimes?.length}
+                                <span>runtime {extension.context.runtimes.join(', ')}</span>
+                              {/if}
+                              {#if extension.context?.kinds?.length}
+                                <span>kind {extension.context.kinds.join(', ')}</span>
+                              {/if}
+                            </div>
+                            {#if extension.action}
+                              <div class="item-desc">
+                                action {extension.action.type}
+                                {#if extension.action.type === 'run_command'}
+                                  · {extension.action.pluginId ?? extension.pluginId}:{extension
+                                    .action.commandId}
+                                {/if}
+                              </div>
+                            {/if}
+                          </div>
+                        </div>
+                      {/each}
+                    </div>
+                  {/if}
                 </div>
               {/if}
             </div>
@@ -949,226 +1390,6 @@
                   {#if warning.path}
                     <div class="path-line">{warning.path}</div>
                   {/if}
-                </div>
-              </div>
-            {/each}
-          </div>
-        {/if}
-      {:else if tab === 'extensions'}
-        {#if extensions.length === 0}
-          <div class="empty-msg">No UI extensions registered.</div>
-        {:else}
-          <div class="list">
-            {#each extensions as extension}
-              <div class="item">
-                <Chip tone="warn">{extension.slot}</Chip>
-                <div class="item-main">
-                  <div class="item-title">
-                    <span>{extension.title}</span>
-                    <code>{extension.pluginId}:{extension.id}</code>
-                  </div>
-                  {#if extension.description}
-                    <div class="item-desc">{extension.description}</div>
-                  {/if}
-                  {#if extension.content}
-                    <pre class="content-preview">{extensionContentPreview(extension)}</pre>
-                  {/if}
-                  <div class="item-meta">
-                    {#if extension.frontendView}
-                      <span>frontend {extension.frontendView}</span>
-                    {/if}
-                    {#if extension.context?.runtimes?.length}
-                      <span>runtime {extension.context.runtimes.join(', ')}</span>
-                    {/if}
-                    {#if extension.context?.kinds?.length}
-                      <span>kind {extension.context.kinds.join(', ')}</span>
-                    {/if}
-                  </div>
-                  {#if extension.action}
-                    <div class="item-desc">
-                      action {extension.action.type}
-                      {#if extension.action.type === 'run_command'}
-                        · {extension.action.pluginId ?? extension.pluginId}:{extension.action
-                          .commandId}
-                      {/if}
-                    </div>
-                  {/if}
-                </div>
-              </div>
-            {/each}
-          </div>
-        {/if}
-      {:else if tab === 'commands'}
-        {#if commands.length === 0}
-          <div class="empty-msg">No plugin commands registered.</div>
-        {:else}
-          <div class="list">
-            {#each commands as command}
-              <div class="item">
-                <Chip tone="warn">command</Chip>
-                <div class="item-main">
-                  <div class="item-title">
-                    <span>{command.title}</span>
-                    <code>{command.pluginId}:{command.id}</code>
-                  </div>
-                  {#if command.description}
-                    <div class="item-desc">{command.description}</div>
-                  {/if}
-                  {#if command.input?.fields.length}
-                    <div class="command-inputs">
-                      {#each command.input.fields as field}
-                        <label class="field command-field">
-                          <span class="field-label">{field.label}</span>
-                          {#if field.type === 'boolean'}
-                            <input
-                              type="checkbox"
-                              checked={Boolean(commandFieldValue(command, field))}
-                              onchange={(event) =>
-                                setCommandInputValue(command, field.key, checkedValue(event))}
-                            />
-                          {:else if field.type === 'select'}
-                            <Select
-                              ariaLabel={field.label}
-                              value={String(commandFieldValue(command, field))}
-                              options={(field.options ?? []).map((option) => ({
-                                value: option.value,
-                                label: option.label,
-                              }))}
-                              onchange={(value) => setCommandInputValue(command, field.key, value)}
-                            />
-                          {:else}
-                            <input
-                              type={field.type === 'number' ? 'number' : 'text'}
-                              value={String(commandFieldValue(command, field))}
-                              oninput={(event) =>
-                                setCommandInputValue(
-                                  command,
-                                  field.key,
-                                  field.type === 'number'
-                                    ? Number(inputValue(event))
-                                    : inputValue(event),
-                                )}
-                            />
-                          {/if}
-                          {#if field.description}
-                            <span class="field-desc">{field.description}</span>
-                          {/if}
-                        </label>
-                      {/each}
-                    </div>
-                  {/if}
-                </div>
-                <Button
-                  variant="secondary"
-                  disabled={runningCommand !== null}
-                  onclick={() => runCommand(command)}
-                >
-                  {runningCommand === commandKey(command) ? 'Running...' : 'Run'}
-                </Button>
-              </div>
-            {/each}
-          </div>
-        {/if}
-      {:else if tab === 'events'}
-        {#if events.length === 0}
-          <div class="empty-msg">No plugin events recorded.</div>
-        {:else}
-          <div class="list">
-            {#each events as event}
-              <div class="item">
-                <Chip tone="warn">event</Chip>
-                <div class="item-main">
-                  <div class="item-title">
-                    <span>{event.type}</span>
-                    <code>{event.pluginId}</code>
-                  </div>
-                  <div class="item-desc">{new Date(event.time).toLocaleString()}</div>
-                  <pre class="content-preview">{eventPayload(event)}</pre>
-                </div>
-              </div>
-            {/each}
-          </div>
-        {/if}
-      {:else if tab === 'review'}
-        {#if reviews.length === 0}
-          <div class="empty-msg">No external plugins to review.</div>
-        {:else}
-          <div class="list">
-            {#each reviews as review}
-              <div class="item">
-                <Chip tone={riskTone(review.riskLevel)} bold>{review.riskLevel}</Chip>
-                <div class="item-main">
-                  <div class="item-title">
-                    <span>{review.name}</span>
-                    <code>{review.pluginId} v{review.version}</code>
-                  </div>
-                  <div class="item-meta">
-                    <span>{review.enabled ? 'enabled' : 'disabled'}</span>
-                    <span>{review.status}</span>
-                    <span>{review.executionIsolation}</span>
-                    <span>{review.approvalStatus}</span>
-                  </div>
-                  <div class="review-grid">
-                    <div>
-                      <span class="review-label">Capabilities</span>
-                      <span>{listText(review.capabilities)}</span>
-                    </div>
-                    <div>
-                      <span class="review-label">Permissions</span>
-                      <span>{listText(review.permissions)}</span>
-                    </div>
-                    <div>
-                      <span class="review-label">Commands</span>
-                      <span>{listText(review.commands)}</span>
-                    </div>
-                    <div>
-                      <span class="review-label">Secrets</span>
-                      <span>{listText(review.secrets)}</span>
-                    </div>
-                    <div>
-                      <span class="review-label">UI slots</span>
-                      <span>{listText(review.uiSlots)}</span>
-                    </div>
-                    <div>
-                      <span class="review-label">Frontend</span>
-                      <span>{listText(review.frontendSlots)}</span>
-                    </div>
-                    <div>
-                      <span class="review-label">Config</span>
-                      <span>{listText(review.configFields)}</span>
-                    </div>
-                  </div>
-                  {#each review.riskReasons as reason}
-                    <div class={review.riskLevel === 'high' ? 'error-line' : 'item-desc'}>
-                      {reason}
-                    </div>
-                  {/each}
-                  {#each review.compatibilityWarnings as warning}
-                    <div class="error-line">{warning}</div>
-                  {/each}
-                  <div class="approval-row">
-                    <code>{shortFingerprint(review.fingerprint)}</code>
-                    {#if review.approvedAt}
-                      <span>approved {new Date(review.approvedAt).toLocaleString()}</span>
-                    {/if}
-                    {#if review.approvalStatus !== 'approved'}
-                      <Button
-                        variant="secondary"
-                        disabled={saving !== null}
-                        onclick={() => approvePlugin(review.pluginId)}
-                      >
-                        {saving === `${review.pluginId}:approval` ? 'Saving...' : 'Approve'}
-                      </Button>
-                    {:else}
-                      <Button
-                        variant="secondary"
-                        disabled={saving !== null}
-                        onclick={() => revokeApproval(review.pluginId)}
-                      >
-                        {saving === `${review.pluginId}:approval` ? 'Saving...' : 'Revoke'}
-                      </Button>
-                    {/if}
-                  </div>
                 </div>
               </div>
             {/each}
@@ -1423,153 +1644,21 @@
             {/each}
           </div>
         {/if}
-      {:else if tab === 'compatibility'}
+      {:else if events.length === 0}
+        <div class="empty-msg">No plugin events recorded.</div>
+      {:else}
         <div class="list">
-          {#each compatibility as report}
+          {#each events as event}
             <div class="item">
-              <Chip tone="warn">api</Chip>
+              <Chip tone="warn">event</Chip>
               <div class="item-main">
                 <div class="item-title">
-                  <span>{report.name}</span>
-                  <code>{report.pluginId} v{report.version}</code>
+                  <span>{event.type}</span>
+                  <code>{event.pluginId}</code>
                 </div>
-                <div class="item-meta">
-                  {#if report.minDockscopeVersion}
-                    <span>min {report.minDockscopeVersion}</span>
-                  {/if}
-                  {#if report.maxDockscopeVersion}
-                    <span>max {report.maxDockscopeVersion}</span>
-                  {/if}
-                  <span>{report.migrations.length} migrations</span>
-                </div>
-                {#each report.warnings as warning}
-                  <div class="error-line">{warning}</div>
-                {/each}
-                {#each report.deprecations as deprecation}
-                  <div class="item-desc">{deprecation}</div>
-                {/each}
-                {#each report.migrations as migration}
-                  <div class="migration-row">
-                    <span>{migration.from} -> {migration.to}</span>
-                    {#if migration.notes}
-                      <span>{migration.notes}</span>
-                    {/if}
-                    {#if migration.commandId}
-                      <Button
-                        variant="secondary"
-                        disabled={runningCommand !== null}
-                        onclick={() => runMigration(report.pluginId, migration.from, migration.to)}
-                      >
-                        {runningCommand === `${report.pluginId}:${migration.from}:${migration.to}`
-                          ? 'Running...'
-                          : 'Run'}
-                      </Button>
-                    {/if}
-                  </div>
-                {/each}
+                <div class="item-desc">{new Date(event.time).toLocaleString()}</div>
+                <pre class="content-preview">{eventPayload(event)}</pre>
               </div>
-            </div>
-          {/each}
-        </div>
-      {:else if tab === 'config' && configurable.length === 0 && settingsExtensions.length === 0}
-        <div class="empty-msg">No configurable plugins.</div>
-      {:else if tab === 'config'}
-        <div class="config-list">
-          {#each configurable as config}
-            <div class="config-block">
-              <div class="config-header">
-                <span>{config.pluginId}</span>
-                <Button
-                  variant="secondary"
-                  disabled={saving !== null}
-                  onclick={() => saveConfig(config.pluginId)}
-                >
-                  {saving === config.pluginId ? 'Saving...' : 'Save'}
-                </Button>
-              </div>
-              {#each config.schema?.fields ?? [] as field}
-                <label class="field">
-                  <span class="field-label">{field.label}</span>
-                  {#if field.type === 'boolean'}
-                    <input
-                      type="checkbox"
-                      checked={Boolean(fieldValue(config.pluginId, field))}
-                      onchange={(event) =>
-                        setDraftValue(config.pluginId, field.key, checkedValue(event))}
-                    />
-                  {:else if field.type === 'select'}
-                    <Select
-                      ariaLabel={field.label}
-                      value={String(fieldValue(config.pluginId, field))}
-                      options={(field.options ?? []).map((option) => ({
-                        value: option.value,
-                        label: option.label,
-                      }))}
-                      onchange={(value) => setDraftValue(config.pluginId, field.key, value)}
-                    />
-                  {:else}
-                    <input
-                      type={field.type === 'number' ? 'number' : 'text'}
-                      value={String(fieldValue(config.pluginId, field))}
-                      oninput={(event) =>
-                        setDraftValue(
-                          config.pluginId,
-                          field.key,
-                          field.type === 'number' ? Number(inputValue(event)) : inputValue(event),
-                        )}
-                    />
-                  {/if}
-                  {#if field.description}
-                    <span class="field-desc">{field.description}</span>
-                  {/if}
-                </label>
-              {/each}
-            </div>
-          {/each}
-          {#each settingsExtensions as extension (extension.pluginId + extension.id)}
-            <PluginExtension {extension} context={{}} onAction={runExtensionAction} />
-          {/each}
-        </div>
-      {:else if secrets.length === 0}
-        <div class="empty-msg">No plugin secrets declared.</div>
-      {:else}
-        <div class="config-list">
-          {#each secrets as pluginSecrets}
-            <div class="config-block">
-              <div class="config-header">
-                <span>{pluginSecrets.pluginId}</span>
-              </div>
-              {#each pluginSecrets.secrets as secret}
-                <label class="field">
-                  <span class="field-label">{secret.label}</span>
-                  <div class="secret-row">
-                    <input
-                      type="password"
-                      placeholder={secret.configured ? 'Configured' : 'Not configured'}
-                      value={secretDrafts[pluginSecrets.pluginId]?.[secret.key] ?? ''}
-                      oninput={(event) =>
-                        setSecretDraft(pluginSecrets.pluginId, secret.key, inputValue(event))}
-                    />
-                    <Button
-                      variant="secondary"
-                      disabled={!secretDrafts[pluginSecrets.pluginId]?.[secret.key] ||
-                        saving !== null}
-                      onclick={() => saveSecret(pluginSecrets.pluginId, secret.key)}
-                    >
-                      {saving === `${pluginSecrets.pluginId}:${secret.key}` ? 'Saving...' : 'Save'}
-                    </Button>
-                  </div>
-                  <span class="field-desc">
-                    {secret.configured ? 'Configured' : 'Missing'}
-                    {#if secret.required}
-                      · required
-                    {/if}
-                    {#if secret.description}
-                      · {secret.description}
-                    {/if}
-                  </span>
-                </label>
-              {/each}
             </div>
           {/each}
         </div>
@@ -1720,8 +1809,7 @@
     overflow-y: auto;
   }
 
-  .summary-row,
-  .config-header {
+  .summary-row {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -1755,15 +1843,13 @@
     overflow-wrap: anywhere;
   }
 
-  .list,
-  .config-list {
+  .list {
     display: flex;
     flex-direction: column;
     gap: 8px;
   }
 
-  .item,
-  .config-block {
+  .item {
     display: flex;
     gap: 10px;
     padding: 11px 12px;
@@ -1780,9 +1866,79 @@
     border-color: rgba(255, 138, 43, 0.2);
   }
 
-  .item-main {
+  .item-main,
+  .detail-entry-main {
     min-width: 0;
     flex: 1;
+  }
+
+  /* ---- installed list: one expandable row per plugin ---- */
+
+  /* The detail region sits below the row, so the item stacks and the row itself
+     becomes the flex line. */
+  .plugin-item {
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .plugin-row {
+    display: flex;
+    gap: 10px;
+  }
+
+  /* Holds the title column in line with rows that do have a disclosure control.
+     Matches the chevron IconButton's 20px box. */
+  .chevron-spacer {
+    width: 20px;
+    flex: 0 0 auto;
+  }
+
+  .chevron {
+    display: flex;
+    color: rgba(226, 232, 240, 0.5);
+    transition: transform 0.15s ease;
+  }
+
+  .chevron.is-open {
+    transform: rotate(90deg);
+  }
+
+  .plugin-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+  }
+
+  .plugin-detail {
+    margin-top: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.055);
+  }
+
+  .detail-section + .detail-section {
+    border-top: 1px solid rgba(255, 255, 255, 0.035);
+  }
+
+  /* Tighter than a top-level section heading, which is spaced for the panel. */
+  .plugin-detail .section-title {
+    margin: 12px 0 6px;
+  }
+
+  .detail-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 10px;
+  }
+
+  .detail-entry {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 8px 0;
+  }
+
+  .detail-entry + .detail-entry {
+    border-top: 1px solid rgba(255, 255, 255, 0.035);
   }
 
   .action-stack {
@@ -2202,15 +2358,6 @@
   .command-field {
     grid-template-columns: minmax(100px, 150px) minmax(0, 1fr);
     padding: 4px 0;
-  }
-
-  .config-block {
-    display: block;
-  }
-
-  .config-header {
-    color: #e2e8f0;
-    font-family: var(--font-mono);
   }
 
   .field {

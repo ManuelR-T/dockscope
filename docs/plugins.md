@@ -773,7 +773,7 @@ Plugins receive the current config in the factory context and through `configure
 
 ## Review and Migration
 
-The Plugin Manager Review tab summarizes each external plugin before and while enabling it:
+Expanding a plugin on the Plugins panel's Installed tab shows a Security review section that summarizes that plugin before and while enabling it:
 
 - capabilities and permissions
 - declared secrets
@@ -784,7 +784,7 @@ The Plugin Manager Review tab summarizes each external plugin before and while e
 - risk level derived from permissions and execution mode
 - approval state based on a hash of the security-relevant manifest surface
 
-Approvals are persisted in `~/.dockscope/plugin-approvals.json` by default. If a plugin changes capabilities, permissions, secrets, commands, UI actions, config fields, or execution policy, the Review tab marks the approval as `changed`.
+Approvals are persisted in `~/.dockscope/plugin-approvals.json` by default. If a plugin changes capabilities, permissions, secrets, commands, UI actions, config fields, or execution policy, the Security review section marks the approval as `changed`.
 
 Compatibility migrations become executable when a migration declares `commandId`:
 

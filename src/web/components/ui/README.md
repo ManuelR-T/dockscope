@@ -106,8 +106,8 @@ Square, icon-only, sized by its box rather than its padding.
 ## TabBar and Tab
 
 ```svelte
-<TabBar wrap ariaLabel="Plugin views">
-  <Tab active={tab === 'plugins'} onclick={() => (tab = 'plugins')}>Plugins</Tab>
+<TabBar ariaLabel="Plugin views">
+  <Tab active={tab === 'installed'} onclick={() => (tab = 'installed')}>Installed</Tab>
 </TabBar>
 ```
 
