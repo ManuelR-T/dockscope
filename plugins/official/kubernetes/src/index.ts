@@ -5,6 +5,7 @@ import listResources from './resources';
 import { buildGraph } from './graph';
 import { parseResourceId } from './utils';
 import { getLogsForPod } from './resources/pods';
+import { entityActions, runResourceAction } from './actions';
 
 const KUBERNETES_SOURCE_ID = 'kubernetes';
 
@@ -70,24 +71,24 @@ export default function createPlugin({ manifest, config }: PluginFactoryContext)
         },
       ];
     },
-    //     getActionProviders() {
-    //       return [
-    //         {
-    //           canHandle(ref) {
-    //             try {
-    //               parseResourceId(ref.entityId);
-    //               return true;
-    //             } catch {
-    //               return false;
-    //             }
-    //           },
-    //           listActions: entityActions,
-    //           async runAction(ref, actionId, input) {
-    //             await runResourceAction(host, ref.entityId, actionId, input);
-    //             return { ok: true, message: `${actionId} completed` };
-    //           },
-    //         },
-    //       ];
-    //     },
+    getActionProviders() {
+      return [
+        {
+          canHandle(ref) {
+            try {
+              parseResourceId(ref.entityId);
+              return true;
+            } catch {
+              return false;
+            }
+          },
+          listActions: entityActions,
+          async runAction(ref, actionId, input) {
+            await runResourceAction(client, ref.entityId, actionId, input);
+            return { ok: true, message: `${actionId} completed` };
+          },
+        },
+      ];
+    },
   };
 }
