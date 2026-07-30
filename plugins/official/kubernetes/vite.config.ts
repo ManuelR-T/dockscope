@@ -16,7 +16,9 @@ export default defineConfig({
     },
     outDir: 'dist',
     emptyOutDir: true,
-    minify: true,
+    // The packaged plugin is what a user reviews before install, so keep the
+    // bundled vendor code readable rather than shipping 4MB of minified source.
+    minify: false,
     rollupOptions: {
       external: [],
       output: {

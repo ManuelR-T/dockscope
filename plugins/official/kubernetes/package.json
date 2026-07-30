@@ -6,15 +6,17 @@
   "scripts": {
     "build": "vite build",
     "lint": "eslint src/",
-    "lint:fix": "eslint src/ --fix"
+    "lint:fix": "eslint src/ --fix",
+    "test": "vitest run"
   },
   "dependencies": {
     "@kubernetes/client-node": "^1.4.0"
   },
   "devDependencies": {
+    "@types/node": "^22.9.0",
     "dockscope": "^0.9.1",
-    "vite": "^6.0.0",
     "eslint": "^10.1.0",
-    "@types/node": "^22.9.0"
+    "vite": "^6.0.0",
+    "vitest": "^3.2.4"
   }
 }

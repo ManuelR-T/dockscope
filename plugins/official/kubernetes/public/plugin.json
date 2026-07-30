@@ -1,14 +1,20 @@
 {
   "id": "official.kubernetes",
   "name": "Kubernetes",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "manifestVersion": "1",
   "dockscopeApiVersion": "1",
   "hostApiVersion": "1",
-  "description": "Adds Kubernetes graph, logs, restart, delete, and HPA scale actions through kubectl.",
+  "description": "Adds Kubernetes graph, logs, delete, and HPA scale actions through the Kubernetes API.",
   "entry": "./plugin.mjs",
-  "capabilities": ["source.graph", "source.logs", "action.lifecycle", "action.scale"],
-  "permissions": ["kubernetes.api", "process.exec"],
+  "capabilities": [
+    "source.graph",
+    "source.logs",
+    "action.lifecycle",
+    "action.scale",
+    "ui.settings"
+  ],
+  "permissions": ["kubernetes.api"],
   "execution": {
     "isolation": "process",
     "operationTimeoutMs": 30000,
@@ -17,5 +23,15 @@
   },
   "compatibility": {
     "minDockscopeVersion": "0.7.1"
+  },
+  "config": {
+    "fields": [
+      {
+        "key": "KUBE_CONFIG",
+        "label": "Kubeconfig path",
+        "type": "string",
+        "description": "Optional. Leave empty to use $KUBECONFIG or ~/.kube/config."
+      }
+    ]
   }
 }

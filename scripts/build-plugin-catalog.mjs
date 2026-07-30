@@ -1,11 +1,24 @@
 #!/usr/bin/env node
 
 import { createPublicKey, generateKeyPairSync } from 'crypto';
+import { spawnSync } from 'child_process';
+import { existsSync } from 'fs';
 import { mkdir, readdir, readFile, rm, writeFile } from 'fs/promises';
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+function runNpm(args, cwd) {
+  const result = spawnSync('npm', args, {
+    cwd,
+    stdio: 'inherit',
+    shell: process.platform === 'win32',
+  });
+  if (result.status !== 0) {
+    throw new Error(`npm ${args.join(' ')} failed in ${path.relative(projectRoot, cwd)}`);
+  }
+}
 
 function parseArgs(argv) {
   const options = {};
@@ -37,14 +50,6 @@ async function readOptionalText(filePath) {
 
 async function readKey(options, optionName, envName) {
   return (await readOptionalText(options[optionName])) || process.env[envName]?.trim() || undefined;
-}
-
-async function readOptionalJson(filePath) {
-  try {
-    return JSON.parse(await readFile(filePath, 'utf-8'));
-  } catch {
-    return {};
-  }
 }
 
 async function readConfiguredJson(options, optionName, envName) {
@@ -83,28 +88,89 @@ function mergeTrustKeys(configuredKeys, currentKey) {
   return keys.sort((left, right) => String(left.keyId).localeCompare(String(right.keyId)));
 }
 
-async function discoverPluginDirs(sourceDir) {
-  const directManifest = path.join(sourceDir, 'plugin.json');
-  try {
-    await readFile(directManifest, 'utf-8');
-    return [sourceDir];
-  } catch {
-    const entries = await readdir(sourceDir, { withFileTypes: true });
-    const dirs = [];
-    for (const entry of entries) {
-      if (!entry.isDirectory()) {
-        continue;
-      }
-      const pluginDir = path.join(sourceDir, entry.name);
-      try {
-        await readFile(path.join(pluginDir, 'plugin.json'), 'utf-8');
-        dirs.push(pluginDir);
-      } catch {
-        /* ignore non-plugin directories */
-      }
+/**
+ * For a built plugin the packed directory is `dist/`, but README.md and
+ * catalog.json stay in the source directory, so remember where each packed
+ * directory came from.
+ */
+const pluginSourceDirs = new Map();
+
+async function readFromFirst(dirs, fileName) {
+  for (const dir of dirs) {
+    try {
+      return await readFile(path.join(dir, fileName), 'utf-8');
+    } catch {
+      /* try the next location */
     }
-    return dirs.sort();
   }
+  return undefined;
+}
+
+/**
+ * A plugin is either plain source with `plugin.json` beside its entry, or a
+ * buildable package whose manifest only exists after a build. For the latter we
+ * run its build and pack the output directory.
+ */
+async function resolvePluginDir(candidate) {
+  try {
+    await readFile(path.join(candidate, 'plugin.json'), 'utf-8');
+    return candidate;
+  } catch {
+    /* not a plain source plugin, fall through */
+  }
+
+  let pkg;
+  try {
+    pkg = JSON.parse(await readFile(path.join(candidate, 'package.json'), 'utf-8'));
+  } catch {
+    return null;
+  }
+  if (!pkg.scripts?.build) {
+    // A directory with a package.json but no build script cannot produce a
+    // manifest, and silently skipping it is how a plugin disappears from the
+    // catalog without anyone noticing.
+    console.warn(
+      `  skipping ${path.relative(projectRoot, candidate)}: no plugin.json and no build script`,
+    );
+    return null;
+  }
+
+  console.log(`  building ${path.relative(projectRoot, candidate)}`);
+  const install = existsSync(path.join(candidate, 'node_modules')) ? null : 'ci';
+  if (install) {
+    runNpm([install], candidate);
+  }
+  runNpm(['run', 'build'], candidate);
+
+  const built = path.join(candidate, 'dist');
+  try {
+    await readFile(path.join(built, 'plugin.json'), 'utf-8');
+    pluginSourceDirs.set(built, candidate);
+    return built;
+  } catch {
+    throw new Error(
+      `${path.relative(projectRoot, candidate)} built but produced no dist/plugin.json`,
+    );
+  }
+}
+
+async function discoverPluginDirs(sourceDir) {
+  const direct = await resolvePluginDir(sourceDir);
+  if (direct) {
+    return [direct];
+  }
+  const entries = await readdir(sourceDir, { withFileTypes: true });
+  const dirs = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name === 'node_modules') {
+      continue;
+    }
+    const resolved = await resolvePluginDir(path.join(sourceDir, entry.name));
+    if (resolved) {
+      dirs.push(resolved);
+    }
+  }
+  return dirs.sort();
 }
 
 function normalizeStringList(value) {
@@ -246,10 +312,10 @@ for (const pluginDir of pluginDirs) {
     privateKey: packagePrivateKey,
     keyId: packagePrivateKey ? packageKeyId : undefined,
   });
-  const metadata = await readOptionalJson(path.join(pluginDir, 'catalog.json'));
-  const readme = await readOptionalText(
-    path.relative(projectRoot, path.join(pluginDir, 'README.md')),
-  );
+  const assetDirs = [pluginDir, pluginSourceDirs.get(pluginDir)].filter(Boolean);
+  const metadataRaw = await readFromFirst(assetDirs, 'catalog.json');
+  const metadata = metadataRaw ? JSON.parse(metadataRaw) : {};
+  const readme = await readFromFirst(assetDirs, 'README.md');
   entries.push({
     id: bundle.manifest.id,
     name: bundle.manifest.name,

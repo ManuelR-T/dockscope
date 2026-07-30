@@ -28,7 +28,10 @@ export function ingressLink(ingress: V1Ingress, svc: string, rule: V1IngressRule
 
   return {
     source: ingressId,
-    target: k8sId('pod', namespace, svc),
+    // `svc` is the backend service name, so the edge belongs to the Service
+    // node. Building a pod id from it produced a link to a node that does not
+    // exist, which renders as a dangling edge.
+    target: k8sId('service', namespace, svc),
     type: 'depends_on',
     label: rule.host || 'ingress',
   };

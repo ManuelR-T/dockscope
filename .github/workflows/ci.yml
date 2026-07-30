@@ -165,15 +165,25 @@ jobs:
         run: npm run typecheck:plugin-compat
       - name: Verify published package contents
         run: npm pack --dry-run
+      # The official plugin is a buildable package: its manifest and bundle only
+      # exist after a build, so build it before pointing the checks at dist/.
+      - name: Build official plugin
+        working-directory: plugins/official/kubernetes
+        run: |
+          npm ci
+          npm run build
+      - name: Test official plugin
+        working-directory: plugins/official/kubernetes
+        run: npm test
       - name: Validate official plugin manifest
         run: >-
           node dist/cli.js plugin:validate
-          --plugins plugins/official/kubernetes
+          --plugins plugins/official/kubernetes/dist
           --plugin-permissions all
       - name: Smoke test process-isolated official plugin
         run: >-
           node dist/cli.js plugin:test
-          --plugins plugins/official/kubernetes
+          --plugins plugins/official/kubernetes/dist
           --plugin-permissions all
       # The command/graph scaffolds are what plugin authors start from, so an
       # SDK change that breaks them must fail CI rather than ship a dead template.

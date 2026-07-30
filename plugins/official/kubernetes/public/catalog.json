@@ -3,7 +3,7 @@
   "license": "MIT",
   "status": "active",
   "tags": ["kubernetes", "pods", "services", "ingress", "hpa"],
-  "releaseNotes": "Moves logs and contextual actions onto the generic entity provider contracts.",
+  "releaseNotes": "Talks to the Kubernetes API directly instead of shelling out to kubectl, which drops the process.exec permission. Pod restart is removed: it was implemented as a kubectl delete, which the API client does not reproduce safely.",
   "repositoryUrl": "https://github.com/ManuelR-T/dockscope",
   "readmeUrl": "https://github.com/ManuelR-T/dockscope/blob/main/plugins/official/kubernetes/README.md",
   "screenshots": []
