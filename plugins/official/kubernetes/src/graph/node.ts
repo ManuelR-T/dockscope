@@ -28,7 +28,7 @@ export function Node(kind: Kind, namespace: string, name: string): ServiceNode {
     networkTxRate: 0,
     image: '',
     status: 'unknown',
-    health: 'healthy',
+    health: 'none',
     ports: [],
     networks: [],
     volumeCount: 0,

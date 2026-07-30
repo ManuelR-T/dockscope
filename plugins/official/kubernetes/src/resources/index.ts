@@ -1,6 +1,7 @@
 import {
   V1HorizontalPodAutoscalerList,
   V1IngressList,
+  V1ObjectMeta,
   V1PodList,
   V1ServiceList,
 } from '@kubernetes/client-node';
