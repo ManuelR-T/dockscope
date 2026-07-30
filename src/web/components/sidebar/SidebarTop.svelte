@@ -53,72 +53,93 @@
 
 <div class="sidebar-content">
   {#if error}
-    <div class="top-empty">{error}</div>
+    <div class="node-empty">{error}</div>
   {:else if loading || !top}
-    <div class="top-empty">Loading...</div>
+    <div class="node-empty">Loading...</div>
+  {:else if top.processes.length === 0}
+    <div class="node-empty">No processes reported.</div>
   {:else}
-    <div class="top-table-wrap">
-      <table class="top-table">
-        <thead>
-          <tr>
-            {#each top.titles as title}
-              <th>{title}</th>
-            {/each}
-          </tr>
-        </thead>
-        <tbody>
-          {#each top.processes as proc}
-            <tr>
-              {#each proc as cell}
-                <td>{cell}</td>
+    {@const pidIndex = top.titles.findIndex((t) => /^pid$/i.test(t))}
+    {@const cmdIndex = top.titles.findIndex((t) => /^(cmd|command)$/i.test(t))}
+    <div class="node-section">
+      <div class="node-section-head">
+        Processes
+        <span class="metric-sub">{top.processes.length}</span>
+      </div>
+      <div class="node-section-body">
+        {#each top.processes as proc}
+          <div class="proc-row">
+            <div class="proc-main">
+              {#if pidIndex >= 0}
+                <span class="proc-pid">{proc[pidIndex]}</span>
+              {/if}
+              <span class="proc-cmd">
+                {cmdIndex >= 0 ? proc[cmdIndex] : proc.join(' ')}
+              </span>
+            </div>
+            <div class="proc-meta">
+              {#each top.titles as title, i}
+                {#if i !== pidIndex && i !== cmdIndex && proc[i]}
+                  <span><span class="proc-fact-key">{title}</span>{proc[i]}</span>
+                {/if}
               {/each}
-            </tr>
-          {/each}
-        </tbody>
-      </table>
+            </div>
+          </div>
+        {/each}
+      </div>
     </div>
   {/if}
 </div>
 
 <style>
-  .top-empty {
-    padding: 20px;
-    text-align: center;
-    color: var(--text-dim);
-    font-size: var(--text-md);
-    font-style: italic;
+  /* Docker returns eight columns; a table of eight in a 390px panel clipped the
+     command mid-token and needed a horizontal scrollbar. Each process is a row
+     instead: identity on the first line, the remaining columns as dim facts. */
+  .proc-row {
+    padding: 7px 0;
   }
 
-  .top-table-wrap {
-    overflow-x: auto;
+  .proc-row + .proc-row {
+    border-top: 1px solid rgba(255, 255, 255, 0.03);
   }
 
-  .top-table {
-    width: 100%;
-    border-collapse: collapse;
+  .proc-main {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px;
+    align-items: baseline;
+  }
+
+  .proc-pid {
     font-family: var(--font-mono);
-    font-size: var(--text-sm);
+    font-size: var(--text-base);
+    color: var(--accent-cyan);
   }
 
-  .top-table th {
-    text-align: left;
-    padding: 6px 8px;
+  .proc-cmd {
+    min-width: 0;
+    font-family: var(--font-mono);
+    font-size: var(--text-base);
+    line-height: 1.45;
+    color: var(--text-primary);
+    overflow-wrap: anywhere;
+  }
+
+  .proc-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 10px;
+    margin-top: 3px;
+    font-family: var(--font-mono);
+    font-size: var(--text-base);
     color: var(--text-dim);
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 1px;
+  }
+
+  .proc-fact-key {
+    margin-right: 4px;
+    font-family: var(--font-ui);
     font-size: var(--text-xs);
-    border-bottom: 1px solid var(--border-subtle);
-    white-space: nowrap;
-  }
-
-  .top-table td {
-    padding: 4px 8px;
-    color: var(--text-secondary);
-    white-space: nowrap;
-  }
-
-  .top-table tr:hover td {
-    background: rgba(0, 228, 255, 0.02);
+    letter-spacing: 1px;
+    text-transform: uppercase;
   }
 </style>

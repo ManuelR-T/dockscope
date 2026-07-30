@@ -55,51 +55,47 @@
 
 <div class="sidebar-content">
   {#if loading}
-    <div class="diff-empty">Loading...</div>
+    <div class="node-empty">Loading...</div>
   {:else if error}
-    <div class="diff-empty">{error}</div>
+    <div class="node-empty">{error}</div>
   {:else if safeDiff.length === 0}
-    <div class="diff-empty">No filesystem changes</div>
+    <div class="node-empty">No filesystem changes</div>
   {:else}
-    <div class="diff-summary">
-      {#if added > 0}<span class="diff-count added">+{added}</span>{/if}
-      {#if changed > 0}<span class="diff-count changed">~{changed}</span>{/if}
-      {#if deleted > 0}<span class="diff-count deleted">-{deleted}</span>{/if}
-      <span class="diff-total">{safeDiff.length} changes</span>
-    </div>
-    <div class="diff-list">
-      {#each safeDiff as entry}
-        <div class="diff-row {KIND_CLASS[entry.kind]}">
-          <span class="diff-kind">{entry.kind}</span>
-          <span class="diff-path">{entry.path}</span>
+    <div class="node-section">
+      <div class="node-section-head">
+        Filesystem changes
+        <span class="diff-summary">
+          {#if added > 0}<span class="diff-count added">+{added}</span>{/if}
+          {#if changed > 0}<span class="diff-count changed">~{changed}</span>{/if}
+          {#if deleted > 0}<span class="diff-count deleted">-{deleted}</span>{/if}
+        </span>
+      </div>
+      <div class="node-section-body">
+        <div class="diff-list">
+          {#each safeDiff as entry}
+            <div class="diff-row {KIND_CLASS[entry.kind]}">
+              <span class="diff-kind">{entry.kind}</span>
+              <span class="diff-path">{entry.path}</span>
+            </div>
+          {/each}
         </div>
-      {/each}
+      </div>
     </div>
   {/if}
 </div>
 
 <style>
-  .diff-empty {
-    padding: 20px;
-    text-align: center;
-    color: var(--text-dim);
-    font-size: var(--text-md);
-    font-style: italic;
-  }
-
+  /* Counts live in the group header, so the list itself is nothing but rows. */
   .diff-summary {
     display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--border-subtle);
-    font-size: var(--text-base);
+    align-items: baseline;
+    gap: 8px;
   }
 
   .diff-count {
     font-family: var(--font-mono);
-    font-weight: 600;
     font-size: var(--text-base);
+    font-weight: 600;
   }
 
   .diff-count.added {
@@ -112,24 +108,25 @@
     color: var(--accent-red);
   }
 
-  .diff-total {
-    color: var(--text-dim);
-    margin-left: auto;
-    font-size: var(--text-sm);
-  }
-
+  /* Keeps a frame: a scrollable list of paths is its own surface. */
   .diff-list {
+    margin-top: 7px;
+    max-height: 420px;
     overflow-y: auto;
-    flex: 1;
+    padding: 4px 0;
+    background: var(--bg-inset);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
   }
 
   .diff-row {
-    display: flex;
-    align-items: center;
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr);
     gap: 8px;
-    padding: 3px 12px;
+    align-items: baseline;
+    padding: 3px 11px;
     font-family: var(--font-mono);
-    font-size: var(--text-sm);
+    font-size: var(--text-base);
     transition: background 0.1s;
   }
 
@@ -137,11 +134,10 @@
     background: rgba(255, 255, 255, 0.02);
   }
 
+  /* Fixed column so every path starts on the same x, whatever the kind. */
   .diff-kind {
-    width: 14px;
     text-align: center;
     font-weight: 700;
-    flex-shrink: 0;
   }
 
   .diff-row.added .diff-kind {
@@ -155,7 +151,8 @@
   }
 
   .diff-path {
+    min-width: 0;
     color: var(--text-secondary);
-    word-break: break-all;
+    overflow-wrap: anywhere;
   }
 </style>

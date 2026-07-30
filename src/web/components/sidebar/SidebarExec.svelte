@@ -210,7 +210,11 @@
       </Button>
     {/if}
   </div>
-  <div class="exec-terminal" bind:this={termEl}></div>
+  <!-- The surface is a wrapper: xterm measures its own mount node, so any
+       padding on that node corrupts the FitAddon's column/row maths. -->
+  <div class="exec-surface">
+    <div class="exec-terminal" bind:this={termEl}></div>
+  </div>
 </div>
 
 <style>
@@ -221,11 +225,13 @@
     min-height: 0;
   }
 
+  /* Inset matches .sidebar-content so the header and terminal line up with the
+     group cards on the other tabs. */
   .exec-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 6px 12px;
+    padding: 10px 20px;
     border-bottom: 1px solid var(--border-subtle);
     flex-shrink: 0;
   }
@@ -266,10 +272,24 @@
     box-shadow: 0 0 6px rgba(0, 228, 255, 0.3);
   }
 
-  .exec-terminal {
+  /* The terminal previously floated on the panel background with no edge, so
+     the prompt read as loose text rather than a session surface. The frame and
+     padding live here rather than on the mount node below. */
+  .exec-surface {
     flex: 1;
     min-height: 0;
-    padding: 4px;
+    display: flex;
+    margin: 16px 20px;
+    padding: 8px;
+    background: var(--bg-inset);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+  }
+
+  .exec-terminal {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
   }
 
   .exec-terminal :global(.xterm) {
