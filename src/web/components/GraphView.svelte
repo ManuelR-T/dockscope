@@ -53,6 +53,7 @@
   } from '../lib/snapshot';
   import { downloadBlob, downloadText } from '../lib/download';
   import Icon from './Icon.svelte';
+  import { IconButton } from './ui';
   import type { PositionedSimNode, SimLink, SimNode } from '../lib/simTypes';
 
   /** Material that stashes its pre-dim opacity for impact-mode restore */
@@ -667,40 +668,42 @@
   <div bind:this={container} style="width: 100%; height: 100%;"></div>
 
   <div class="graph-controls">
-    <button class="graph-ctrl-btn" title="Zoom to fit (F)" onclick={zoomToFit}>
+    <IconButton variant="surface" size={32} title="Zoom to fit (F)" onclick={zoomToFit}>
       <Icon name="fit" size={16} />
-    </button>
-    <button class="graph-ctrl-btn" title="Reset camera (R)" onclick={resetCamera}>
+    </IconButton>
+    <IconButton variant="surface" size={32} title="Reset camera (R)" onclick={resetCamera}>
       <Icon name="restart" size={16} strokeWidth={2} />
-    </button>
+    </IconButton>
     {#if selectedNode}
-      <button
-        class="graph-ctrl-btn"
+      <IconButton
+        variant="surface"
+        size={32}
         title="Focus selected (C)"
         onclick={() => centerOnNode(selectedNode!)}
       >
         <Icon name="focus" size={16} />
-      </button>
-      <button
-        class="graph-ctrl-btn"
-        class:active={impactMode}
+      </IconButton>
+      <IconButton
+        variant="surface"
+        size={32}
+        active={impactMode}
         title="Impact view (I)"
         onclick={toggleImpactMode}
       >
         <Icon name="impact" size={16} />
-      </button>
+      </IconButton>
     {/if}
     <span class="ctrl-divider"></span>
-    <button class="graph-ctrl-btn" title="Export PNG snapshot" onclick={exportPNG}>
+    <IconButton variant="surface" size={32} title="Export PNG snapshot" onclick={exportPNG}>
       <Icon name="camera" size={15} />
-    </button>
-    <button class="graph-ctrl-btn" title="Export SVG snapshot" onclick={exportSVG}>
+    </IconButton>
+    <IconButton variant="surface" size={32} title="Export SVG snapshot" onclick={exportSVG}>
       <span class="export-glyph">SVG</span>
-    </button>
+    </IconButton>
     <span class="ctrl-divider"></span>
-    <button class="graph-ctrl-btn help-btn" title="Keyboard shortcuts (?)" onclick={onHelpClick}>
+    <IconButton variant="surface" size={32} title="Keyboard shortcuts (?)" onclick={onHelpClick}>
       <span class="help-glyph">?</span>
-    </button>
+    </IconButton>
   </div>
 </div>
 
@@ -719,30 +722,6 @@
     gap: 4px;
     z-index: 10;
   }
-  .graph-ctrl-btn {
-    width: 32px;
-    height: 32px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(8, 10, 24, 0.7);
-    backdrop-filter: blur(8px);
-    border: 1px solid rgba(0, 228, 255, 0.1);
-    border-radius: 6px;
-    color: rgba(122, 133, 153, 0.8);
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-  .graph-ctrl-btn:hover {
-    color: #00e4ff;
-    border-color: rgba(0, 228, 255, 0.25);
-    background: rgba(0, 228, 255, 0.08);
-  }
-  .graph-ctrl-btn.active {
-    color: #ff8a2b;
-    border-color: rgba(255, 138, 43, 0.4);
-    background: rgba(255, 138, 43, 0.12);
-  }
   .ctrl-divider {
     width: 18px;
     height: 1px;
@@ -752,13 +731,13 @@
   }
   .help-glyph {
     font-family: 'Fira Code', monospace;
-    font-size: 13px;
+    font-size: var(--text-lg);
     font-weight: 600;
     line-height: 1;
   }
   .export-glyph {
     font-family: 'Fira Code', monospace;
-    font-size: 8px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.5px;
     line-height: 1;

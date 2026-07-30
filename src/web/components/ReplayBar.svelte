@@ -8,6 +8,7 @@
   } from '../stores/recorder.svelte';
   import { formatClock } from '../lib/recording';
   import Icon from './Icon.svelte';
+  import { IconButton } from './ui';
 
   const rec = getRecorderState();
 
@@ -33,8 +34,8 @@
   <div class="replay-bar">
     <span class="replay-badge"><span class="replay-dot"></span>REPLAY</span>
 
-    <button
-      class="replay-btn"
+    <IconButton
+      variant="accent"
       title={rec.playing ? 'Pause (Space)' : 'Play (Space)'}
       onclick={togglePlay}
     >
@@ -43,7 +44,7 @@
       {:else}
         <Icon name="play" size={12} />
       {/if}
-    </button>
+    </IconButton>
 
     <span class="replay-time">{formatClock(rec.position)} / {formatClock(rec.duration)}</span>
 
@@ -66,11 +67,13 @@
       ></div>
     </div>
 
-    <button class="replay-btn speed" title="Playback speed" onclick={cycleSpeed}>
-      {rec.speed}&times;
-    </button>
+    <IconButton variant="accent" size={32} title="Playback speed" onclick={cycleSpeed}>
+      <span class="replay-speed">{rec.speed}&times;</span>
+    </IconButton>
 
-    <button class="replay-btn exit" title="Exit replay" onclick={exitReplay}>&times;</button>
+    <IconButton variant="accent" glyphSize={14} title="Exit replay" onclick={exitReplay}>
+      &times;
+    </IconButton>
   </div>
 {/if}
 
@@ -95,7 +98,7 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: 9px;
+    font-size: var(--text-xs);
     font-weight: 700;
     letter-spacing: 2px;
     color: #ff2b4e;
@@ -117,40 +120,9 @@
       opacity: 0.3;
     }
   }
-  .replay-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 26px;
-    height: 26px;
-    background: transparent;
-    border: 1px solid rgba(0, 228, 255, 0.15);
-    border-radius: 5px;
-    color: var(--text-secondary, #7a8599);
-    cursor: pointer;
-    transition: all 0.15s;
-    font-family: var(--font-mono);
-    font-size: 10px;
-  }
-  .replay-btn:hover {
-    color: #00e4ff;
-    border-color: rgba(0, 228, 255, 0.4);
-  }
-  .replay-btn.speed {
-    width: 32px;
-    font-weight: 600;
-  }
-  .replay-btn.exit {
-    font-size: 14px;
-    line-height: 1;
-  }
-  .replay-btn.exit:hover {
-    color: #ff2b4e;
-    border-color: rgba(255, 43, 78, 0.4);
-  }
   .replay-time {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--text-sm);
     color: var(--text-secondary, #7a8599);
     min-width: 84px;
     text-align: center;
@@ -211,5 +183,9 @@
     background: #ff2b4e;
     border: 2px solid rgba(8, 10, 24, 0.9);
     cursor: grab;
+  }
+  .replay-speed {
+    font-weight: 600;
+    font-size: var(--text-base);
   }
 </style>

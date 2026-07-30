@@ -38,7 +38,7 @@
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: 20px;
     font-family: 'Chakra Petch', sans-serif;
-    font-size: 12px;
+    font-size: var(--text-md);
     font-weight: 500;
     color: #e2e8f0;
     animation: toastIn 0.3s ease-out;

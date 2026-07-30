@@ -153,7 +153,7 @@ ${scriptClose}</body></html>`;
     padding: 10px;
     color: var(--text-dim);
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--text-sm);
   }
 
   .frame-error {

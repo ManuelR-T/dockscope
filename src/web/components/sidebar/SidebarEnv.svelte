@@ -1,5 +1,6 @@
 <script lang="ts">
   import { maskValue } from '../../lib/security';
+  import { Button } from '../ui';
   import type { ContainerInspect } from '../../../types';
 
   interface Props {
@@ -17,9 +18,15 @@
       <div class="info-section">
         <div class="field-label-row">
           <span class="field-label">Environment Variables</span>
-          <button class="reveal-btn" onclick={() => (showSecrets = !showSecrets)}>
+          <Button
+            variant="ghost"
+            size="sm"
+            pill
+            active={showSecrets}
+            onclick={() => (showSecrets = !showSecrets)}
+          >
             {showSecrets ? 'Hide' : 'Reveal'}
-          </button>
+          </Button>
         </div>
         <div class="env-list">
           {#each inspect.env as envLine}
@@ -48,7 +55,7 @@
         {#each inspect.mounts as mount}
           <div class="mount-row">
             <span class="tag">{mount.type}</span>
-            <span class="mono" style="font-size: 10px;">
+            <span class="mono" style="font-size: var(--text-sm);">
               {mount.source} &rarr; {mount.destination}
               <span style="color: var(--text-dim)">({mount.mode})</span>
             </span>

@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { CrashDiagnostic } from '../../../types';
+  import { Chip, IconButton } from '../ui';
 
   interface Props {
     diagnostic: CrashDiagnostic;
@@ -34,17 +35,19 @@
     </svg>
     <span class="diag-title">Crash Diagnostic</span>
     <span class="diag-time">{formatTime(diagnostic.time)}</span>
-    <button class="diag-dismiss" onclick={onDismiss} title="Dismiss">&times;</button>
+    <IconButton variant="bare" size={22} glyphSize={16} title="Dismiss" onclick={onDismiss}>
+      &times;
+    </IconButton>
   </div>
 
   <div class="diag-cause">{diagnostic.cause}</div>
 
   <div class="diag-meta">
-    <span class="diag-tag exit" class:oom={diagnostic.oomKilled}>
+    <Chip tone={diagnostic.oomKilled ? 'danger' : 'warn'} mono>
       Exit {diagnostic.exitCode}
-    </span>
+    </Chip>
     {#if diagnostic.oomKilled}
-      <span class="diag-tag oom">OOM</span>
+      <Chip tone="danger" mono>OOM</Chip>
     {/if}
   </div>
 
@@ -84,7 +87,7 @@
   }
 
   .diag-title {
-    font-size: 11px;
+    font-size: var(--text-base);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -93,28 +96,13 @@
 
   .diag-time {
     margin-left: auto;
-    font-size: 10px;
+    font-size: var(--text-sm);
     color: rgba(255, 255, 255, 0.3);
     font-family: 'Fira Code', monospace;
   }
 
-  .diag-dismiss {
-    background: none;
-    border: none;
-    color: rgba(255, 255, 255, 0.3);
-    font-size: 16px;
-    cursor: pointer;
-    padding: 0 2px;
-    line-height: 1;
-    margin-left: 4px;
-  }
-
-  .diag-dismiss:hover {
-    color: rgba(255, 255, 255, 0.7);
-  }
-
   .diag-cause {
-    font-size: 14px;
+    font-size: var(--text-xl);
     font-weight: 600;
     color: #e2e8f0;
     margin-bottom: 8px;
@@ -126,29 +114,10 @@
     margin-bottom: 8px;
   }
 
-  .diag-tag {
-    font-size: 10px;
-    font-family: 'Fira Code', monospace;
-    padding: 2px 6px;
-    border-radius: 4px;
-    background: rgba(255, 255, 255, 0.06);
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  .diag-tag.oom {
-    background: rgba(255, 43, 78, 0.15);
-    color: #ff2b4e;
-  }
-
-  .diag-tag.exit {
-    background: rgba(255, 138, 43, 0.15);
-    color: #ff8a2b;
-  }
-
   .diag-details {
     margin: 0 0 8px;
     padding-left: 16px;
-    font-size: 11px;
+    font-size: var(--text-base);
     color: rgba(255, 255, 255, 0.5);
     list-style: disc;
   }
@@ -158,7 +127,7 @@
   }
 
   .diag-logs-title {
-    font-size: 10px;
+    font-size: var(--text-sm);
     text-transform: uppercase;
     letter-spacing: 0.5px;
     color: rgba(255, 255, 255, 0.3);
@@ -166,7 +135,7 @@
   }
 
   .diag-logs {
-    font-size: 10px;
+    font-size: var(--text-sm);
     font-family: 'Fira Code', monospace;
     color: rgba(255, 255, 255, 0.45);
     background: rgba(0, 0, 0, 0.3);

@@ -85,7 +85,7 @@
     padding: 20px;
     text-align: center;
     color: var(--text-dim);
-    font-size: 12px;
+    font-size: var(--text-md);
     font-style: italic;
   }
 
@@ -97,7 +97,7 @@
     width: 100%;
     border-collapse: collapse;
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--text-sm);
   }
 
   .top-table th {
@@ -107,7 +107,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 1px;
-    font-size: 9px;
+    font-size: var(--text-xs);
     border-bottom: 1px solid var(--border-subtle);
     white-space: nowrap;
   }

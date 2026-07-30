@@ -12,6 +12,7 @@
   import Icon from './components/Icon.svelte';
   import ReplayBar from './components/ReplayBar.svelte';
   import Toast from './components/Toast.svelte';
+  import { Button, IconButton, Select } from './components/ui';
   import { getRecorderState, togglePlay } from './stores/recorder.svelte';
   import { addToast } from './stores/toast.svelte';
   import { UI } from './lib/constants';
@@ -271,40 +272,47 @@
           bind:value={searchQuery}
         />
         {#if searchQuery}
-          <button
-            class="search-clear"
-            onclick={() => {
-              searchQuery = '';
-              searchInput?.blur();
-            }}>&times;</button
-          >
+          <span class="search-clear-slot">
+            <IconButton
+              variant="bare"
+              size={18}
+              glyphSize={13}
+              title="Clear search"
+              onclick={() => {
+                searchQuery = '';
+                searchInput?.blur();
+              }}
+            >
+              &times;
+            </IconButton>
+          </span>
         {/if}
       </div>
     </div>
 
     {#if scopeOptions.length > 1}
       <div class="hud-group scope-group">
-        <select class="scope-select" bind:value={scopeFilter} title="Graph scope">
-          <option value="">All scopes</option>
-          {#each scopeOptions as option}
-            <option value={option.value}>{option.label}</option>
-          {/each}
-        </select>
+        <Select
+          variant="hud"
+          bind:value={scopeFilter}
+          ariaLabel="Graph scope"
+          options={[{ value: '', label: 'All scopes' }, ...scopeOptions]}
+        />
       </div>
     {/if}
 
     <!-- Actions: projects + filters (compact) -->
     <div class="hud-group actions-group">
       {#each toolbarExtensions as extension}
-        <button
-          class="hud-icon-btn"
+        <IconButton
+          variant="outline"
           onclick={() => handlePluginAction(extension)}
           title={extension.description ?? extension.title}
         >
           <Icon name="plug" size={12} />
-        </button>
+        </IconButton>
       {/each}
-      <button class="hud-icon-btn" onclick={() => (showPlugins = true)} title="Plugins">
+      <IconButton variant="outline" title="Plugins" onclick={() => (showPlugins = true)}>
         <svg
           width="12"
           height="12"
@@ -318,8 +326,8 @@
           <path d="M8 3v4M16 3v4M7 7h10v5a5 5 0 0 1-10 0V7Z" />
           <path d="M12 17v4M8 21h8" />
         </svg>
-      </button>
-      <button class="hud-icon-btn" onclick={() => (showHosts = true)} title="Connections">
+      </IconButton>
+      <IconButton variant="outline" title="Connections" onclick={() => (showHosts = true)}>
         <svg
           width="12"
           height="12"
@@ -344,9 +352,13 @@
             fill="currentColor"
           />
         </svg>
-      </button>
+      </IconButton>
       {#if docker.composeEnabled}
-        <button class="hud-icon-btn" onclick={() => (showProjects = true)} title="Compose projects">
+        <IconButton
+          variant="outline"
+          title="Compose projects"
+          onclick={() => (showProjects = true)}
+        >
           <svg
             width="12"
             height="12"
@@ -364,12 +376,12 @@
               height="7"
             /><rect x="14" y="14" width="7" height="7" />
           </svg>
-        </button>
+        </IconButton>
       {/if}
       {#if docker.graph.nodes.length > 0}
-        <button
-          class="hud-icon-btn"
-          class:active={statusFilter.size > 0 ||
+        <IconButton
+          variant="outline"
+          active={statusFilter.size > 0 ||
             Boolean(scopeFilter) ||
             colorNetworks !== DEFAULT_COLOR_NETWORKS}
           title="Filters"
@@ -395,7 +407,7 @@
               y2="18"
             />
           </svg>
-        </button>
+        </IconButton>
       {/if}
     </div>
   </div>
@@ -403,13 +415,15 @@
   {#if navigationExtensions.length > 0}
     <nav class="plugin-nav-rail" aria-label="Plugin navigation">
       {#each navigationExtensions as extension (extension.pluginId + extension.id)}
-        <button
+        <Button
+          variant="surface"
+          size="sm"
           title={extension.description ?? extension.title}
           onclick={() => handlePluginAction(extension)}
         >
           <Icon name="plug" size={11} />
-          <span>{extension.title}</span>
-        </button>
+          <span class="nav-rail-label">{extension.title}</span>
+        </Button>
       {/each}
     </nav>
   {/if}
@@ -434,35 +448,39 @@
       <div class="filter-section">
         <span class="filter-heading">Status</span>
         <div class="filter-row">
-          <button
-            class="filter-pill"
-            class:active={statusFilter.has('running')}
+          <Button
+            variant="ghost"
+            size="sm"
+            active={statusFilter.has('running')}
             onclick={() => toggleStatusFilter('running')}
           >
             <span class="dot green"></span> Running
-          </button>
-          <button
-            class="filter-pill"
-            class:active={statusFilter.has('stopped')}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            active={statusFilter.has('stopped')}
             onclick={() => toggleStatusFilter('stopped')}
           >
             <span class="dot gray"></span> Stopped
-          </button>
-          <button
-            class="filter-pill"
-            class:active={statusFilter.has('unhealthy')}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            active={statusFilter.has('unhealthy')}
             onclick={() => toggleStatusFilter('unhealthy')}
           >
             <span class="dot red"></span> Unhealthy
-          </button>
+          </Button>
         </div>
       </div>
       <div class="filter-section">
         <span class="filter-heading">Display</span>
         <div class="filter-row">
-          <button
-            class="filter-pill"
-            class:active={colorNetworks}
+          <Button
+            variant="ghost"
+            size="sm"
+            active={colorNetworks}
             onclick={() => (colorNetworks = !colorNetworks)}
           >
             <svg
@@ -474,7 +492,7 @@
               stroke-width="2.5"><path d="M12 2v20M2 12h20" /></svg
             >
             Color networks
-          </button>
+          </Button>
         </div>
       </div>
     </div>

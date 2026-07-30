@@ -23,6 +23,7 @@
     PluginMarketplaceSnapshot,
   } from '../../plugins/marketplace';
   import Icon from './Icon.svelte';
+  import { Button, Chip, CloseButton, IconButton, Select, Tab, TabBar, TextInput } from './ui';
 
   interface Props {
     onClose: () => void;
@@ -581,6 +582,28 @@
     return value.slice(0, 12);
   }
 
+  function riskTone(level: string): 'success' | 'warn' | 'danger' {
+    if (level === 'low') {
+      return 'success';
+    }
+    return level === 'high' ? 'danger' : 'warn';
+  }
+
+  function marketplaceStateTone(
+    entry: PluginMarketplaceEntry,
+  ): 'accent' | 'success' | 'warn' | 'info' {
+    if (entry.state === 'installed') {
+      return 'success';
+    }
+    if (entry.state === 'update_available') {
+      return 'warn';
+    }
+    if (entry.state === 'local') {
+      return 'info';
+    }
+    return 'accent';
+  }
+
   function marketplaceLabel(entry: PluginMarketplaceEntry): string {
     if (entry.state === 'update_available') {
       return 'update';
@@ -805,48 +828,22 @@
   <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
   <div class="panel" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
     <div class="header">
-      <div class="tabs">
-        <button class="tab" class:active={tab === 'plugins'} onclick={() => (tab = 'plugins')}>
-          Plugins
-        </button>
-        <button
-          class="tab"
-          class:active={tab === 'extensions'}
-          onclick={() => (tab = 'extensions')}
-        >
-          Extensions
-        </button>
-        <button class="tab" class:active={tab === 'commands'} onclick={() => (tab = 'commands')}>
-          Commands
-        </button>
-        <button class="tab" class:active={tab === 'events'} onclick={() => (tab = 'events')}>
-          Events
-        </button>
-        <button class="tab" class:active={tab === 'review'} onclick={() => (tab = 'review')}>
-          Review
-        </button>
-        <button
-          class="tab"
-          class:active={tab === 'marketplace'}
-          onclick={() => (tab = 'marketplace')}
-        >
-          Marketplace
-        </button>
-        <button
-          class="tab"
-          class:active={tab === 'compatibility'}
-          onclick={() => (tab = 'compatibility')}
-        >
+      <TabBar wrap ariaLabel="Plugin views">
+        <Tab active={tab === 'plugins'} onclick={() => (tab = 'plugins')}>Plugins</Tab>
+        <Tab active={tab === 'extensions'} onclick={() => (tab = 'extensions')}>Extensions</Tab>
+        <Tab active={tab === 'commands'} onclick={() => (tab = 'commands')}>Commands</Tab>
+        <Tab active={tab === 'events'} onclick={() => (tab = 'events')}>Events</Tab>
+        <Tab active={tab === 'review'} onclick={() => (tab = 'review')}>Review</Tab>
+        <Tab active={tab === 'marketplace'} onclick={() => (tab = 'marketplace')}>Marketplace</Tab>
+        <Tab active={tab === 'compatibility'} onclick={() => (tab = 'compatibility')}>
           Compatibility
-        </button>
-        <button class="tab" class:active={tab === 'config'} onclick={() => (tab = 'config')}>
-          Config
-        </button>
-        <button class="tab" class:active={tab === 'secrets'} onclick={() => (tab = 'secrets')}>
-          Secrets
-        </button>
-      </div>
-      <button class="close-btn" onclick={onClose}>&times;</button>
+        </Tab>
+        <Tab active={tab === 'config'} onclick={() => (tab = 'config')}>Config</Tab>
+        <Tab active={tab === 'secrets'} onclick={() => (tab = 'secrets')}>Secrets</Tab>
+      </TabBar>
+      <span class="header-close">
+        <CloseButton label="Close plugins" onclick={onClose} />
+      </span>
     </div>
 
     <div class="content">
@@ -899,20 +896,20 @@
               </div>
               {#if !plugin.manifest.builtin}
                 <div class="action-stack">
-                  <button
-                    class="save-btn"
+                  <Button
+                    variant="secondary"
                     disabled={reloading !== null}
                     onclick={() => reloadPlugin(plugin)}
                   >
                     {reloading === plugin.manifest.id ? 'Reloading...' : 'Reload'}
-                  </button>
-                  <button
-                    class="save-btn"
+                  </Button>
+                  <Button
+                    variant="secondary"
                     disabled={toggling !== null}
                     onclick={() => togglePlugin(plugin)}
                   >
                     {plugin.enabled ? 'Disable' : 'Enable'}
-                  </button>
+                  </Button>
                 </div>
               {/if}
             </div>
@@ -964,7 +961,7 @@
           <div class="list">
             {#each extensions as extension}
               <div class="item">
-                <div class="slot-badge">{extension.slot}</div>
+                <Chip tone="warn">{extension.slot}</Chip>
                 <div class="item-main">
                   <div class="item-title">
                     <span>{extension.title}</span>
@@ -1008,7 +1005,7 @@
           <div class="list">
             {#each commands as command}
               <div class="item">
-                <div class="slot-badge">command</div>
+                <Chip tone="warn">command</Chip>
                 <div class="item-main">
                   <div class="item-title">
                     <span>{command.title}</span>
@@ -1030,15 +1027,15 @@
                                 setCommandInputValue(command, field.key, checkedValue(event))}
                             />
                           {:else if field.type === 'select'}
-                            <select
+                            <Select
+                              ariaLabel={field.label}
                               value={String(commandFieldValue(command, field))}
-                              onchange={(event) =>
-                                setCommandInputValue(command, field.key, inputValue(event))}
-                            >
-                              {#each field.options ?? [] as option}
-                                <option value={option.value}>{option.label}</option>
-                              {/each}
-                            </select>
+                              options={(field.options ?? []).map((option) => ({
+                                value: option.value,
+                                label: option.label,
+                              }))}
+                              onchange={(value) => setCommandInputValue(command, field.key, value)}
+                            />
                           {:else}
                             <input
                               type={field.type === 'number' ? 'number' : 'text'}
@@ -1061,13 +1058,13 @@
                     </div>
                   {/if}
                 </div>
-                <button
-                  class="save-btn"
+                <Button
+                  variant="secondary"
                   disabled={runningCommand !== null}
                   onclick={() => runCommand(command)}
                 >
                   {runningCommand === commandKey(command) ? 'Running...' : 'Run'}
-                </button>
+                </Button>
               </div>
             {/each}
           </div>
@@ -1079,7 +1076,7 @@
           <div class="list">
             {#each events as event}
               <div class="item">
-                <div class="slot-badge">event</div>
+                <Chip tone="warn">event</Chip>
                 <div class="item-main">
                   <div class="item-title">
                     <span>{event.type}</span>
@@ -1099,7 +1096,7 @@
           <div class="list">
             {#each reviews as review}
               <div class="item">
-                <div class="slot-badge risk-{review.riskLevel}">{review.riskLevel}</div>
+                <Chip tone={riskTone(review.riskLevel)} bold>{review.riskLevel}</Chip>
                 <div class="item-main">
                   <div class="item-title">
                     <span>{review.name}</span>
@@ -1155,21 +1152,21 @@
                       <span>approved {new Date(review.approvedAt).toLocaleString()}</span>
                     {/if}
                     {#if review.approvalStatus !== 'approved'}
-                      <button
-                        class="save-btn"
+                      <Button
+                        variant="secondary"
                         disabled={saving !== null}
                         onclick={() => approvePlugin(review.pluginId)}
                       >
                         {saving === `${review.pluginId}:approval` ? 'Saving...' : 'Approve'}
-                      </button>
+                      </Button>
                     {:else}
-                      <button
-                        class="save-btn"
+                      <Button
+                        variant="secondary"
                         disabled={saving !== null}
                         onclick={() => revokeApproval(review.pluginId)}
                       >
                         {saving === `${review.pluginId}:approval` ? 'Saving...' : 'Revoke'}
-                      </button>
+                      </Button>
                     {/if}
                   </div>
                 </div>
@@ -1181,14 +1178,14 @@
         {#each failedCatalogs() as failed (failed.source)}
           <div class="marketplace-alert">
             <span>Catalog unavailable: {failed.name ?? failed.source} — {failed.error}</span>
-            <button
-              class="marketplace-retry"
+            <IconButton
+              variant="outline"
+              size={28}
               title="Retry catalog"
-              aria-label="Retry catalog"
               onclick={() => void loadPluginState()}
             >
               <Icon name="restart" size={13} />
-            </button>
+            </IconButton>
           </div>
         {/each}
         {#if !marketplace.configured && marketplace.entries.length === 0}
@@ -1212,29 +1209,31 @@
               value={marketplaceQuery}
               oninput={(event) => (marketplaceQuery = inputValue(event))}
             />
-            <select
+            <Select
+              ariaLabel="Filter marketplace"
               value={marketplaceFilter}
-              onchange={(event) => (marketplaceFilter = inputValue(event) as MarketplaceFilter)}
-            >
-              <option value="all">All</option>
-              <option value="available">Available</option>
-              <option value="installed">Installed</option>
-              <option value="updates">Updates</option>
-              <option value="local">Local</option>
-              <option value="deprecated">Deprecated</option>
-            </select>
+              options={[
+                { value: 'all', label: 'All' },
+                { value: 'available', label: 'Available' },
+                { value: 'installed', label: 'Installed' },
+                { value: 'updates', label: 'Updates' },
+                { value: 'local', label: 'Local' },
+                { value: 'deprecated', label: 'Deprecated' },
+              ]}
+              onchange={(value) => (marketplaceFilter = value as MarketplaceFilter)}
+            />
           </div>
 
           <div class="catalog-manager">
             <div class="catalog-manager-head">
               <span>Catalogs</span>
-              <button
-                class="catalog-add-toggle"
+              <Button
+                size="sm"
                 disabled={catalogBusy}
                 onclick={() => (showAddCatalog ? resetAddCatalog() : (showAddCatalog = true))}
               >
                 {showAddCatalog ? 'Cancel' : '+ Add catalog'}
-              </button>
+              </Button>
             </div>
 
             {#each marketplace.catalogs ?? [] as catalog (catalog.source)}
@@ -1242,22 +1241,24 @@
                 <span class="catalog-row-name">
                   {catalog.name ?? catalog.source}
                   {#if catalog.official}
-                    <span class="catalog-tag catalog-tag-official">official</span>
+                    <Chip tone="accent" uppercase>official</Chip>
                   {/if}
                   {#if catalog.error}
-                    <span class="catalog-tag catalog-tag-bad">unavailable</span>
+                    <Chip tone="warn" uppercase>unavailable</Chip>
                   {:else if catalog.signatureVerified}
-                    <span class="catalog-tag">signed</span>
+                    <Chip uppercase>signed</Chip>
                   {:else}
-                    <span class="catalog-tag catalog-tag-bad">unsigned</span>
+                    <Chip tone="warn" uppercase>unsigned</Chip>
                   {/if}
                 </span>
                 <span class="catalog-row-meta" class:is-error={Boolean(catalog.error)}>
                   {catalog.error ?? pluralize(catalog.entryCount, 'entry', 'entries')}
                 </span>
                 {#if catalog.userAdded}
-                  <button
-                    class="catalog-remove"
+                  <Button
+                    variant="ghost"
+                    tone="danger"
+                    size="sm"
                     title={catalog.fingerprint
                       ? `Pinned key ${catalog.fingerprint}`
                       : 'Remove catalog'}
@@ -1265,7 +1266,7 @@
                     onclick={() => void removeCatalog(catalog.source, catalog.name)}
                   >
                     Remove
-                  </button>
+                  </Button>
                 {/if}
               </div>
             {/each}
@@ -1273,20 +1274,18 @@
             {#if showAddCatalog}
               <div class="catalog-add">
                 <div class="catalog-add-row">
-                  <input
-                    type="text"
+                  <TextInput
+                    bind:value={catalogSourceDraft}
                     placeholder="https://example.com/catalog.json"
-                    value={catalogSourceDraft}
-                    oninput={(event) => (catalogSourceDraft = inputValue(event))}
+                    ariaLabel="Catalog URL"
                     onkeydown={(event) => event.key === 'Enter' && void previewCatalog()}
                   />
-                  <button
-                    class="catalog-fetch"
+                  <Button
                     disabled={catalogBusy || !catalogSourceDraft.trim()}
                     onclick={() => void previewCatalog()}
                   >
                     {catalogBusy ? 'Checking...' : 'Fetch'}
-                  </button>
+                  </Button>
                 </div>
 
                 {#if catalogPreview}
@@ -1319,13 +1318,13 @@
                         pinned, so a later change will make this catalog fail instead of loading
                         silently.
                       </div>
-                      <button
-                        class="catalog-trust"
+                      <Button
+                        variant="primary"
                         disabled={catalogBusy}
                         onclick={() => void trustCatalog()}
                       >
                         Trust and add
-                      </button>
+                      </Button>
                     </div>
                   {:else}
                     <div class="catalog-preview catalog-preview-bad">
@@ -1340,9 +1339,9 @@
           <div class="list">
             {#each marketplaceEntries as entry}
               <div class="item">
-                <div class="slot-badge marketplace-{entry.state}">
+                <Chip tone={marketplaceStateTone(entry)} bold>
                   {marketplaceLabel(entry)}
-                </div>
+                </Chip>
                 <div class="item-main">
                   <div class="marketplace-identity">
                     {#if entry.iconUrl}
@@ -1411,15 +1410,15 @@
                     {entry.resolvedPackageUrl ?? entry.installed?.path ?? 'local registry'}
                   </div>
                 </div>
-                <button
-                  class="save-btn"
+                <Button
+                  variant="secondary"
                   disabled={marketplaceActionDisabled(entry)}
                   onclick={() => requestMarketplaceAction(entry)}
                 >
                   {marketplaceAction === marketplaceActionKey(entry)
                     ? 'Working...'
                     : marketplaceActionLabel(entry)}
-                </button>
+                </Button>
               </div>
             {/each}
           </div>
@@ -1428,7 +1427,7 @@
         <div class="list">
           {#each compatibility as report}
             <div class="item">
-              <div class="slot-badge">api</div>
+              <Chip tone="warn">api</Chip>
               <div class="item-main">
                 <div class="item-title">
                   <span>{report.name}</span>
@@ -1456,15 +1455,15 @@
                       <span>{migration.notes}</span>
                     {/if}
                     {#if migration.commandId}
-                      <button
-                        class="save-btn"
+                      <Button
+                        variant="secondary"
                         disabled={runningCommand !== null}
                         onclick={() => runMigration(report.pluginId, migration.from, migration.to)}
                       >
                         {runningCommand === `${report.pluginId}:${migration.from}:${migration.to}`
                           ? 'Running...'
                           : 'Run'}
-                      </button>
+                      </Button>
                     {/if}
                   </div>
                 {/each}
@@ -1480,13 +1479,13 @@
             <div class="config-block">
               <div class="config-header">
                 <span>{config.pluginId}</span>
-                <button
-                  class="save-btn"
+                <Button
+                  variant="secondary"
                   disabled={saving !== null}
                   onclick={() => saveConfig(config.pluginId)}
                 >
                   {saving === config.pluginId ? 'Saving...' : 'Save'}
-                </button>
+                </Button>
               </div>
               {#each config.schema?.fields ?? [] as field}
                 <label class="field">
@@ -1499,15 +1498,15 @@
                         setDraftValue(config.pluginId, field.key, checkedValue(event))}
                     />
                   {:else if field.type === 'select'}
-                    <select
+                    <Select
+                      ariaLabel={field.label}
                       value={String(fieldValue(config.pluginId, field))}
-                      onchange={(event) =>
-                        setDraftValue(config.pluginId, field.key, inputValue(event))}
-                    >
-                      {#each field.options ?? [] as option}
-                        <option value={option.value}>{option.label}</option>
-                      {/each}
-                    </select>
+                      options={(field.options ?? []).map((option) => ({
+                        value: option.value,
+                        label: option.label,
+                      }))}
+                      onchange={(value) => setDraftValue(config.pluginId, field.key, value)}
+                    />
                   {:else}
                     <input
                       type={field.type === 'number' ? 'number' : 'text'}
@@ -1551,14 +1550,14 @@
                       oninput={(event) =>
                         setSecretDraft(pluginSecrets.pluginId, secret.key, inputValue(event))}
                     />
-                    <button
-                      class="save-btn"
+                    <Button
+                      variant="secondary"
                       disabled={!secretDrafts[pluginSecrets.pluginId]?.[secret.key] ||
                         saving !== null}
                       onclick={() => saveSecret(pluginSecrets.pluginId, secret.key)}
                     >
                       {saving === `${pluginSecrets.pluginId}:${secret.key}` ? 'Saving...' : 'Save'}
-                    </button>
+                    </Button>
                   </div>
                   <span class="field-desc">
                     {secret.configured ? 'Configured' : 'Missing'}
@@ -1585,7 +1584,7 @@
               <div class="confirm-title">{marketplaceReview.entry.name}</div>
               <code>{marketplaceReview.entry.id} v{marketplaceReview.entry.version}</code>
             </div>
-            <button class="close-btn" onclick={() => (marketplaceReview = null)}>&times;</button>
+            <CloseButton label="Close review" onclick={() => (marketplaceReview = null)} />
           </div>
 
           <div class="review-grid marketplace-review-grid">
@@ -1656,16 +1655,16 @@
           {/if}
 
           <div class="confirm-actions">
-            <button class="save-btn" onclick={() => (marketplaceReview = null)}>Cancel</button>
-            <button
-              class="save-btn primary"
+            <Button variant="secondary" onclick={() => (marketplaceReview = null)}>Cancel</Button>
+            <Button
+              variant="primary"
               disabled={marketplaceActionDisabled(marketplaceReview.entry)}
               onclick={() => void confirmMarketplaceReview()}
             >
               {marketplaceAction === marketplaceActionKey(marketplaceReview.entry)
                 ? 'Working...'
                 : marketplaceActionLabel(marketplaceReview.entry)}
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -1687,7 +1686,7 @@
 
   .panel {
     position: relative;
-    width: min(760px, calc(100vw - 28px));
+    width: min(880px, calc(100vw - 28px));
     max-height: min(760px, calc(100vh - 28px));
     display: flex;
     flex-direction: column;
@@ -1702,47 +1701,18 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 12px;
     padding: 14px 18px 0;
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
   }
 
-  .tabs {
+  /* Centre the close button on the tab labels rather than on the whole tab box,
+     which includes the active-tab underline sitting on the header's bottom edge.
+     Without this the button ends up a pixel off that underline. */
+  .header-close {
     display: flex;
-    flex-wrap: wrap;
-    gap: 2px;
-  }
-
-  .tab {
-    padding: 8px 14px;
-    background: none;
-    border: none;
-    border-bottom: 2px solid transparent;
-    color: rgba(122, 133, 153, 0.78);
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-
-  .tab.active {
-    color: #00e4ff;
-    border-bottom-color: #00e4ff;
-  }
-
-  .close-btn {
-    width: 26px;
-    height: 26px;
-    display: grid;
-    place-items: center;
-    background: none;
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    border-radius: 4px;
-    color: rgba(255, 255, 255, 0.35);
-    cursor: pointer;
-  }
-
-  .close-btn:hover {
-    color: #e2e8f0;
-    border-color: rgba(0, 228, 255, 0.16);
+    align-self: flex-start;
+    margin-top: 4px;
   }
 
   .content {
@@ -1756,7 +1726,7 @@
     justify-content: space-between;
     align-items: center;
     margin-bottom: 10px;
-    font-size: 11px;
+    font-size: var(--text-base);
     color: rgba(226, 232, 240, 0.68);
   }
 
@@ -1780,28 +1750,9 @@
     border-radius: 6px;
     background: rgba(255, 95, 122, 0.06);
     color: #ff7d92;
-    font-size: 11px;
+    font-size: var(--text-base);
     line-height: 1.4;
     overflow-wrap: anywhere;
-  }
-
-  .marketplace-retry {
-    display: grid;
-    width: 28px;
-    height: 28px;
-    flex: 0 0 28px;
-    place-items: center;
-    padding: 0;
-    border: 1px solid rgba(255, 125, 146, 0.28);
-    border-radius: 5px;
-    background: rgba(255, 255, 255, 0.035);
-    color: #ff9aab;
-    cursor: pointer;
-  }
-
-  .marketplace-retry:hover {
-    border-color: rgba(255, 125, 146, 0.5);
-    background: rgba(255, 255, 255, 0.07);
   }
 
   .list,
@@ -1834,11 +1785,6 @@
     flex: 1;
   }
 
-  .item > .save-btn {
-    align-self: center;
-    flex: 0 0 auto;
-  }
-
   .action-stack {
     align-self: center;
     display: grid;
@@ -1852,14 +1798,14 @@
     justify-content: space-between;
     gap: 10px;
     color: #e2e8f0;
-    font-size: 12px;
+    font-size: var(--text-md);
     font-weight: 600;
   }
 
   code,
   .path-line {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--text-sm);
     color: rgba(122, 133, 153, 0.8);
   }
 
@@ -1868,7 +1814,7 @@
   .error-line,
   .field-desc {
     margin-top: 4px;
-    font-size: 11px;
+    font-size: var(--text-base);
     line-height: 1.45;
     color: rgba(122, 133, 153, 0.82);
   }
@@ -1885,7 +1831,7 @@
 
   .section-title {
     margin: 18px 0 8px;
-    font-size: 10px;
+    font-size: var(--text-sm);
     font-weight: 700;
     letter-spacing: 1px;
     text-transform: uppercase;
@@ -1911,51 +1857,6 @@
 
   .status-dot.idle {
     background: #ffb02e;
-  }
-
-  .slot-badge {
-    align-self: flex-start;
-    padding: 3px 6px;
-    border-radius: 5px;
-    background: rgba(255, 176, 46, 0.1);
-    color: #ffb02e;
-    font-size: 10px;
-    font-weight: 700;
-  }
-
-  .slot-badge.risk-low {
-    background: rgba(0, 255, 106, 0.08);
-    color: #00ff6a;
-  }
-
-  .slot-badge.risk-medium {
-    background: rgba(255, 176, 46, 0.1);
-    color: #ffb02e;
-  }
-
-  .slot-badge.risk-high {
-    background: rgba(255, 95, 122, 0.12);
-    color: #ff5f7a;
-  }
-
-  .slot-badge.marketplace-available {
-    background: rgba(0, 228, 255, 0.1);
-    color: #00e4ff;
-  }
-
-  .slot-badge.marketplace-installed {
-    background: rgba(0, 255, 106, 0.08);
-    color: #00ff6a;
-  }
-
-  .slot-badge.marketplace-update_available {
-    background: rgba(255, 176, 46, 0.1);
-    color: #ffb02e;
-  }
-
-  .slot-badge.marketplace-local {
-    background: rgba(172, 138, 255, 0.12);
-    color: #bda5ff;
   }
 
   .marketplace-registry {
@@ -1987,26 +1888,10 @@
   }
 
   .catalog-manager-head span {
-    font-size: 10px;
+    font-size: var(--text-sm);
     text-transform: uppercase;
     letter-spacing: 0.1em;
     color: rgba(226, 232, 240, 0.5);
-  }
-
-  .catalog-add-toggle {
-    padding: 3px 8px;
-    background: rgba(0, 228, 255, 0.08);
-    border: 1px solid rgba(0, 228, 255, 0.18);
-    border-radius: 5px;
-    color: #00e4ff;
-    font: inherit;
-    font-size: 10px;
-    font-weight: 700;
-    cursor: pointer;
-  }
-
-  .catalog-add-toggle:hover:not(:disabled) {
-    background: rgba(0, 228, 255, 0.14);
   }
 
   /* Entry counts share a fixed column so they line up across rows. */
@@ -2016,7 +1901,7 @@
     align-items: center;
     gap: 10px;
     padding: 6px 10px;
-    font-size: 11.5px;
+    font-size: var(--text-base);
     color: #e2e8f0;
   }
 
@@ -2033,7 +1918,7 @@
   }
 
   .catalog-row-meta {
-    font-size: 10px;
+    font-size: var(--text-sm);
     color: rgba(122, 133, 153, 0.82);
     text-align: right;
     overflow-wrap: anywhere;
@@ -2043,86 +1928,17 @@
     color: #ff6b84;
   }
 
-  .catalog-tag {
-    flex: 0 0 auto;
-    padding: 2px 5px;
-    border-radius: 4px;
-    background: rgba(255, 255, 255, 0.04);
-    color: rgba(226, 232, 240, 0.6);
-    font-size: 9.5px;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-  }
-
-  .catalog-tag-official {
-    background: rgba(0, 228, 255, 0.1);
-    color: #7fe9ff;
-  }
-
-  .catalog-tag-bad {
-    background: rgba(255, 176, 32, 0.12);
-    color: var(--accent-amber);
-  }
-
-  .catalog-remove {
-    justify-self: end;
-    padding: 3px 8px;
-    background: none;
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 5px;
-    color: rgba(226, 232, 240, 0.55);
-    font: inherit;
-    font-size: 10px;
-    cursor: pointer;
-  }
-
-  .catalog-remove:hover:not(:disabled) {
-    border-color: rgba(255, 95, 122, 0.32);
-    color: #ff8fa3;
-  }
-
-  .catalog-add-toggle:disabled,
-  .catalog-remove:disabled,
-  .catalog-trust:disabled {
-    opacity: 0.4;
-    cursor: default;
-  }
-
   .catalog-add {
     padding: 10px;
     border-top: 1px solid rgba(255, 255, 255, 0.04);
   }
 
+  /* Grid rather than flex so the primitive sizes itself and the parent never
+     has to reach into the component's scope to set flex on its input. */
   .catalog-add-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: 6px;
-  }
-
-  .catalog-add-row input {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .catalog-fetch {
-    flex: 0 0 auto;
-    padding: 6px 12px;
-    background: rgba(0, 228, 255, 0.08);
-    border: 1px solid rgba(0, 228, 255, 0.18);
-    border-radius: 6px;
-    color: #00e4ff;
-    font: inherit;
-    font-size: 11px;
-    font-weight: 700;
-    cursor: pointer;
-  }
-
-  .catalog-fetch:hover:not(:disabled) {
-    background: rgba(0, 228, 255, 0.14);
-  }
-
-  .catalog-fetch:disabled {
-    opacity: 0.4;
-    cursor: default;
   }
 
   .catalog-preview {
@@ -2131,7 +1947,7 @@
     border: 1px solid rgba(0, 228, 255, 0.14);
     border-radius: 6px;
     background: rgba(0, 228, 255, 0.03);
-    font-size: 11.5px;
+    font-size: var(--text-base);
   }
 
   .catalog-preview-bad {
@@ -2149,7 +1965,7 @@
     display: flex;
     gap: 6px;
     margin-bottom: 3px;
-    font-size: 10.5px;
+    font-size: var(--text-sm);
     color: rgba(226, 232, 240, 0.62);
   }
 
@@ -2165,24 +1981,8 @@
     border-radius: 5px;
     background: rgba(255, 176, 32, 0.07);
     color: var(--accent-amber);
-    font-size: 10.5px;
+    font-size: var(--text-sm);
     line-height: 1.45;
-  }
-
-  .catalog-trust {
-    padding: 6px 10px;
-    background: rgba(0, 228, 255, 0.14);
-    border: 1px solid rgba(0, 228, 255, 0.32);
-    border-radius: 6px;
-    color: #e2fbff;
-    font: inherit;
-    font-size: 11px;
-    font-weight: 700;
-    cursor: pointer;
-  }
-
-  .catalog-trust:hover:not(:disabled) {
-    background: rgba(0, 228, 255, 0.2);
   }
 
   .marketplace-controls {
@@ -2212,7 +2012,7 @@
     flex-wrap: wrap;
     gap: 8px;
     margin-top: 8px;
-    font-size: 11px;
+    font-size: var(--text-base);
   }
 
   .marketplace-links a {
@@ -2229,7 +2029,7 @@
     flex-wrap: wrap;
     gap: 6px;
     margin-top: 8px;
-    font-size: 10px;
+    font-size: var(--text-sm);
     color: rgba(226, 232, 240, 0.62);
   }
 
@@ -2272,7 +2072,7 @@
   .confirm-title {
     margin-bottom: 2px;
     color: #e2e8f0;
-    font-size: 13px;
+    font-size: var(--text-lg);
     font-weight: 700;
   }
 
@@ -2286,7 +2086,7 @@
     border-left: 2px solid rgba(255, 190, 64, 0.5);
     background: rgba(255, 190, 64, 0.06);
     color: rgba(226, 232, 240, 0.82);
-    font-size: 11px;
+    font-size: var(--text-base);
     line-height: 1.5;
   }
 
@@ -2296,7 +2096,7 @@
     border-left: 2px solid rgba(0, 228, 255, 0.34);
     background: rgba(0, 228, 255, 0.04);
     color: rgba(226, 232, 240, 0.76);
-    font-size: 11px;
+    font-size: var(--text-base);
     line-height: 1.5;
     white-space: pre-wrap;
   }
@@ -2328,7 +2128,7 @@
     background: rgba(0, 0, 0, 0.2);
     color: rgba(226, 232, 240, 0.72);
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--text-sm);
     line-height: 1.55;
   }
 
@@ -2341,18 +2141,12 @@
     justify-content: flex-end;
   }
 
-  .save-btn.primary {
-    background: rgba(0, 228, 255, 0.14);
-    border-color: rgba(0, 228, 255, 0.32);
-    color: #e2fbff;
-  }
-
   .review-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px 12px;
     margin-top: 10px;
-    font-size: 11px;
+    font-size: var(--text-base);
     line-height: 1.4;
     color: rgba(226, 232, 240, 0.66);
   }
@@ -2375,7 +2169,7 @@
     gap: 8px;
     align-items: center;
     margin-top: 8px;
-    font-size: 11px;
+    font-size: var(--text-base);
     color: rgba(226, 232, 240, 0.7);
   }
 
@@ -2385,7 +2179,7 @@
     gap: 8px;
     align-items: center;
     margin-top: 10px;
-    font-size: 11px;
+    font-size: var(--text-base);
     color: rgba(226, 232, 240, 0.7);
   }
 
@@ -2393,7 +2187,7 @@
     margin: 8px 0 0;
     white-space: pre-wrap;
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--text-sm);
     color: rgba(226, 232, 240, 0.66);
   }
 
@@ -2432,7 +2226,7 @@
   }
 
   .field-label {
-    font-size: 11px;
+    font-size: var(--text-base);
     color: rgba(226, 232, 240, 0.78);
   }
 
@@ -2441,39 +2235,24 @@
     margin-top: -3px;
   }
 
+  /* Raw text inputs that are not yet TextInput components. Kept in sync with
+     the TextInput surface so mixed forms still line up. */
   input[type='text'],
   input[type='number'],
-  input[type='password'],
-  select {
+  input[type='password'] {
     min-width: 0;
     width: 100%;
-    background: rgba(0, 0, 0, 0.26);
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    border-radius: 6px;
+    background: var(--bg-inset);
+    border: 1px solid var(--border-control);
+    border-radius: var(--radius-control);
     padding: 8px 9px;
-    color: #e2e8f0;
-    font-size: 12px;
+    color: var(--text-primary);
+    font-size: var(--text-md);
   }
 
   input[type='checkbox'] {
     width: 16px;
     height: 16px;
-  }
-
-  .save-btn {
-    padding: 6px 10px;
-    background: rgba(0, 228, 255, 0.08);
-    border: 1px solid rgba(0, 228, 255, 0.18);
-    border-radius: 6px;
-    color: #00e4ff;
-    font-size: 11px;
-    font-weight: 700;
-    cursor: pointer;
-  }
-
-  .save-btn:disabled {
-    opacity: 0.4;
-    cursor: wait;
   }
 
   .secret-row {
@@ -2485,7 +2264,7 @@
   .empty-msg {
     padding: 30px 10px;
     text-align: center;
-    font-size: 12px;
+    font-size: var(--text-md);
     color: rgba(122, 133, 153, 0.82);
   }
 

@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Anomaly } from '../../../types';
+  import { IconButton } from '../ui';
 
   interface Props {
     anomalies: Anomaly[];
@@ -34,11 +35,15 @@
         {Math.round(a.value)}%
         <span class="anomaly-avg">avg {Math.round(a.average)}%</span>
       </span>
-      <button
-        class="anomaly-dismiss"
+      <IconButton
+        variant="bare"
+        size={20}
+        glyphSize={15}
+        title="Dismiss"
         onclick={() => onDismiss(`${a.containerId}:${a.analyzerId ?? 'legacy'}:${a.metric}`)}
-        title="Dismiss">&times;</button
       >
+        &times;
+      </IconButton>
     </div>
   </div>
 {/each}
@@ -64,35 +69,20 @@
   }
 
   .anomaly-title {
-    font-size: 11px;
+    font-size: var(--text-base);
     font-weight: 600;
     color: #ffcc00;
   }
 
   .anomaly-values {
     margin-left: auto;
-    font-size: 11px;
+    font-size: var(--text-base);
     font-family: 'Fira Code', monospace;
     color: #e2e8f0;
   }
 
   .anomaly-avg {
     color: rgba(255, 255, 255, 0.35);
-    font-size: 10px;
-  }
-
-  .anomaly-dismiss {
-    background: none;
-    border: none;
-    color: rgba(255, 255, 255, 0.3);
-    font-size: 16px;
-    cursor: pointer;
-    padding: 0 2px;
-    line-height: 1;
-    margin-left: 4px;
-  }
-
-  .anomaly-dismiss:hover {
-    color: rgba(255, 255, 255, 0.7);
+    font-size: var(--text-sm);
   }
 </style>

@@ -83,7 +83,7 @@
     padding: 20px;
     text-align: center;
     color: var(--text-dim);
-    font-size: 12px;
+    font-size: var(--text-md);
     font-style: italic;
   }
 
@@ -93,13 +93,13 @@
     gap: 10px;
     padding: 8px 12px;
     border-bottom: 1px solid var(--border-subtle);
-    font-size: 11px;
+    font-size: var(--text-base);
   }
 
   .diff-count {
     font-family: var(--font-mono);
     font-weight: 600;
-    font-size: 11px;
+    font-size: var(--text-base);
   }
 
   .diff-count.added {
@@ -115,7 +115,7 @@
   .diff-total {
     color: var(--text-dim);
     margin-left: auto;
-    font-size: 10px;
+    font-size: var(--text-sm);
   }
 
   .diff-list {
@@ -129,7 +129,7 @@
     gap: 8px;
     padding: 3px 12px;
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: var(--text-sm);
     transition: background 0.1s;
   }
 

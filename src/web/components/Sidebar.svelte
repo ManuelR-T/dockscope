@@ -10,6 +10,7 @@
     getAnomaliesForContainer,
   } from '../stores/docker.svelte';
   import EntityActionDialog from './EntityActionDialog.svelte';
+  import { Tab, TabBar } from './ui';
   import SidebarHeader from './SidebarHeader.svelte';
   import SidebarInfo from './sidebar/SidebarInfo.svelte';
   import SidebarEnv from './sidebar/SidebarEnv.svelte';
@@ -322,46 +323,40 @@
       </div>
     {/if}
 
-    <div class="sidebar-tabs">
-      <button
-        class="tab {activeTab === 'info' ? 'active' : ''}"
-        onclick={() => (activeTab = 'info')}>Info</button
+    <TabBar variant="section" ariaLabel="Container detail views">
+      <Tab variant="section" active={activeTab === 'info'} onclick={() => (activeTab = 'info')}
+        >Info</Tab
       >
       {#if docker.replayMode}
         <span class="replay-note">Historical view — live tabs disabled</span>
       {:else}
         {#if supports('inspect')}
-          <button
-            class="tab {activeTab === 'env' ? 'active' : ''}"
-            onclick={() => (activeTab = 'env')}>Env</button
+          <Tab variant="section" active={activeTab === 'env'} onclick={() => (activeTab = 'env')}
+            >Env</Tab
           >
         {/if}
         {#if supports('logs') || supports('logStream')}
-          <button
-            class="tab {activeTab === 'logs' ? 'active' : ''}"
-            onclick={() => (activeTab = 'logs')}>Logs</button
+          <Tab variant="section" active={activeTab === 'logs'} onclick={() => (activeTab = 'logs')}
+            >Logs</Tab
           >
         {/if}
         {#if supports('top') && (node.status === 'running' || node.status === 'paused')}
-          <button
-            class="tab {activeTab === 'top' ? 'active' : ''}"
-            onclick={() => (activeTab = 'top')}>Top</button
+          <Tab variant="section" active={activeTab === 'top'} onclick={() => (activeTab = 'top')}
+            >Top</Tab
           >
         {/if}
         {#if supports('diff')}
-          <button
-            class="tab {activeTab === 'diff' ? 'active' : ''}"
-            onclick={() => (activeTab = 'diff')}>Diff</button
+          <Tab variant="section" active={activeTab === 'diff'} onclick={() => (activeTab = 'diff')}
+            >Diff</Tab
           >
         {/if}
         {#if supports('exec') && node.status === 'running'}
-          <button
-            class="tab {activeTab === 'exec' ? 'active' : ''}"
-            onclick={() => (activeTab = 'exec')}>Exec</button
+          <Tab variant="section" active={activeTab === 'exec'} onclick={() => (activeTab = 'exec')}
+            >Exec</Tab
           >
         {/if}
       {/if}
-    </div>
+    </TabBar>
 
     {#if docker.diagnostics.has(node.id)}
       <SidebarDiagnostic

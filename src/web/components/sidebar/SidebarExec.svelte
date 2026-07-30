@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import { Button } from '../ui';
   import type { Terminal } from '@xterm/xterm';
   import type { FitAddon } from '@xterm/addon-fit';
   import type { ServiceNode } from '../../../types';
@@ -202,11 +203,11 @@
       {connected ? 'Connected' : connecting ? 'Connecting' : 'Disconnected'}
     </span>
     {#if connected}
-      <button class="exec-btn" onclick={disconnect}>Disconnect</button>
+      <Button variant="ghost" size="sm" onclick={disconnect}>Disconnect</Button>
     {:else}
-      <button class="exec-btn" onclick={connect} disabled={connecting || terminalLoading}>
+      <Button variant="ghost" size="sm" onclick={connect} disabled={connecting || terminalLoading}>
         {terminalLoading ? 'Loading' : connecting ? 'Connecting' : 'Reconnect'}
-      </button>
+      </Button>
     {/if}
   </div>
   <div class="exec-terminal" bind:this={termEl}></div>
@@ -233,7 +234,7 @@
     display: flex;
     align-items: center;
     gap: 5px;
-    font-size: 10px;
+    font-size: var(--text-sm);
     font-weight: 600;
     letter-spacing: 0.5px;
     text-transform: uppercase;
@@ -263,34 +264,6 @@
   .exec-status.connecting .exec-dot {
     background: var(--accent-cyan);
     box-shadow: 0 0 6px rgba(0, 228, 255, 0.3);
-  }
-
-  .exec-btn {
-    font-family: var(--font-ui);
-    font-size: 10px;
-    font-weight: 500;
-    padding: 3px 10px;
-    border-radius: 4px;
-    border: 1px solid var(--border-subtle);
-    background: transparent;
-    color: var(--text-dim);
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-
-  .exec-btn:hover {
-    border-color: var(--border-glow);
-    color: var(--text-secondary);
-  }
-
-  .exec-btn:disabled {
-    cursor: wait;
-    opacity: 0.65;
-  }
-
-  .exec-btn:disabled:hover {
-    border-color: var(--border-subtle);
-    color: var(--text-dim);
   }
 
   .exec-terminal {

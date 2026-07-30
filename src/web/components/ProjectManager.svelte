@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { addToast } from '../stores/toast.svelte';
+  import { Button, CloseButton } from './ui';
 
   import type { ProjectSummary } from '../../core/operations';
 
@@ -78,7 +79,7 @@
   <div class="pm-panel" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
     <div class="pm-header">
       <span class="pm-title">Compose Projects</span>
-      <button class="pm-close" onclick={onClose}>&times;</button>
+      <CloseButton label="Close compose projects" onclick={onClose} />
     </div>
 
     {#if loading}
@@ -103,68 +104,75 @@
             <div class="pm-actions">
               {#if project.running === 0 && project.stopped === 0}
                 <!-- Cached project (after down) — can only Up or Destroy -->
-                <button
-                  class="pm-btn up"
+                <Button
+                  size="sm"
+                  tone="success"
                   disabled={!!pendingAction}
                   onclick={() => doAction(project, 'up')}
                   title="Up (start all)"
                 >
                   {isPending(project, 'up') ? '...' : 'Up'}
-                </button>
+                </Button>
               {:else if project.running === 0}
                 <!-- All stopped — can Up or Down -->
-                <button
-                  class="pm-btn up"
+                <Button
+                  size="sm"
+                  tone="success"
                   disabled={!!pendingAction}
                   onclick={() => doAction(project, 'up')}
                   title="Up (start all)"
                 >
                   {isPending(project, 'up') ? '...' : 'Up'}
-                </button>
-                <button
-                  class="pm-btn down"
+                </Button>
+                <Button
+                  size="sm"
+                  tone="danger"
                   disabled={!!pendingAction}
                   onclick={() => doAction(project, 'down')}
                   title="Down (remove containers)"
                 >
                   {isPending(project, 'down') ? '...' : 'Down'}
-                </button>
+                </Button>
               {:else}
                 <!-- Running — full control -->
-                <button
-                  class="pm-btn restart"
+                <Button
+                  size="sm"
+                  tone="accent"
                   disabled={!!pendingAction}
                   onclick={() => doAction(project, 'restart')}
                   title="Restart all"
                 >
                   {isPending(project, 'restart') ? '...' : 'Restart'}
-                </button>
-                <button
-                  class="pm-btn stop"
+                </Button>
+                <Button
+                  size="sm"
+                  tone="warn"
                   disabled={!!pendingAction}
                   onclick={() => doAction(project, 'stop')}
                   title="Stop all"
                 >
                   {isPending(project, 'stop') ? '...' : 'Stop'}
-                </button>
-                <button
-                  class="pm-btn down"
+                </Button>
+                <Button
+                  size="sm"
+                  tone="danger"
                   disabled={!!pendingAction}
                   onclick={() => doAction(project, 'down')}
                   title="Down (remove containers)"
                 >
                   {isPending(project, 'down') ? '...' : 'Down'}
-                </button>
+                </Button>
               {/if}
               <!-- Destroy always available — removes containers, volumes, orphans, and cache -->
-              <button
-                class="pm-btn destroy"
+              <Button
+                size="sm"
+                tone="danger"
                 disabled={!!pendingAction}
                 onclick={() => doAction(project, 'destroy')}
                 title="Destroy (remove containers + volumes)"
               >
                 {isPending(project, 'destroy') ? '...' : 'Destroy'}
-              </button>
+              </Button>
             </div>
           </div>
         {/each}
@@ -209,31 +217,11 @@
 
   .pm-title {
     font-family: 'Chakra Petch', sans-serif;
-    font-size: 13px;
+    font-size: var(--text-lg);
     font-weight: 600;
     letter-spacing: 1px;
     text-transform: uppercase;
     color: rgba(0, 228, 255, 0.8);
-  }
-
-  .pm-close {
-    background: none;
-    border: 1px solid rgba(255, 255, 255, 0.04);
-    color: #3e4a5c;
-    width: 24px;
-    height: 24px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 14px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.2s;
-  }
-
-  .pm-close:hover {
-    color: #e2e8f0;
-    border-color: rgba(0, 228, 255, 0.1);
   }
 
   .pm-loading,
@@ -241,7 +229,7 @@
     padding: 24px;
     text-align: center;
     color: #3e4a5c;
-    font-size: 12px;
+    font-size: var(--text-md);
     font-style: italic;
   }
 
@@ -272,7 +260,7 @@
 
   .pm-project-name {
     font-family: 'Fira Code', monospace;
-    font-size: 13px;
+    font-size: var(--text-lg);
     font-weight: 500;
     color: #e2e8f0;
     white-space: nowrap;
@@ -286,7 +274,7 @@
   }
 
   .pm-count {
-    font-size: 10px;
+    font-size: var(--text-sm);
     font-weight: 500;
     letter-spacing: 0.3px;
   }
@@ -302,70 +290,6 @@
     display: flex;
     gap: 5px;
     flex-shrink: 0;
-  }
-
-  .pm-btn {
-    font-family: 'Chakra Petch', sans-serif;
-    font-size: 10px;
-    font-weight: 600;
-    padding: 4px 10px;
-    border-radius: 6px;
-    border: 1px solid;
-    cursor: pointer;
-    transition: all 0.2s;
-    letter-spacing: 0.3px;
-  }
-
-  .pm-btn:disabled {
-    opacity: 0.3;
-    cursor: not-allowed;
-  }
-
-  .pm-btn.up {
-    color: #00ff6a;
-    border-color: rgba(0, 255, 106, 0.15);
-    background: rgba(0, 255, 106, 0.06);
-  }
-  .pm-btn.up:hover:not(:disabled) {
-    background: rgba(0, 255, 106, 0.14);
-  }
-
-  .pm-btn.restart {
-    color: #00e4ff;
-    border-color: rgba(0, 228, 255, 0.15);
-    background: rgba(0, 228, 255, 0.06);
-  }
-  .pm-btn.restart:hover:not(:disabled) {
-    background: rgba(0, 228, 255, 0.14);
-  }
-
-  .pm-btn.stop {
-    color: #ff8a2b;
-    border-color: rgba(255, 138, 43, 0.15);
-    background: rgba(255, 138, 43, 0.06);
-  }
-  .pm-btn.stop:hover:not(:disabled) {
-    background: rgba(255, 138, 43, 0.14);
-  }
-
-  .pm-btn.down {
-    color: #ff2b4e;
-    border-color: rgba(255, 43, 78, 0.15);
-    background: rgba(255, 43, 78, 0.06);
-  }
-  .pm-btn.down:hover:not(:disabled) {
-    background: rgba(255, 43, 78, 0.14);
-  }
-
-  .pm-btn.destroy {
-    color: #ff2b4e;
-    border-color: rgba(255, 43, 78, 0.25);
-    background: rgba(255, 43, 78, 0.1);
-    font-weight: 700;
-  }
-  .pm-btn.destroy:hover:not(:disabled) {
-    background: rgba(255, 43, 78, 0.2);
-    box-shadow: 0 0 8px rgba(255, 43, 78, 0.15);
   }
 
   @keyframes fadeIn {

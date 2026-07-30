@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import { addToast } from '../stores/docker.svelte';
+  import { Button, Chip, CloseButton, IconButton, Select, Tab, TabBar, TextInput } from './ui';
   import type { ServiceNode } from '../../types';
   import type {
     PluginConnection,
@@ -216,12 +217,8 @@
   <div class="panel" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
     <!-- Header with tabs -->
     <div class="header">
-      <div class="tabs">
-        <button
-          class="tab"
-          class:active={view === 'connections'}
-          onclick={() => (view = 'connections')}
-        >
+      <TabBar ariaLabel="Connection views">
+        <Tab active={view === 'connections'} onclick={() => (view = 'connections')}>
           <svg
             width="11"
             height="11"
@@ -245,9 +242,9 @@
             />
           </svg>
           Connections
-        </button>
+        </Tab>
         {#if canCompare}
-          <button class="tab" class:active={view === 'compare'} onclick={() => (view = 'compare')}>
+          <Tab active={view === 'compare'} onclick={() => (view = 'compare')}>
             <svg
               width="11"
               height="11"
@@ -259,10 +256,12 @@
               <path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5" />
             </svg>
             Compare
-          </button>
+          </Tab>
         {/if}
-      </div>
-      <button class="close-btn" onclick={onClose}>&times;</button>
+      </TabBar>
+      <span class="header-close">
+        <CloseButton label="Close connections" onclick={onClose} />
+      </span>
     </div>
 
     <!-- Connections view -->
@@ -293,11 +292,16 @@
                 {/if}
               </div>
               {#if connection.removable}
-                <button
-                  class="remove-btn"
+                <IconButton
+                  variant="bare"
+                  size={22}
+                  glyphSize={16}
+                  danger
+                  title="Remove"
                   onclick={() => removeConnection(connection)}
-                  title="Remove">&times;</button
                 >
+                  &times;
+                </IconButton>
               {/if}
             </div>
           {/each}
@@ -305,11 +309,15 @@
 
         <div class="add-form">
           {#if providers.length > 1}
-            <select class="input" bind:value={selectedProviderKey}>
-              {#each providers as provider}
-                <option value={providerKey(provider)}>{provider.label}</option>
-              {/each}
-            </select>
+            <Select
+              bind:value={selectedProviderKey}
+              size="lg"
+              ariaLabel="Connection provider"
+              options={providers.map((provider) => ({
+                value: providerKey(provider),
+                label: provider.label,
+              }))}
+            />
           {/if}
           {#each selectedProvider?.input.fields ?? [] as field (field.key)}
             {#if field.type === 'boolean'}
@@ -323,38 +331,38 @@
                 <span>{field.label}</span>
               </label>
             {:else if field.type === 'select'}
-              <select
-                class="input"
+              <Select
+                size="lg"
+                ariaLabel={field.label}
                 value={String(draft[field.key] ?? '')}
-                onchange={(event) =>
-                  setDraft(field.key, (event.currentTarget as HTMLSelectElement).value)}
-              >
-                {#each field.options ?? [] as option}
-                  <option value={option.value}>{option.label}</option>
-                {/each}
-              </select>
+                options={(field.options ?? []).map((option) => ({
+                  value: option.value,
+                  label: option.label,
+                }))}
+                onchange={(value) => setDraft(field.key, value)}
+              />
             {:else}
-              <input
-                class="input"
-                class:mono={field.key.toLowerCase().includes('url')}
+              <TextInput
+                size="lg"
+                mono={field.key.toLowerCase().includes('url')}
                 type={field.type === 'number' ? 'number' : 'text'}
                 placeholder={field.label}
+                ariaLabel={field.label}
                 value={String(draft[field.key] ?? '')}
-                oninput={(event) => {
-                  const value = (event.currentTarget as HTMLInputElement).value;
-                  setDraft(field.key, field.type === 'number' ? Number(value) : value);
-                }}
+                oninput={(value) =>
+                  setDraft(field.key, field.type === 'number' ? Number(value) : value)}
                 onkeydown={(event) => event.key === 'Enter' && addConnection()}
               />
             {/if}
           {/each}
-          <button
-            class="action-btn"
+          <Button
+            size="lg"
+            block
             onclick={addConnection}
             disabled={adding || !selectedProvider || requiredInputMissing()}
           >
             {adding ? 'Connecting...' : 'Add Connection'}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -363,25 +371,34 @@
       <div class="content">
         <div class="compare-controls">
           <div class="compare-row">
-            <select class="input" bind:value={hostA}>
-              {#each connectedSources as source}
-                <option value={source.id}>{source.label}</option>
-              {/each}
-            </select>
+            <Select
+              bind:value={hostA}
+              size="lg"
+              ariaLabel="First environment"
+              options={connectedSources.map((source) => ({
+                value: source.id,
+                label: source.label,
+              }))}
+            />
             <span class="compare-vs">vs</span>
-            <select class="input" bind:value={hostB}>
-              {#each connectedSources as source}
-                <option value={source.id}>{source.label}</option>
-              {/each}
-            </select>
+            <Select
+              bind:value={hostB}
+              size="lg"
+              ariaLabel="Second environment"
+              options={connectedSources.map((source) => ({
+                value: source.id,
+                label: source.label,
+              }))}
+            />
           </div>
-          <button
-            class="action-btn"
+          <Button
+            size="lg"
+            block
             onclick={runCompare}
             disabled={comparing || !hostA || !hostB || hostA === hostB}
           >
             {comparing ? 'Comparing...' : 'Compare Environments'}
-          </button>
+          </Button>
         </div>
 
         {#if compareError}
@@ -390,14 +407,18 @@
 
         {#if compareResult}
           <div class="compare-summary">
-            {#if matchedCount > 0}<span class="badge match">{matchedCount} identical</span>{/if}
-            {#if diffCount > 0}<span class="badge diff">{diffCount} different</span>{/if}
-            {#if compareResult.onlyInA.length > 0}<span class="badge missing"
-                >{compareResult.onlyInA.length} only in {hostA}</span
-              >{/if}
-            {#if compareResult.onlyInB.length > 0}<span class="badge missing"
-                >{compareResult.onlyInB.length} only in {hostB}</span
-              >{/if}
+            {#if matchedCount > 0}
+              <Chip tone="success" pill>{matchedCount} identical</Chip>
+            {/if}
+            {#if diffCount > 0}
+              <Chip tone="warn" pill>{diffCount} different</Chip>
+            {/if}
+            {#if compareResult.onlyInA.length > 0}
+              <Chip tone="danger" pill>{compareResult.onlyInA.length} only in {hostA}</Chip>
+            {/if}
+            {#if compareResult.onlyInB.length > 0}
+              <Chip tone="danger" pill>{compareResult.onlyInB.length} only in {hostB}</Chip>
+            {/if}
           </div>
 
           <div class="compare-results">
@@ -474,50 +495,16 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 12px;
     padding: 16px 20px 0;
   }
 
-  .tabs {
+  /* Centre the close button on the tab labels, not on the whole tab box, which
+     includes the active-tab underline along the header's bottom edge. */
+  .header-close {
     display: flex;
-    gap: 2px;
-  }
-
-  .tab {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    padding: 8px 14px;
-    background: none;
-    border: none;
-    border-bottom: 2px solid transparent;
-    color: rgba(122, 133, 153, 0.7);
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.3px;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-
-  .tab:hover {
-    color: rgba(200, 206, 222, 0.8);
-  }
-
-  .tab.active {
-    color: #00e4ff;
-    border-bottom-color: #00e4ff;
-  }
-
-  .close-btn {
-    background: none;
-    border: none;
-    color: rgba(255, 255, 255, 0.3);
-    font-size: 18px;
-    cursor: pointer;
-    padding: 4px 8px;
-  }
-
-  .close-btn:hover {
-    color: rgba(255, 255, 255, 0.7);
+    align-self: flex-start;
+    margin-top: 4px;
   }
 
   .content {
@@ -569,13 +556,13 @@
   }
 
   .host-name {
-    font-size: 12px;
+    font-size: var(--text-md);
     font-weight: 600;
     color: #e2e8f0;
   }
 
   .host-url {
-    font-size: 10px;
+    font-size: var(--text-sm);
     font-family: 'Fira Code', monospace;
     color: rgba(255, 255, 255, 0.3);
     overflow: hidden;
@@ -584,27 +571,12 @@
   }
 
   .host-meta {
-    font-size: 10px;
+    font-size: var(--text-sm);
     color: rgba(0, 228, 255, 0.45);
   }
 
   .off-text {
     color: rgba(255, 43, 78, 0.55);
-  }
-
-  .remove-btn {
-    background: none;
-    border: none;
-    color: rgba(255, 255, 255, 0.15);
-    font-size: 16px;
-    cursor: pointer;
-    padding: 2px 6px;
-    border-radius: 4px;
-  }
-
-  .remove-btn:hover {
-    color: #ff2b4e;
-    background: rgba(255, 43, 78, 0.1);
   }
 
   .add-form {
@@ -620,7 +592,7 @@
     align-items: center;
     gap: 8px;
     color: rgba(255, 255, 255, 0.55);
-    font-size: 11px;
+    font-size: var(--text-base);
   }
 
   .connection-check input {
@@ -629,65 +601,16 @@
     accent-color: #00e4ff;
   }
 
-  /* --- Shared inputs --- */
-  .input {
-    background: rgba(0, 0, 0, 0.3);
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    border-radius: 6px;
-    padding: 8px 10px;
-    font-size: 12px;
-    color: #e2e8f0;
-    font-family: inherit;
-    outline: none;
-    transition: border-color 0.15s;
-  }
-
-  .input:focus {
-    border-color: rgba(0, 228, 255, 0.3);
-  }
-
-  .input.mono {
-    font-family: 'Fira Code', monospace;
-    font-size: 11px;
-  }
-
-  select.input {
-    flex: 1;
-    cursor: pointer;
-  }
-
-  .action-btn {
-    padding: 9px 12px;
-    background: rgba(0, 228, 255, 0.08);
-    border: 1px solid rgba(0, 228, 255, 0.18);
-    border-radius: 6px;
-    color: #00e4ff;
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-
-  .action-btn:hover:not(:disabled) {
-    background: rgba(0, 228, 255, 0.15);
-    border-color: rgba(0, 228, 255, 0.3);
-  }
-
-  .action-btn:disabled {
-    opacity: 0.35;
-    cursor: not-allowed;
-  }
-
   .empty-msg {
     text-align: center;
-    font-size: 11px;
+    font-size: var(--text-base);
     color: rgba(255, 255, 255, 0.25);
     padding: 20px 10px;
     line-height: 1.6;
   }
 
   .error-msg {
-    font-size: 11px;
+    font-size: var(--text-base);
     color: #ff2b4e;
     padding: 8px 0;
   }
@@ -700,14 +623,17 @@
     margin-bottom: 14px;
   }
 
+  /* Grid so each Select sizes itself; the parent never reaches into the
+     primitive's scope to set flex on its control. */
   .compare-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
     align-items: center;
     gap: 8px;
   }
 
   .compare-vs {
-    font-size: 10px;
+    font-size: var(--text-sm);
     color: rgba(255, 255, 255, 0.2);
     font-weight: 700;
     letter-spacing: 1px;
@@ -719,28 +645,6 @@
     flex-wrap: wrap;
     gap: 6px;
     margin-bottom: 12px;
-  }
-
-  .badge {
-    font-size: 10px;
-    padding: 3px 9px;
-    border-radius: 10px;
-    font-weight: 600;
-  }
-
-  .badge.match {
-    background: rgba(0, 255, 106, 0.1);
-    color: #00ff6a;
-  }
-
-  .badge.diff {
-    background: rgba(255, 138, 43, 0.1);
-    color: #ff8a2b;
-  }
-
-  .badge.missing {
-    background: rgba(255, 43, 78, 0.1);
-    color: #ff2b4e;
   }
 
   .compare-results {
@@ -771,14 +675,14 @@
   }
 
   .result-name {
-    font-size: 12px;
+    font-size: var(--text-md);
     font-weight: 600;
     color: #e2e8f0;
   }
 
   .result-detail {
     display: block;
-    font-size: 10px;
+    font-size: var(--text-sm);
     color: rgba(255, 255, 255, 0.3);
     font-family: 'Fira Code', monospace;
     margin-top: 2px;
@@ -789,7 +693,7 @@
     grid-template-columns: 65px 1fr auto 1fr;
     gap: 6px;
     align-items: baseline;
-    font-size: 10px;
+    font-size: var(--text-sm);
     padding: 3px 0;
   }
 
@@ -814,7 +718,7 @@
 
   .diff-arrow {
     color: rgba(255, 255, 255, 0.15);
-    font-size: 9px;
+    font-size: var(--text-xs);
   }
 
   @keyframes fadeIn {

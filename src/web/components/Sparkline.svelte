@@ -94,7 +94,7 @@
   }
 
   .sparkline-label {
-    font-size: 9px;
+    font-size: var(--text-xs);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 2px;

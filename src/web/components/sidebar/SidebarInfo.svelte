@@ -1,5 +1,6 @@
 <script lang="ts">
   import { formatDate, formatBytes } from '../../lib/formatting';
+  import { TextButton } from '../ui';
   import { copyToClipboard } from '../../lib/clipboard';
   import { buildNetworkColorMap } from '../../lib/networkColors';
   import { getDockerState } from '../../stores/docker.svelte';
@@ -47,9 +48,7 @@
 <div class="sidebar-content">
   <div class="info-section">
     <span class="field-label">{node.runtime === 'kubernetes' ? 'Resource' : 'Image'}</span>
-    <button class="copyable mono" onclick={() => copyToClipboard(node.image, 'image')}
-      >{node.image}</button
-    >
+    <TextButton mono onclick={() => copyToClipboard(node.image, 'image')}>{node.image}</TextButton>
   </div>
 
   {#if node.runtime === 'kubernetes'}
@@ -73,8 +72,8 @@
   <div class="info-section">
     <span class="field-label">{node.runtime === 'kubernetes' ? 'Resource ID' : 'Container ID'}</span
     >
-    <button class="copyable mono" onclick={() => copyToClipboard(node.containerId, 'resource ID')}
-      >{node.id}</button
+    <TextButton mono onclick={() => copyToClipboard(node.containerId, 'resource ID')}
+      >{node.id}</TextButton
     >
   </div>
 
@@ -140,7 +139,7 @@
       </div>
       <span
         class="mono"
-        style="font-size: 10px; color: var(--text-dim); margin-top: 4px; display: block;"
+        style="font-size: var(--text-sm); color: var(--text-dim); margin-top: 4px; display: block;"
       >
         {memoryUsageLabel}
       </span>

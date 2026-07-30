@@ -1,5 +1,6 @@
 <script lang="ts">
   import { getDockerState } from '../../stores/docker.svelte';
+  import { IconButton } from '../ui';
   import { ansiToHtml, highlightLogSearch } from '../../lib/ansi';
   import { downloadText } from '../../lib/download';
 
@@ -46,7 +47,13 @@
   {#if logSearch}
     <span class="log-match-count">{searched.count} match{searched.count !== 1 ? 'es' : ''}</span>
   {/if}
-  <button class="log-export-btn" title="Export logs" onclick={exportLogs} disabled={!activeLogs}>
+  <IconButton
+    variant="outline"
+    size={24}
+    title="Export logs"
+    onclick={exportLogs}
+    disabled={!activeLogs}
+  >
     <svg
       width="12"
       height="12"
@@ -61,7 +68,7 @@
         points="7 10 12 15 17 10"
       /><line x1="12" y1="15" x2="12" y2="3" />
     </svg>
-  </button>
+  </IconButton>
 </div>
 <div class="sidebar-logs">
   <pre>{@html searched.html ||

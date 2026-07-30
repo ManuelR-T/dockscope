@@ -3,6 +3,7 @@
   import type { ServiceNode } from '../../types';
   import { ICONS, type IconName } from '../lib/icons';
   import Icon from './Icon.svelte';
+  import { CloseButton, IconButton, MenuItem } from './ui';
 
   interface Props {
     node: ServiceNode;
@@ -51,23 +52,29 @@
   <div class="header-right">
     {#if !hideActions}
       {#each primaryActions as action (action.pluginId + action.id)}
-        <button
-          class="act-icon"
-          class:success={action.tone === 'success'}
-          class:warning={action.tone === 'warning'}
-          class:danger={action.tone === 'danger'}
-          class:spinning={actionPending && action.icon === 'restart'}
+        <IconButton
+          variant="filled"
+          size={30}
+          tone={action.tone === 'success'
+            ? 'success'
+            : action.tone === 'warning'
+              ? 'warn'
+              : action.tone === 'danger'
+                ? 'danger'
+                : 'accent'}
+          spinning={actionPending && action.icon === 'restart'}
           title={action.description ?? action.title}
           onclick={() => run(action)}
           disabled={actionPending}
         >
           <Icon name={iconName(action)} size={11} />
-        </button>
+        </IconButton>
       {/each}
 
       {#if menuActions.length > 0}
-        <button
-          class="act-icon"
+        <IconButton
+          variant="filled"
+          size={30}
           title="More actions"
           onclick={(event) => {
             moreBtn = event.currentTarget as HTMLElement;
@@ -76,12 +83,12 @@
           disabled={actionPending}
         >
           <Icon name="dots" />
-        </button>
+        </IconButton>
       {/if}
     {/if}
 
     <span class="header-sep"></span>
-    <button class="close-btn" onclick={onClose}>&times;</button>
+    <CloseButton label="Close details" onclick={onClose} />
   </div>
 </div>
 
@@ -94,9 +101,9 @@
       moreBtn.getBoundingClientRect().right}px;"
   >
     {#each menuActions as action (action.pluginId + action.id)}
-      <button class="more-item" class:danger={action.tone === 'danger'} onclick={() => run(action)}>
+      <MenuItem tone={action.tone === 'danger' ? 'danger' : 'default'} onclick={() => run(action)}>
         {action.title}
-      </button>
+      </MenuItem>
     {/each}
   </div>
 {/if}

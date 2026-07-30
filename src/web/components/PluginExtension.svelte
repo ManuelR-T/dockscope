@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { PluginUiContext, PluginUiExtension } from '../../core/plugin-ui';
+  import { Button } from './ui';
   import { pluginUiContextMatches } from '../../core/plugin-ui';
   import Icon from './Icon.svelte';
   import PluginFrame from './PluginFrame.svelte';
@@ -40,27 +41,27 @@
           <span>{extension.pluginId}</span>
         </div>
         {#if extension.action}
-          <button
-            class="extension-action"
+          <Button
+            size="sm"
             disabled={pending}
             title={extension.description ?? extension.title}
             onclick={() => invoke()}
           >
             <Icon name={extension.action.type === 'open_url' ? 'external' : 'play'} size={11} />
             <span>{pending ? 'Running' : extension.title}</span>
-          </button>
+          </Button>
         {/if}
       </header>
     {:else if extension.action}
-      <button
-        class="compact-action"
+      <Button
+        size="sm"
         disabled={pending}
         title={extension.description ?? extension.title}
         onclick={() => invoke()}
       >
         <Icon name={extension.action.type === 'open_url' ? 'external' : 'play'} size={11} />
         <span>{pending ? 'Running' : extension.title}</span>
-      </button>
+      </Button>
     {/if}
 
     {#if extension.description && !compact}
@@ -139,14 +140,14 @@
 
   header strong {
     font-family: var(--font-ui);
-    font-size: 11px;
+    font-size: var(--text-base);
     font-weight: 600;
   }
 
   header span,
   .description {
     color: var(--text-dim);
-    font-size: 9px;
+    font-size: var(--text-xs);
   }
 
   .description {
@@ -154,35 +155,9 @@
     line-height: 1.45;
   }
 
-  button {
-    font-family: var(--font-ui);
-    cursor: pointer;
-  }
-
-  .extension-action,
-  .compact-action {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 5px;
-    min-height: 26px;
-    padding: 4px 8px;
-    border: 1px solid rgba(0, 228, 255, 0.14);
-    border-radius: 5px;
-    background: rgba(0, 228, 255, 0.05);
-    color: var(--accent-cyan);
-    font-size: 9px;
-  }
-
-  .extension-action:disabled,
-  .compact-action:disabled {
-    cursor: wait;
-    opacity: 0.55;
-  }
-
   .text-content {
     color: var(--text-secondary);
-    font-size: 10px;
+    font-size: var(--text-sm);
     line-height: 1.55;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
@@ -228,14 +203,14 @@
   .metric span,
   dt {
     color: var(--text-dim);
-    font-size: 8px;
+    font-size: var(--text-2xs);
     text-transform: uppercase;
   }
 
   .metric strong {
     overflow-wrap: anywhere;
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-base);
   }
 
   dl {
@@ -257,6 +232,6 @@
     overflow-wrap: anywhere;
     color: var(--text-secondary);
     font-family: var(--font-mono);
-    font-size: 9px;
+    font-size: var(--text-xs);
   }
 </style>

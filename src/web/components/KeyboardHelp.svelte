@@ -77,7 +77,7 @@
 
   .kbd-title {
     font-family: 'Chakra Petch', sans-serif;
-    font-size: 13px;
+    font-size: var(--text-lg);
     font-weight: 600;
     letter-spacing: 1px;
     text-transform: uppercase;
@@ -93,13 +93,13 @@
     justify-content: space-between;
     gap: 20px;
     padding: 6px 0;
-    font-size: 13px;
+    font-size: var(--text-lg);
     color: rgba(122, 133, 153, 1);
   }
 
   kbd {
     font-family: 'Fira Code', monospace;
-    font-size: 11px;
+    font-size: var(--text-base);
     padding: 3px 8px;
     background: rgba(0, 0, 0, 0.3);
     border: 1px solid rgba(255, 255, 255, 0.08);
@@ -117,7 +117,7 @@
     margin-top: 18px;
     padding: 8px 0 2px;
     border-top: 1px solid rgba(255, 255, 255, 0.04);
-    font-size: 12px;
+    font-size: var(--text-md);
     color: rgba(255, 255, 255, 0.35);
     text-decoration: none;
     transition: color 0.2s;
