@@ -9,6 +9,7 @@ import { PluginConnectionError } from '../core/plugin-connections.js';
 import { PluginCompatibilityError } from '../core/plugin-compatibility.js';
 import { PluginCatalogError } from '../plugins/catalog.js';
 import { loadAggregatedPluginCatalogs } from '../plugins/catalogAggregate.js';
+import { previewPluginCatalog } from '../plugins/catalogPreview.js';
 import type { PluginMarketplaceService } from '../plugins/marketplace.js';
 import type { EntityRef } from '../core/operations.js';
 import type { GraphData, ServerOptions, ServiceNode } from '../types.js';
@@ -590,6 +591,48 @@ export function setupRoutes(
     '/api/plugins/marketplace/:pluginId',
     asyncRoute(async (req, res) => {
       res.json(await marketplace.uninstall(req.params.pluginId as string));
+    }),
+  );
+
+  app.get(
+    '/api/plugins/catalogs',
+    asyncRoute(async (_req, res) => {
+      res.json(await marketplace.listCatalogs());
+    }),
+  );
+
+  // Inspects a catalog without trusting it, so the user can compare the key
+  // fingerprint against what the publisher advertises before adding it.
+  app.post(
+    '/api/plugins/catalogs/preview',
+    asyncRoute(async (req, res) => {
+      const source = (req.body as { source?: unknown } | undefined)?.source;
+      if (typeof source !== 'string' || !source.trim()) {
+        throw new RouteError(400, 'A catalog "source" string is required');
+      }
+      res.json(await previewPluginCatalog(source));
+    }),
+  );
+
+  app.post(
+    '/api/plugins/catalogs',
+    asyncRoute(async (req, res) => {
+      const source = (req.body as { source?: unknown } | undefined)?.source;
+      if (typeof source !== 'string' || !source.trim()) {
+        throw new RouteError(400, 'A catalog "source" string is required');
+      }
+      res.json(await marketplace.addCatalog(source));
+    }),
+  );
+
+  app.delete(
+    '/api/plugins/catalogs',
+    asyncRoute(async (req, res) => {
+      const source = (req.query.source as string | undefined) ?? '';
+      if (!source.trim()) {
+        throw new RouteError(400, 'A catalog "source" query parameter is required');
+      }
+      res.json(await marketplace.removeCatalog(source));
     }),
   );
 

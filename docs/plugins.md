@@ -622,6 +622,19 @@ Catalogs are loaded independently and in order. Rules that follow from that:
 
 Use `--no-official-plugin-catalog` or `DOCKSCOPE_DISABLE_OFFICIAL_PLUGIN_CATALOG=1` for an instance that trusts only the catalogs you configure.
 
+### Adding a catalog from the UI
+
+Catalogs can also be added from the **Plugins panel** without restarting, under the Catalogs section of the Marketplace tab. Paste the catalog URL and press Fetch, and DockScope inspects it before anything is stored:
+
+1. The catalog is read unverified, purely to learn its name and signing key id.
+2. The signing key is discovered from the publisher. A catalog's signature carries only a key id, never the key, so `catalog.public.pem` and `catalog-trust.json` are probed next to `catalog.json`, which is where the release tooling publishes them.
+3. That key must actually verify the catalog's signature. If it does not, or if the catalog is unsigned, or if no key is published, the catalog is refused and the reason is shown.
+4. The key's SHA-256 fingerprint is displayed. **Compare it against the fingerprint the publisher advertises** before accepting, since that comparison is what protects you from a substituted key at add time.
+
+Accepting pins the catalog to that exact key, stored in `~/.dockscope/catalogs.json` (override with `DOCKSCOPE_PLUGIN_CATALOGS`). Pinning matters: if the catalog is later signed by a different key, it fails with a signature mismatch instead of loading silently, so a rotated or stolen key is visible rather than invisible. A pinned catalog is verified against its own key alone, never against `DOCKSCOPE_PLUGIN_CATALOG_PUBLIC_KEY`.
+
+Catalogs added this way behave exactly like configured ones: same ordering, same per-catalog error isolation, same provenance badges. Only user-added catalogs show a Remove button; the official catalog and anything set by flag or environment variable cannot be removed from the UI.
+
 A single trust store can hold the signing keys of several catalogs, since keys are matched by `keyId`, so configuring multiple catalogs does not require multiple trust files.
 
 A catalog document looks like this:

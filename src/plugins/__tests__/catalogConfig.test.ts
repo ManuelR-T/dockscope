@@ -118,3 +118,50 @@ describe('official plugin catalog configuration', () => {
     });
   });
 });
+
+describe('user-added catalogs', () => {
+  const stored = [
+    {
+      source: 'https://acme.test/catalog.json',
+      publicKey: 'pinned-acme-key',
+      keyId: 'acme-catalog-v1',
+      addedAt: 1,
+    },
+  ];
+
+  it('appends stored catalogs after the official and configured ones', () => {
+    const configured = 'https://configured.test/catalog.json';
+
+    expect(resolvePluginCatalogSources({ source: configured, storedCatalogs: stored })).toEqual([
+      OFFICIAL_PLUGIN_CATALOG_URL,
+      configured,
+      stored[0].source,
+    ]);
+  });
+
+  it('does not duplicate a stored catalog that is also configured', () => {
+    expect(
+      resolvePluginCatalogSources({ source: stored[0].source, storedCatalogs: stored }),
+    ).toEqual([OFFICIAL_PLUGIN_CATALOG_URL, stored[0].source]);
+  });
+
+  it('verifies a stored catalog against its pinned key only', () => {
+    // The globally configured key must not be able to validate a pinned
+    // catalog, otherwise pinning would provide no guarantee at all.
+    expect(
+      resolvePluginCatalogLoadOptions(stored[0].source, {
+        publicKey: 'unrelated-global-key',
+        storedCatalogs: stored,
+      }),
+    ).toEqual({ publicKey: 'pinned-acme-key' });
+  });
+
+  it('leaves the official catalog pinned to its own key', () => {
+    const options = resolvePluginCatalogLoadOptions(OFFICIAL_PLUGIN_CATALOG_URL, {
+      storedCatalogs: stored,
+    });
+
+    expect(options.trustStore).toEqual(OFFICIAL_PLUGIN_CATALOG_TRUST_STORE);
+    expect(options.publicKey).toBeUndefined();
+  });
+});

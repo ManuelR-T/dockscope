@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { apiErrorMessage, deleteJson, getJson, requestJson } from '../lib/api';
+  import { apiErrorMessage, deleteJson, getJson, postJson, requestJson } from '../lib/api';
   import { addToast } from '../stores/toast.svelte';
   import type {
     PluginConfigSnapshot,
@@ -65,6 +65,24 @@
     catalogs: [],
     entries: [],
   });
+  // Add-catalog flow: the user enters a source, previews it, then trusts the
+  // key fingerprint the publisher advertises (trust on first use).
+  interface CatalogPreview {
+    source: string;
+    name?: string;
+    entryCount: number;
+    keyId?: string;
+    fingerprint?: string;
+    signed: boolean;
+    signatureVerified: boolean;
+    keySource?: string;
+    problem?: string;
+  }
+  let showAddCatalog = $state(false);
+  let catalogSourceDraft = $state('');
+  let catalogPreview = $state<CatalogPreview | null>(null);
+  let catalogBusy = $state(false);
+
   let compatibility = $state<PluginCompatibilityReport[]>([]);
   let configs = $state<PluginConfigSnapshot[]>([]);
   let secrets = $state<PluginSecretSnapshot[]>([]);
@@ -701,6 +719,69 @@
     return (marketplace.catalogs ?? []).filter((catalog) => catalog.error);
   }
 
+  function pluralize(count: number, singular: string, plural: string): string {
+    return `${count} ${count === 1 ? singular : plural}`;
+  }
+
+  function alreadyConfigured(source: string): boolean {
+    return (marketplace.catalogs ?? []).some((catalog) => catalog.source === source.trim());
+  }
+
+  function resetAddCatalog() {
+    showAddCatalog = false;
+    catalogSourceDraft = '';
+    catalogPreview = null;
+  }
+
+  async function previewCatalog() {
+    if (!catalogSourceDraft.trim()) {
+      return;
+    }
+    catalogBusy = true;
+    catalogPreview = null;
+    try {
+      catalogPreview = await postJson<CatalogPreview>('/api/plugins/catalogs/preview', {
+        source: catalogSourceDraft,
+      });
+    } catch (error) {
+      addToast(apiErrorMessage(error), 'error');
+    } finally {
+      catalogBusy = false;
+    }
+  }
+
+  async function trustCatalog() {
+    if (!catalogPreview?.signatureVerified) {
+      return;
+    }
+    catalogBusy = true;
+    try {
+      marketplace = await postJson<PluginMarketplaceSnapshot>('/api/plugins/catalogs', {
+        source: catalogPreview.source,
+      });
+      addToast(`Added catalog ${catalogPreview.name ?? catalogPreview.source}`, 'success');
+      resetAddCatalog();
+    } catch (error) {
+      addToast(apiErrorMessage(error), 'error');
+    } finally {
+      catalogBusy = false;
+    }
+  }
+
+  async function removeCatalog(source: string, name?: string) {
+    catalogBusy = true;
+    try {
+      marketplace = await deleteJson<PluginMarketplaceSnapshot>(
+        `/api/plugins/catalogs?source=${encodeURIComponent(source)}`,
+      );
+      addToast(`Removed catalog ${name ?? source}`, 'success');
+    } catch (error) {
+      addToast(apiErrorMessage(error), 'error');
+    } finally {
+      catalogBusy = false;
+    }
+  }
+
   function catalogSummaryText(): string {
     const loaded = (marketplace.catalogs ?? []).filter((catalog) => !catalog.error);
     if (loaded.length > 1) {
@@ -1142,6 +1223,119 @@
               <option value="local">Local</option>
               <option value="deprecated">Deprecated</option>
             </select>
+          </div>
+
+          <div class="catalog-manager">
+            <div class="catalog-manager-head">
+              <span>Catalogs</span>
+              <button
+                class="catalog-add-toggle"
+                disabled={catalogBusy}
+                onclick={() => (showAddCatalog ? resetAddCatalog() : (showAddCatalog = true))}
+              >
+                {showAddCatalog ? 'Cancel' : '+ Add catalog'}
+              </button>
+            </div>
+
+            {#each marketplace.catalogs ?? [] as catalog (catalog.source)}
+              <div class="catalog-row">
+                <span class="catalog-row-name">
+                  {catalog.name ?? catalog.source}
+                  {#if catalog.official}
+                    <span class="catalog-tag catalog-tag-official">official</span>
+                  {/if}
+                  {#if catalog.error}
+                    <span class="catalog-tag catalog-tag-bad">unavailable</span>
+                  {:else if catalog.signatureVerified}
+                    <span class="catalog-tag">signed</span>
+                  {:else}
+                    <span class="catalog-tag catalog-tag-bad">unsigned</span>
+                  {/if}
+                </span>
+                <span class="catalog-row-meta" class:is-error={Boolean(catalog.error)}>
+                  {catalog.error ?? pluralize(catalog.entryCount, 'entry', 'entries')}
+                </span>
+                {#if catalog.userAdded}
+                  <button
+                    class="catalog-remove"
+                    title={catalog.fingerprint
+                      ? `Pinned key ${catalog.fingerprint}`
+                      : 'Remove catalog'}
+                    disabled={catalogBusy}
+                    onclick={() => void removeCatalog(catalog.source, catalog.name)}
+                  >
+                    Remove
+                  </button>
+                {/if}
+              </div>
+            {/each}
+
+            {#if showAddCatalog}
+              <div class="catalog-add">
+                <div class="catalog-add-row">
+                  <input
+                    type="text"
+                    placeholder="https://example.com/catalog.json"
+                    value={catalogSourceDraft}
+                    oninput={(event) => (catalogSourceDraft = inputValue(event))}
+                    onkeydown={(event) => event.key === 'Enter' && void previewCatalog()}
+                  />
+                  <button
+                    class="catalog-fetch"
+                    disabled={catalogBusy || !catalogSourceDraft.trim()}
+                    onclick={() => void previewCatalog()}
+                  >
+                    {catalogBusy ? 'Checking...' : 'Fetch'}
+                  </button>
+                </div>
+
+                {#if catalogPreview}
+                  {#if alreadyConfigured(catalogPreview.source)}
+                    <div class="catalog-preview catalog-preview-bad">
+                      <div class="catalog-preview-title">Already configured</div>
+                      <div class="catalog-preview-fact">
+                        This catalog is already active, so there is nothing to add.
+                      </div>
+                    </div>
+                  {:else if catalogPreview.signatureVerified}
+                    <div class="catalog-preview">
+                      <div class="catalog-preview-title">
+                        {catalogPreview.name ?? catalogPreview.source} · {pluralize(
+                          catalogPreview.entryCount,
+                          'entry',
+                          'entries',
+                        )}
+                      </div>
+                      <div class="catalog-preview-fact">
+                        <span>Signed by</span>
+                        <code>{catalogPreview.keyId ?? 'unknown key'}</code>
+                      </div>
+                      <div class="catalog-preview-fact">
+                        <span>SHA-256</span>
+                        <code>{catalogPreview.fingerprint}</code>
+                      </div>
+                      <div class="catalog-preview-warn">
+                        Verify this fingerprint with the publisher before trusting it. The key is
+                        pinned, so a later change will make this catalog fail instead of loading
+                        silently.
+                      </div>
+                      <button
+                        class="catalog-trust"
+                        disabled={catalogBusy}
+                        onclick={() => void trustCatalog()}
+                      >
+                        Trust and add
+                      </button>
+                    </div>
+                  {:else}
+                    <div class="catalog-preview catalog-preview-bad">
+                      <div class="catalog-preview-title">Cannot add this catalog</div>
+                      <div class="catalog-preview-fact">{catalogPreview.problem}</div>
+                    </div>
+                  {/if}
+                {/if}
+              </div>
+            {/if}
           </div>
           <div class="list">
             {#each marketplaceEntries as entry}
@@ -1770,10 +1964,225 @@
   }
 
   .entry-catalog {
-    padding: 0 5px;
-    border: 1px solid var(--border);
-    border-radius: 3px;
-    opacity: 0.85;
+    padding: 3px 6px;
+    border-radius: 5px;
+    background: rgba(0, 228, 255, 0.07);
+    color: rgba(226, 232, 240, 0.72);
+  }
+
+  .catalog-manager {
+    margin: 0 0 12px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.012);
+  }
+
+  .catalog-manager-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  }
+
+  .catalog-manager-head span {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: rgba(226, 232, 240, 0.5);
+  }
+
+  .catalog-add-toggle {
+    padding: 3px 8px;
+    background: rgba(0, 228, 255, 0.08);
+    border: 1px solid rgba(0, 228, 255, 0.18);
+    border-radius: 5px;
+    color: #00e4ff;
+    font: inherit;
+    font-size: 10px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .catalog-add-toggle:hover:not(:disabled) {
+    background: rgba(0, 228, 255, 0.14);
+  }
+
+  /* Entry counts share a fixed column so they line up across rows. */
+  .catalog-row {
+    display: grid;
+    grid-template-columns: 1fr auto 62px;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px;
+    font-size: 11.5px;
+    color: #e2e8f0;
+  }
+
+  .catalog-row + .catalog-row {
+    border-top: 1px solid rgba(255, 255, 255, 0.03);
+  }
+
+  .catalog-row-name {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .catalog-row-meta {
+    font-size: 10px;
+    color: rgba(122, 133, 153, 0.82);
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+
+  .catalog-row-meta.is-error {
+    color: #ff6b84;
+  }
+
+  .catalog-tag {
+    flex: 0 0 auto;
+    padding: 2px 5px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.04);
+    color: rgba(226, 232, 240, 0.6);
+    font-size: 9.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .catalog-tag-official {
+    background: rgba(0, 228, 255, 0.1);
+    color: #7fe9ff;
+  }
+
+  .catalog-tag-bad {
+    background: rgba(255, 176, 32, 0.12);
+    color: var(--accent-amber);
+  }
+
+  .catalog-remove {
+    justify-self: end;
+    padding: 3px 8px;
+    background: none;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 5px;
+    color: rgba(226, 232, 240, 0.55);
+    font: inherit;
+    font-size: 10px;
+    cursor: pointer;
+  }
+
+  .catalog-remove:hover:not(:disabled) {
+    border-color: rgba(255, 95, 122, 0.32);
+    color: #ff8fa3;
+  }
+
+  .catalog-add-toggle:disabled,
+  .catalog-remove:disabled,
+  .catalog-trust:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+
+  .catalog-add {
+    padding: 10px;
+    border-top: 1px solid rgba(255, 255, 255, 0.04);
+  }
+
+  .catalog-add-row {
+    display: flex;
+    gap: 6px;
+  }
+
+  .catalog-add-row input {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .catalog-fetch {
+    flex: 0 0 auto;
+    padding: 6px 12px;
+    background: rgba(0, 228, 255, 0.08);
+    border: 1px solid rgba(0, 228, 255, 0.18);
+    border-radius: 6px;
+    color: #00e4ff;
+    font: inherit;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .catalog-fetch:hover:not(:disabled) {
+    background: rgba(0, 228, 255, 0.14);
+  }
+
+  .catalog-fetch:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+
+  .catalog-preview {
+    margin-top: 10px;
+    padding: 10px;
+    border: 1px solid rgba(0, 228, 255, 0.14);
+    border-radius: 6px;
+    background: rgba(0, 228, 255, 0.03);
+    font-size: 11.5px;
+  }
+
+  .catalog-preview-bad {
+    border-color: rgba(255, 176, 32, 0.28);
+    background: rgba(255, 176, 32, 0.04);
+  }
+
+  .catalog-preview-title {
+    color: #e2e8f0;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+
+  .catalog-preview-fact {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 3px;
+    font-size: 10.5px;
+    color: rgba(226, 232, 240, 0.62);
+  }
+
+  .catalog-preview-fact code {
+    color: rgba(226, 232, 240, 0.85);
+    font-family: var(--font-mono);
+    overflow-wrap: anywhere;
+  }
+
+  .catalog-preview-warn {
+    margin: 8px 0;
+    padding: 7px 8px;
+    border-radius: 5px;
+    background: rgba(255, 176, 32, 0.07);
+    color: var(--accent-amber);
+    font-size: 10.5px;
+    line-height: 1.45;
+  }
+
+  .catalog-trust {
+    padding: 6px 10px;
+    background: rgba(0, 228, 255, 0.14);
+    border: 1px solid rgba(0, 228, 255, 0.32);
+    border-radius: 6px;
+    color: #e2fbff;
+    font: inherit;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .catalog-trust:hover:not(:disabled) {
+    background: rgba(0, 228, 255, 0.2);
   }
 
   .marketplace-controls {

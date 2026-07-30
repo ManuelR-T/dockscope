@@ -16,11 +16,18 @@ import {
 import { PKG_VERSION } from '../version.js';
 import type { PluginCatalogEntrySignature, ResolvedPluginCatalogEntry } from './catalog.js';
 import { installPluginFromCatalog } from './catalog.js';
+import { previewPluginCatalog } from './catalogPreview.js';
 import {
   pluginCatalogConfigFromEnv,
   resolvePluginCatalogLoadOptions,
   resolvePluginCatalogSources,
+  type PluginCatalogConfiguration,
 } from './catalogConfig.js';
+import {
+  createPluginCatalogStoreFromEnv,
+  type PluginCatalogStore,
+  type StoredPluginCatalog,
+} from './catalogStore.js';
 import {
   findAggregatedEntry,
   loadAggregatedPluginCatalogs,
@@ -200,21 +207,31 @@ export class PluginMarketplaceService {
     private readonly configStore: PluginConfigStore = createPluginConfigStoreFromEnv(env),
     private readonly stateStore: PluginStateStore = createPluginStateStoreFromEnv(env),
     private readonly secretStore: PluginSecretStore = createPluginSecretStoreFromEnv(env),
+    private readonly catalogStore: PluginCatalogStore = createPluginCatalogStoreFromEnv(env),
   ) {}
+
+  /**
+   * Catalog configuration including the user's stored catalogs. Every catalog
+   * read goes through here so a UI-added catalog behaves exactly like one
+   * configured by flag or environment variable.
+   */
+  private async catalogConfig(): Promise<PluginCatalogConfiguration> {
+    return {
+      ...pluginCatalogConfigFromEnv(this.env),
+      storedCatalogs: await this.catalogStore.list(),
+    };
+  }
 
   async list(): Promise<PluginMarketplaceSnapshot> {
     const installed = await listInstalledPlugins(pluginRegistryDir(this.env));
-    const aggregated = await loadAggregatedPluginCatalogs(pluginCatalogConfigFromEnv(this.env));
+    const aggregated = await loadAggregatedPluginCatalogs(await this.catalogConfig());
     return this.snapshot(aggregated, installed);
   }
 
   async install(pluginId: string): Promise<PluginMarketplaceSnapshot> {
     const found = await this.requireCatalogEntry(pluginId);
     const source = found.source;
-    const catalogVerification = resolvePluginCatalogLoadOptions(
-      source,
-      pluginCatalogConfigFromEnv(this.env),
-    );
+    const catalogVerification = resolvePluginCatalogLoadOptions(source, await this.catalogConfig());
     const entry = found.entry;
     this.assertInstallable(entry);
     const runtime = this.runtimePlugin(pluginId);
@@ -256,10 +273,7 @@ export class PluginMarketplaceService {
       this.runtimePlugin(pluginId)?.enabled ?? (await this.stateStore.loadEnabled(pluginId));
     const snapshot = await this.snapshotInstalledPlugin(pluginId);
     const source = found.source;
-    const catalogVerification = resolvePluginCatalogLoadOptions(
-      source,
-      pluginCatalogConfigFromEnv(this.env),
-    );
+    const catalogVerification = resolvePluginCatalogLoadOptions(source, await this.catalogConfig());
     try {
       const updated = await installPluginFromCatalog({
         catalogSource: source,
@@ -339,8 +353,55 @@ export class PluginMarketplaceService {
     };
   }
 
-  private requireCatalogSource(): string {
-    const source = resolvePluginCatalogSources(pluginCatalogConfigFromEnv(this.env))[0];
+  /** Catalogs the user added through the UI, with their pinned key fingerprints. */
+  async listCatalogs(): Promise<readonly StoredPluginCatalog[]> {
+    return this.catalogStore.list();
+  }
+
+  /**
+   * Trusts a catalog on first use. The caller supplies the source only; the key
+   * is discovered from the publisher and must verify the catalog's signature,
+   * so an unsigned or mis-signed catalog is refused rather than stored.
+   */
+  async addCatalog(source: string): Promise<PluginMarketplaceSnapshot> {
+    const trimmed = source.trim();
+    if (!trimmed) {
+      throw new PluginOperationError(400, 'Catalog source is required');
+    }
+    // Reject anything already active, not just already stored. Storing a record
+    // for the official catalog or one set by flag would mark it user-added and
+    // give it a Remove button that could not actually remove it.
+    if (resolvePluginCatalogSources(await this.catalogConfig()).includes(trimmed)) {
+      throw new PluginOperationError(409, `Catalog is already configured: ${trimmed}`);
+    }
+    const preview = await previewPluginCatalog(trimmed);
+    if (!preview.signatureVerified || !preview.publicKey) {
+      throw new PluginOperationError(
+        400,
+        preview.problem ?? 'Catalog signature could not be verified',
+      );
+    }
+    await this.catalogStore.add({
+      source: trimmed,
+      name: preview.name,
+      keyId: preview.keyId,
+      publicKey: preview.publicKey,
+      fingerprint: preview.fingerprint,
+      addedAt: Date.now(),
+    });
+    return this.list();
+  }
+
+  async removeCatalog(source: string): Promise<PluginMarketplaceSnapshot> {
+    const removed = await this.catalogStore.remove(source.trim());
+    if (!removed) {
+      throw new PluginOperationError(404, `Catalog is not added: ${source}`);
+    }
+    return this.list();
+  }
+
+  private async requireCatalogSource(): Promise<string> {
+    const source = resolvePluginCatalogSources(await this.catalogConfig())[0];
     if (!source) {
       throw new PluginOperationError(400, 'Plugin catalog is not configured');
     }
@@ -362,8 +423,8 @@ export class PluginMarketplaceService {
    * fetch from the right source instead of assuming a single configured catalog.
    */
   private async requireCatalogEntry(pluginId: string): Promise<AggregatedPluginCatalogEntry> {
-    this.requireCatalogSource();
-    const aggregated = await loadAggregatedPluginCatalogs(pluginCatalogConfigFromEnv(this.env));
+    await this.requireCatalogSource();
+    const aggregated = await loadAggregatedPluginCatalogs(await this.catalogConfig());
     const found = findAggregatedEntry(aggregated, pluginId);
     if (!found) {
       const failed = aggregated.catalogs.find((catalog) => catalog.error);

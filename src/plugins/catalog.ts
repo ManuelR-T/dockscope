@@ -671,7 +671,7 @@ async function readLocalSource(source: string, maxBytes: number, label: string):
   return readFile(filePath);
 }
 
-async function readTextSource(source: string): Promise<string> {
+export async function readTextSource(source: string): Promise<string> {
   try {
     const contents = isHttpUrl(source)
       ? await readHttpSource(source, MAX_PLUGIN_CATALOG_BYTES, 'catalog')

@@ -23,6 +23,10 @@ export interface PluginCatalogSourceStatus {
   signatureVerified?: boolean;
   entryCount: number;
   error?: string;
+  /** True when the user added this catalog and can remove it again. */
+  userAdded?: boolean;
+  /** Fingerprint of the key this catalog was pinned to, when user-added. */
+  fingerprint?: string;
 }
 
 export interface AggregatedPluginCatalogEntry {
@@ -62,6 +66,9 @@ export async function loadAggregatedPluginCatalogs(
     }),
   );
 
+  const storedBySource = new Map(
+    (configuration.storedCatalogs ?? []).map((entry) => [entry.source, entry]),
+  );
   const catalogs: PluginCatalogSourceStatus[] = [];
   const entries: AggregatedPluginCatalogEntry[] = [];
   const shadowedIds: string[] = [];
@@ -75,6 +82,9 @@ export async function loadAggregatedPluginCatalogs(
         official: result.official,
         entryCount: 0,
         error: result.error,
+        ...(storedBySource.has(result.source)
+          ? { userAdded: true, fingerprint: storedBySource.get(result.source)?.fingerprint }
+          : {}),
       });
       continue;
     }
@@ -86,6 +96,9 @@ export async function loadAggregatedPluginCatalogs(
       official: result.official,
       signatureVerified: catalog.signatureVerified,
       entryCount: catalog.entries.length,
+      ...(storedBySource.has(result.source)
+        ? { userAdded: true, fingerprint: storedBySource.get(result.source)?.fingerprint }
+        : {}),
     });
 
     for (const entry of catalog.entries) {

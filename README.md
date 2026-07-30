@@ -152,6 +152,10 @@ Opens `http://localhost:4681`.
 | POST   | `/api/plugins/marketplace/:pluginId/install` | Install from the configured catalog                         |
 | POST   | `/api/plugins/marketplace/:pluginId/update` | Update an installed catalog plugin                            |
 | DELETE | `/api/plugins/marketplace/:pluginId`  | Uninstall a local marketplace plugin                              |
+| GET    | `/api/plugins/catalogs`               | User-added catalogs with their pinned key fingerprints              |
+| POST   | `/api/plugins/catalogs/preview`       | Inspect a catalog and its signing key without trusting it           |
+| POST   | `/api/plugins/catalogs`               | Trust and add a catalog (pins its signing key)                      |
+| DELETE | `/api/plugins/catalogs?source=`       | Remove a user-added catalog                                         |
 | GET    | `/api/plugins/approvals`              | Persisted plugin approvals                                         |
 | GET    | `/api/plugins/compatibility`          | Plugin compatibility warnings and migration metadata               |
 | POST   | `/api/plugins/:pluginId/migrate`      | Run a declared plugin compatibility migration                      |

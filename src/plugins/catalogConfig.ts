@@ -4,6 +4,7 @@ import {
   type PluginCatalogLoadOptions,
   type PluginCatalogTrustStore,
 } from './catalog.js';
+import type { StoredPluginCatalog } from './catalogStore.js';
 
 export const OFFICIAL_PLUGIN_CATALOG_NAME = 'DockScope Official Plugins';
 export const OFFICIAL_PLUGIN_CATALOG_URL =
@@ -32,6 +33,12 @@ export interface PluginCatalogConfiguration {
   publicKey?: string;
   serializedTrustStore?: string;
   disableOfficial?: boolean;
+  /**
+   * Catalogs the user added through the UI, each pinned to the key it presented
+   * when trusted. These are resolved after the official catalog and after any
+   * catalogs configured by flag or environment variable.
+   */
+  storedCatalogs?: readonly StoredPluginCatalog[];
 }
 
 /**
@@ -59,6 +66,11 @@ export function resolvePluginCatalogSources(
   for (const source of parsePluginCatalogSources(configuration.source)) {
     if (!sources.includes(source)) {
       sources.push(source);
+    }
+  }
+  for (const stored of configuration.storedCatalogs ?? []) {
+    if (!sources.includes(stored.source)) {
+      sources.push(stored.source);
     }
   }
   return sources;
@@ -106,6 +118,16 @@ export function resolvePluginCatalogLoadOptions(
       trustStore: mergeTrustStores(OFFICIAL_PLUGIN_CATALOG_TRUST_STORE, trustStore),
     };
   }
+
+  // A user-added catalog is verified against the single key it was pinned to at
+  // trust time, deliberately ignoring the globally configured key. Falling back
+  // to the global key here would let an unrelated configured key validate this
+  // catalog, which would defeat the point of pinning.
+  const stored = configuration.storedCatalogs?.find((entry) => entry.source === source);
+  if (stored?.publicKey) {
+    return { publicKey: stored.publicKey };
+  }
+
   if (publicKey || trustStore) {
     return { publicKey, trustStore };
   }
