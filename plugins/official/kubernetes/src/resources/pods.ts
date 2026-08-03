@@ -2,10 +2,12 @@ import { Writable } from 'stream';
 import { KubeClient } from '../client';
 import { LogsOptions } from 'dockscope';
 
+// Takes the parsed resource rather than two positional strings: `name` and
+// `namespace` are both plain strings, so a swapped call site type-checks
+// cleanly. It was swapped, and every pod answered "Pod not found."
 export async function getLogsForPod(
   client: KubeClient,
-  name: string,
-  namespace: string,
+  { namespace, name }: { namespace: string; name: string },
   options?: LogsOptions,
 ): Promise<string> {
   const chunks: Buffer[] = [];
@@ -19,7 +21,7 @@ export async function getLogsForPod(
     });
 
   if (pod.length !== 1) {
-    throw new Error('Pod not found.');
+    throw new Error(`Pod ${namespace}/${name} not found.`);
   }
 
   const containers = pod[0]!.spec?.containers;

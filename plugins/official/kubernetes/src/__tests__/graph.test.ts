@@ -157,7 +157,14 @@ describe('buildGraph', () => {
     expect(node).toMatchObject({ health: 'healthy', image: 'HPA 2/2 replicas' });
     // an HPA has no ports; its facts belong in metadata
     expect(node.ports).toEqual([]);
-    expect(node.metadata).toMatchObject({ replicas: '2/2 replicas', range: '2-5' });
+    expect(node.metadata).toMatchObject({ replicas: '2/2 replicas' });
+  });
+
+  // Regression: the bounds used to ship only as a formatted "2-5" string, so the
+  // scale form's numeric pre-fill found nothing and defaulted to 1/1.
+  it('publishes the replica bounds as numbers the scale form can pre-fill', () => {
+    const node = buildGraph(hpa({ currentReplicas: 2, desiredReplicas: 2 })).nodes[0];
+    expect(node.metadata).toMatchObject({ minReplicas: 2, maxReplicas: 5 });
   });
 
   it('reports an HPA that is still scaling up as starting', () => {

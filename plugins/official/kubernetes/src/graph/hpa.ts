@@ -35,9 +35,15 @@ export function hpaNode(hpa: V2HorizontalPodAutoscaler): ServiceNode {
     ports: [],
     networks: [namespace],
     volumeCount: 0,
+    // minReplicas/maxReplicas must stay numbers under exactly these keys: the
+    // "Set replica bounds" form pre-fills from them via ref.context.metadata.
+    // While the bounds were only published as a formatted "2-5" range string,
+    // the form silently fell back to 1/1, so opening it on a 2-5 autoscaler and
+    // accepting the defaults scaled the workload down.
     metadata: {
       replicas: replicaLabel,
-      range: `${hpa.spec?.minReplicas ?? 1}-${hpa.spec?.maxReplicas ?? '?'}`,
+      minReplicas: hpa.spec?.minReplicas ?? 1,
+      maxReplicas: hpa.spec?.maxReplicas ?? 1,
       currentReplicas: current,
       desiredReplicas: desired,
       scalingActive: !inactive,

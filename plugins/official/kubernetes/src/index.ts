@@ -19,7 +19,7 @@ async function getResourceLogs(
     throw new Error('Logs are only available for Pod resources');
   }
 
-  return getLogsForPod(client, resource.namespace, resource.name, options);
+  return getLogsForPod(client, resource, options);
 }
 
 export default function createPlugin({ manifest, config }: PluginFactoryContext): DockscopePlugin {
