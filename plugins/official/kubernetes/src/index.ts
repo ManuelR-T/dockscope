@@ -7,6 +7,7 @@ import { parseResourceId } from './utils';
 import { getLogsForPod, streamPodLogs } from './resources/pods';
 import { PodMetricsCache } from './resources/metrics';
 import { inspectPod } from './resources/inspect';
+import { createPodExecSession } from './resources/exec';
 import { entityActions, runResourceAction } from './actions';
 
 const KUBERNETES_SOURCE_ID = 'kubernetes';
@@ -121,6 +122,15 @@ export default function createPlugin({ manifest, config }: PluginFactoryContext)
           canHandle: (ref) => Boolean(podRefOf(ref.entityId)),
           inspect: (ref) =>
             inspectPod(client, requirePodRef(ref.entityId, 'Inspect'), ref.nodeId ?? ref.entityId),
+        },
+      ];
+    },
+    getExecProviders() {
+      return [
+        {
+          canHandle: (ref) => Boolean(podRefOf(ref.entityId)),
+          createExecSession: (ref, command) =>
+            createPodExecSession(client, requirePodRef(ref.entityId, 'Exec sessions'), command),
         },
       ];
     },

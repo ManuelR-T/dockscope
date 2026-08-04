@@ -747,6 +747,7 @@ The first official plugin is `official.kubernetes`:
 - reports Pod CPU and memory from `metrics.k8s.io`, requiring metrics-server in the cluster
 - inspects Pods: env (with secret and configMap references shown as references, never resolved), labels, volume mounts and their backing storage
 - handles Pod logs as a tail or a followed stream, workload rollout restart and scale, HPA replica bounds, and delete
+- opens an interactive shell in a Pod, adapting the host's single duplex stream onto the API's separate stdin/stdout
 
 Two conventions worth copying in your own plugin:
 

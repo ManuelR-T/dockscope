@@ -1,6 +1,7 @@
 import {
   AppsV1Api,
   CoreV1Api,
+  Exec,
   KubeConfig,
   Log,
   Metrics,
@@ -32,6 +33,7 @@ export interface KubeClient {
   networkingApi: NetworkingV1Api;
   logs: Log;
   metrics: Metrics;
+  exec: Exec;
 }
 
 export function makeKubeClient(kc: KubeConfig): KubeClient {
@@ -42,5 +44,6 @@ export function makeKubeClient(kc: KubeConfig): KubeClient {
     networkingApi: kc.makeApiClient(NetworkingV1Api),
     logs: new Log(kc),
     metrics: new Metrics(kc),
+    exec: new Exec(kc),
   };
 }
