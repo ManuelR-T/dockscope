@@ -744,12 +744,14 @@ The first official plugin is `official.kubernetes`:
 - requires `kubernetes.api`
 - adds a Kubernetes graph source covering Deployments, StatefulSets, DaemonSets, Pods, Services, Ingresses and HorizontalPodAutoscalers
 - resolves pod ownership through the `Pod -> ReplicaSet -> Deployment` chain, so pods attach to the controller users think in terms of; the ReplicaSet itself is never drawn
+- reports Pod CPU and memory from `metrics.k8s.io`, requiring metrics-server in the cluster
 - handles Pod logs, workload rollout restart and scale, HPA replica bounds, and delete
 
 Two conventions worth copying in your own plugin:
 
 - **Kinds beyond the built-in set.** `ServiceNode.kind` accepts `deployment`, `statefulset` and `daemonset` alongside `container`, `pod`, `service`, `ingress` and `hpa`. Nothing validates the field at runtime, so a source can emit a kind the host does not know yet; it simply renders with the default node treatment.
 - **Facts belong in `metadata`.** `ServiceNode.metadata` is a flat `Record<string, string | number | boolean>` that the node sidebar renders as its own Details section, and that `EntityRef.context.metadata` hands back to your action declarations. The Kubernetes plugin uses it both ways: it publishes `minReplicas`/`maxReplicas` as numbers so the scale form can pre-fill the current bounds. Keep the keys stable, because your own action code reads them back.
+- **Cache whole-cluster reads behind `getStats`.** The monitor calls `getStats` once per running node every few seconds. If your upstream exposes a list endpoint, fetch it once per sweep and serve every node from that snapshot rather than issuing a request per entity. `PodMetricsCache` in the Kubernetes plugin is a worked example: a short TTL plus in-flight deduplication turns a whole polling sweep into one request.
 
 Local development:
 

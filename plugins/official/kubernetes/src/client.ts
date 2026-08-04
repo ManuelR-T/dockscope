@@ -3,6 +3,7 @@ import {
   CoreV1Api,
   KubeConfig,
   Log,
+  Metrics,
   NetworkingV1Api,
   PatchStrategy,
   setHeaderOptions,
@@ -30,6 +31,7 @@ export interface KubeClient {
   autoScalingApi: ObjectAutoscalingV2Api;
   networkingApi: NetworkingV1Api;
   logs: Log;
+  metrics: Metrics;
 }
 
 export function makeKubeClient(kc: KubeConfig): KubeClient {
@@ -39,5 +41,6 @@ export function makeKubeClient(kc: KubeConfig): KubeClient {
     autoScalingApi: kc.makeApiClient(ObjectAutoscalingV2Api),
     networkingApi: kc.makeApiClient(NetworkingV1Api),
     logs: new Log(kc),
+    metrics: new Metrics(kc),
   };
 }

@@ -5,6 +5,7 @@ import listResources from './resources';
 import { buildGraph } from './graph';
 import { parseResourceId } from './utils';
 import { getLogsForPod } from './resources/pods';
+import { PodMetricsCache } from './resources/metrics';
 import { entityActions, runResourceAction } from './actions';
 
 const KUBERNETES_SOURCE_ID = 'kubernetes';
@@ -46,6 +47,7 @@ export default function createPlugin({ manifest, config }: PluginFactoryContext)
   }
 
   const client = makeKubeClient(kubeConfig);
+  const metrics = new PodMetricsCache(client, client.metrics);
 
   return {
     manifest,
@@ -77,6 +79,25 @@ export default function createPlugin({ manifest, config }: PluginFactoryContext)
             }
           },
           getLogs: (ref, options) => getResourceLogs(client, ref.entityId, options),
+        },
+      ];
+    },
+    getStatsProviders() {
+      return [
+        {
+          // Only pods report usage: a Deployment's consumption is the sum of
+          // its pods, which the graph already shows individually.
+          canHandle(ref) {
+            try {
+              return parseResourceId(ref.entityId).kind === 'pod';
+            } catch {
+              return false;
+            }
+          },
+          async getStats(ref) {
+            const { namespace, name } = parseResourceId(ref.entityId);
+            return { id: ref.nodeId ?? ref.entityId, ...(await metrics.statsFor(namespace, name)) };
+          },
         },
       ];
     },

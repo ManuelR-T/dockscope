@@ -10,6 +10,7 @@
   "capabilities": [
     "source.graph",
     "source.logs",
+    "source.metrics",
     "action.lifecycle",
     "action.scale",
     "ui.settings"
