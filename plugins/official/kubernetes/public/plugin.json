@@ -1,11 +1,11 @@
 {
   "id": "official.kubernetes",
   "name": "Kubernetes",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "manifestVersion": "1",
   "dockscopeApiVersion": "1",
   "hostApiVersion": "1",
-  "description": "Adds Kubernetes graph, logs, delete, and HPA scale actions through the Kubernetes API.",
+  "description": "Maps Kubernetes workloads, pods, services, ingresses and autoscalers, with logs, rollout restart, scale and delete actions through the Kubernetes API.",
   "entry": "./plugin.mjs",
   "capabilities": [
     "source.graph",

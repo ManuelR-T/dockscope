@@ -5,7 +5,13 @@ import { serviceLink, serviceNode } from './service';
 import { getPodsForService } from '../resources/services';
 import { ingressLink, ingressNode } from './ingress';
 import { hpaLink, hpaNode } from './hpa';
-import { getPodsForHpa } from '../resources/hpa';
+import { workloadNode, workloadPodLink } from './workload';
+import {
+  listWorkloads,
+  resolveHpaTarget,
+  resolvePodOwner,
+  workloadKey,
+} from '../resources/workloads';
 
 export function buildGraph(resources: Resources): GraphData {
   const graph: GraphData = {
@@ -13,8 +19,22 @@ export function buildGraph(resources: Resources): GraphData {
     links: [],
   };
 
+  const workloads = listWorkloads(resources);
+  // Links are only drawn to workloads that were actually listed, so a pod whose
+  // controller sits outside what we fetch does not produce a dangling edge.
+  const drawnWorkloads = new Set(workloads.map(workloadKey));
+
+  for (const workload of workloads) {
+    graph.nodes.push(workloadNode(workload));
+  }
+
   for (const pod of resources.pods.items) {
     graph.nodes.push(podNode(pod));
+
+    const owner = resolvePodOwner(pod, resources.replicaSets.items);
+    if (owner && drawnWorkloads.has(workloadKey(owner))) {
+      graph.links.push(workloadPodLink(owner, pod.metadata?.name || 'unknown'));
+    }
   }
 
   for (const svc of resources.services.items) {
@@ -41,8 +61,9 @@ export function buildGraph(resources: Resources): GraphData {
   for (const hpa of resources.hpa.items) {
     graph.nodes.push(hpaNode(hpa));
 
-    for (const pod of getPodsForHpa(hpa, resources.pods)) {
-      graph.links.push(hpaLink(hpa, pod));
+    const target = resolveHpaTarget(hpa);
+    if (target && drawnWorkloads.has(workloadKey(target))) {
+      graph.links.push(hpaLink(hpa, target));
     }
   }
 

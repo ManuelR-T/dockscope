@@ -5,7 +5,15 @@ export interface ServiceNode {
   project: string;
   host: string;
   runtime?: 'docker' | 'kubernetes';
-  kind?: 'container' | 'pod' | 'service' | 'ingress' | 'hpa';
+  kind?:
+    | 'container'
+    | 'pod'
+    | 'service'
+    | 'ingress'
+    | 'hpa'
+    | 'deployment'
+    | 'statefulset'
+    | 'daemonset';
   namespace?: string;
   rolloutPhase?: 'terminating';
   rolloutUntil?: number;

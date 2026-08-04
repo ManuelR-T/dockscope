@@ -740,10 +740,16 @@ Official plugins live in `plugins/official`. They are not registered as built-in
 
 The first official plugin is `official.kubernetes`:
 
-- uses `kubectl` through `host.execFile()`
-- requires `process.exec` and `kubernetes.api`
-- adds a Kubernetes graph source
-- handles Pod logs, restart/delete, and HPA replica actions
+- talks to the Kubernetes API directly through `@kubernetes/client-node`
+- requires `kubernetes.api`
+- adds a Kubernetes graph source covering Deployments, StatefulSets, DaemonSets, Pods, Services, Ingresses and HorizontalPodAutoscalers
+- resolves pod ownership through the `Pod -> ReplicaSet -> Deployment` chain, so pods attach to the controller users think in terms of; the ReplicaSet itself is never drawn
+- handles Pod logs, workload rollout restart and scale, HPA replica bounds, and delete
+
+Two conventions worth copying in your own plugin:
+
+- **Kinds beyond the built-in set.** `ServiceNode.kind` accepts `deployment`, `statefulset` and `daemonset` alongside `container`, `pod`, `service`, `ingress` and `hpa`. Nothing validates the field at runtime, so a source can emit a kind the host does not know yet; it simply renders with the default node treatment.
+- **Facts belong in `metadata`.** `ServiceNode.metadata` is a flat `Record<string, string | number | boolean>` that the node sidebar renders as its own Details section, and that `EntityRef.context.metadata` hands back to your action declarations. The Kubernetes plugin uses it both ways: it publishes `minReplicas`/`maxReplicas` as numbers so the scale form can pre-fill the current bounds. Keep the keys stable, because your own action code reads them back.
 
 Local development:
 

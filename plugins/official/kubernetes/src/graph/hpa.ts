@@ -1,6 +1,7 @@
 import { ServiceLink, ServiceNode } from 'dockscope';
 import { k8sId, Node } from './node';
-import { V2HorizontalPodAutoscaler, V1Pod } from '@kubernetes/client-node';
+import { V2HorizontalPodAutoscaler } from '@kubernetes/client-node';
+import { WorkloadRef } from '../resources/workloads';
 
 export function hpaNode(hpa: V2HorizontalPodAutoscaler): ServiceNode {
   const namespace = hpa.metadata?.namespace || 'default';
@@ -53,17 +54,20 @@ export function hpaNode(hpa: V2HorizontalPodAutoscaler): ServiceNode {
   };
 }
 
-export function hpaLink(hpa: V2HorizontalPodAutoscaler, pod: V1Pod): ServiceLink {
+/**
+ * An HPA scales a controller, not pods. The edge used to fan out to every pod
+ * matching a name heuristic while labelling itself "scales Deployment", so the
+ * graph asserted a relationship to something that was not a Deployment. It now
+ * points at the workload named by scaleTargetRef.
+ */
+export function hpaLink(hpa: V2HorizontalPodAutoscaler, target: WorkloadRef): ServiceLink {
   const namespace = hpa.metadata?.namespace || 'default';
   const name = hpa.metadata?.name || 'unknown';
-  const targetKind = hpa.spec?.scaleTargetRef?.kind || 'target';
-
-  const ingressId = k8sId('hpa', namespace, name);
 
   return {
-    source: ingressId,
-    target: k8sId('pod', namespace, pod.metadata?.name || 'unknown'),
+    source: k8sId('hpa', namespace, name),
+    target: k8sId(target.kind, target.namespace, target.name),
     type: 'depends_on',
-    label: `scales ${targetKind}`,
+    label: `scales ${hpa.spec?.scaleTargetRef?.kind || 'target'}`,
   };
 }

@@ -1,4 +1,4 @@
-import { KubeClient } from '../client';
+import { KubeClient, mergePatchOptions } from '../client';
 
 export interface HpaPatchActionOptions {
   minReplicas: number;
@@ -17,16 +17,19 @@ export async function hpaPatch(
     throw new Error('Missing options minReplicas and / or maxReplicas');
   }
 
-  return client.autoScalingApi.patchNamespacedHorizontalPodAutoscaler({
-    namespace,
-    name,
-    body: {
-      spec: {
-        minReplicas,
-        maxReplicas,
+  return client.autoScalingApi.patchNamespacedHorizontalPodAutoscaler(
+    {
+      namespace,
+      name,
+      body: {
+        spec: {
+          minReplicas,
+          maxReplicas,
+        },
       },
     },
-  });
+    mergePatchOptions,
+  );
 }
 
 export async function deleteHpa(client: KubeClient, name: string, namespace: string) {

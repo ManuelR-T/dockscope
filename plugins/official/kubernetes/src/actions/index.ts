@@ -1,10 +1,11 @@
 import { EntityActionDeclaration, EntityRef, PluginConfig } from 'dockscope';
-import { parseResourceId } from '../utils';
+import { isWorkloadKind, parseResourceId } from '../utils';
 import { KubeClient } from '../client';
 import { deleteHpa, HpaActionOptions, hpaPatch } from './hpa';
 import { deleteService } from './service';
 import { deletePod } from './pod';
 import { deleteIngress } from './ingress';
+import { deleteWorkload, restartWorkload, scaleWorkload } from './workload';
 
 function numericMetadata(ref: EntityRef, key: string, fallback: number): number {
   const value = ref.context?.metadata?.[key];
@@ -15,25 +16,48 @@ export function entityActions(ref: EntityRef): EntityActionDeclaration[] {
   const resource = parseResourceId(ref.entityId);
   const name = ref.context?.name || resource.name;
   const fullName = `${resource.namespace}/${resource.name}`;
-  const actions: EntityActionDeclaration[] = [
-    // Currently disabled as you cannot do that in kubernetes, it does not work like this, deployments need to be handled for this to work
-    // {
-    //   id: 'restart',
-    //   title: 'Restart',
-    //   capability: 'action.lifecycle',
-    //   icon: 'restart',
-    //   placement: 'primary',
-    //   confirm: {
-    //     title: resource.kind === 'pod' ? 'Restart Pod' : 'Restart Backing Pods',
-    //     message:
-    //       resource.kind === 'pod'
-    //         ? `Restart pod ${name}? Kubernetes will recreate the current pod.`
-    //         : `Restart backing pods for ${fullName}? Kubernetes will recreate the selected pods.`,
-    //     confirmLabel: 'Restart',
-    //     variant: 'warning',
-    //   },
-    // },
-  ];
+  const actions: EntityActionDeclaration[] = [];
+
+  // Restart is offered on controllers only. There is no such thing as
+  // restarting a pod in Kubernetes: deleting one just has its ReplicaSet make
+  // an identical replacement. Rolling the controller's pod template is the
+  // operation users actually mean.
+  if (isWorkloadKind(resource.kind)) {
+    actions.push({
+      id: 'restart',
+      title: 'Restart',
+      capability: 'action.lifecycle',
+      icon: 'restart',
+      placement: 'primary',
+      confirm: {
+        title: `Restart ${resource.kind}`,
+        message: `Roll out fresh pods for ${fullName}? Kubernetes replaces them gradually.`,
+        confirmLabel: 'Restart',
+        variant: 'warning',
+      },
+    });
+  }
+
+  if (resource.kind === 'deployment' || resource.kind === 'statefulset') {
+    actions.push({
+      id: 'scale',
+      title: 'Scale',
+      capability: 'action.scale',
+      icon: 'scale',
+      input: {
+        fields: [
+          {
+            key: 'replicas',
+            label: 'Replicas',
+            type: 'number',
+            required: true,
+            default: numericMetadata(ref, 'desiredReplicas', 1),
+          },
+        ],
+      },
+    });
+  }
+
   if (resource.kind === 'hpa') {
     actions.push({
       id: 'set_hpa_constraints',
@@ -80,8 +104,12 @@ export function entityActions(ref: EntityRef): EntityActionDeclaration[] {
 
 async function deleteResource(
   client: KubeClient,
-  { kind, name, namespace }: { kind: string; namespace: string; name: string },
+  resource: { kind: string; namespace: string; name: string },
 ) {
+  const { kind, name, namespace } = resource;
+  if (isWorkloadKind(kind)) {
+    return deleteWorkload(client, { ...resource, kind });
+  }
   if (kind === 'pod') {
     return deletePod(client, name, namespace);
   } else if (kind === 'hpa') {
@@ -93,7 +121,9 @@ async function deleteResource(
   }
 }
 
-export type ActionsOptions = Partial<HpaActionOptions>;
+export type ActionsOptions = Partial<HpaActionOptions> & { replicas?: number };
+
+const SUPPORTED_ACTIONS = ['delete', 'restart', 'scale', 'set_hpa_constraints'];
 
 export async function runResourceAction(
   client: KubeClient,
@@ -102,9 +132,10 @@ export async function runResourceAction(
   options?: ActionsOptions & PluginConfig,
 ) {
   const resource = parseResourceId(resourceId);
-  if (!['delete', /*'restart',*/ 'set_hpa_constraints'].includes(action)) {
+  if (!SUPPORTED_ACTIONS.includes(action)) {
     throw new Error(`Unsupported Kubernetes action: ${action}`);
   }
+
   if (action === 'set_hpa_constraints') {
     if (resource.kind !== 'hpa') {
       throw new Error('Only HPA resources can have replica constraints changed');
@@ -115,19 +146,28 @@ export async function runResourceAction(
     await hpaPatch(client, resource.name, resource.namespace, options);
     return;
   }
-  // Currently disabled as you cannot do that in kubernetes, it does not work like this, deployments need to be handled for this to work
-  //   if (action === 'restart') {
-  //     const resources = await listResources(host);
-  //     const pods = podsForRestart(resources, resource);
-  //     if (pods.length === 0) {
-  //       throw new Error(`No backing pods found for ${resource.kind} "${resource.name}"`);
-  //     }
-  //     await Promise.all(
-  //       pods.map((pod) =>
-  //         kubectl(host, ['delete', 'pod', nameOf(pod.metadata), '-n', namespaceOf(pod.metadata)]),
-  //       ),
-  //     );
-  //     return;
-  //   }
+
+  if (action === 'restart') {
+    if (!isWorkloadKind(resource.kind)) {
+      throw new Error(
+        `Only Deployments, StatefulSets and DaemonSets can be restarted, not a ${resource.kind}`,
+      );
+    }
+    await restartWorkload(client, { ...resource, kind: resource.kind });
+    return;
+  }
+
+  if (action === 'scale') {
+    if (resource.kind !== 'deployment' && resource.kind !== 'statefulset') {
+      throw new Error(`Only Deployments and StatefulSets can be scaled, not a ${resource.kind}`);
+    }
+    const replicas = options?.replicas;
+    if (typeof replicas !== 'number' || !Number.isInteger(replicas) || replicas < 0) {
+      throw new Error('Replicas must be a non-negative whole number');
+    }
+    await scaleWorkload(client, { ...resource, kind: resource.kind }, replicas);
+    return;
+  }
+
   await deleteResource(client, resource);
 }

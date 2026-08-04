@@ -5,6 +5,7 @@ import {
   Mesh,
   MeshBasicMaterial,
   MeshPhongMaterial,
+  OctahedronGeometry,
   SphereGeometry,
   Sprite,
   SpriteMaterial,
@@ -19,6 +20,11 @@ import { GRAPH } from './constants';
 import type { SimNode } from './simTypes';
 
 const NC = GRAPH.node;
+
+/** Deployments, StatefulSets and DaemonSets share one visual treatment. */
+export function isWorkloadKind(kind: string | undefined): boolean {
+  return kind === 'deployment' || kind === 'statefulset' || kind === 'daemonset';
+}
 
 /** Group carrying our metadata under a private key */
 type MetaGroup = Group & { __meta?: NodeMeta };
@@ -72,6 +78,11 @@ export function getNodeColor(node: {
     }
     if (node.kind === 'hpa') {
       return node.health === 'starting' ? '#ffcc00' : '#00e4ff';
+    }
+    if (isWorkloadKind(node.kind)) {
+      // A workload mid-rollout is the one state worth spotting from across the
+      // graph, so converging keeps the amber the rest of the UI uses.
+      return node.health === 'starting' ? '#ffcc00' : '#22d3a6';
     }
   }
   if (node.status === 'running') {
@@ -135,7 +146,11 @@ export function buildNodeObject(
       ? new BoxGeometry(radius * 1.5, radius * 1.5, radius * 1.5)
       : isKubernetes && node.kind === 'hpa'
         ? new TetrahedronGeometry(radius * 1.35, 0)
-        : new SphereGeometry(radius, NC.sphereSegments.w, NC.sphereSegments.h);
+        : // A workload is the controller above a cluster of pod spheres, so it
+          // gets a faceted solid that reads as "these belong to me".
+          isKubernetes && isWorkloadKind(node.kind)
+          ? new OctahedronGeometry(radius * 1.4, 0)
+          : new SphereGeometry(radius, NC.sphereSegments.w, NC.sphereSegments.h);
   const baseEmissive = isRunning ? 0.25 + importance * 0.3 : 0.1;
   const coreMat = new MeshPhongMaterial({
     color,

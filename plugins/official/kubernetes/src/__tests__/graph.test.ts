@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type {
   V2HorizontalPodAutoscalerList,
+  V1DaemonSetList,
+  V1DeploymentList,
   V1IngressList,
   V1PodList,
+  V1ReplicaSetList,
   V1ServiceList,
+  V1StatefulSetList,
 } from '@kubernetes/client-node';
 import { buildGraph } from '../graph';
 import type { Resources } from '../resources';
@@ -23,14 +27,52 @@ function pod(namespace: string, name: string, labels: Record<string, string>, ph
   };
 }
 
+/** A pod owned by `ownerKind`/`ownerName`, the way a controller creates it. */
+function ownedPod(
+  namespace: string,
+  name: string,
+  ownerKind: string,
+  ownerName: string,
+  labels: Record<string, string> = {},
+) {
+  const base = pod(namespace, name, labels);
+  return {
+    ...base,
+    metadata: {
+      ...base.metadata,
+      ownerReferences: [{ kind: ownerKind, name: ownerName, controller: true }],
+    },
+  };
+}
+
+function replicaSet(namespace: string, name: string, deployment?: string) {
+  return {
+    metadata: {
+      namespace,
+      name,
+      ...(deployment
+        ? { ownerReferences: [{ kind: 'Deployment', name: deployment, controller: true }] }
+        : {}),
+    },
+  };
+}
+
 function resources(overrides: Partial<Resources> = {}): Resources {
   const base = {
     pods: { items: [] } as unknown as V1PodList,
     services: { items: [] } as unknown as V1ServiceList,
     ingresses: { items: [] } as unknown as V1IngressList,
     hpa: { items: [] } as unknown as V2HorizontalPodAutoscalerList,
+    deployments: { items: [] } as unknown as V1DeploymentList,
+    statefulSets: { items: [] } as unknown as V1StatefulSetList,
+    daemonSets: { items: [] } as unknown as V1DaemonSetList,
+    replicaSets: { items: [] } as unknown as V1ReplicaSetList,
   };
   return { ...base, ...overrides } as Resources;
+}
+
+function deployments(...items: unknown[]) {
+  return { items } as unknown as V1DeploymentList;
 }
 
 describe('buildGraph', () => {
@@ -109,10 +151,22 @@ describe('buildGraph', () => {
     expect(graph.links).toHaveLength(0);
   });
 
-  it('links an HPA to the pods of its scale target', () => {
+  // An HPA scales a controller, not pods. It used to fan out to every pod whose
+  // name looked related while labelling itself "scales Deployment".
+  it('links an HPA to the workload named by its scale target', () => {
     const graph = buildGraph(
       resources({
-        pods: { items: [pod('default', 'web-xyz', { app: 'web' })] } as unknown as V1PodList,
+        pods: {
+          items: [ownedPod('default', 'web-xyz', 'ReplicaSet', 'web-1')],
+        } as unknown as V1PodList,
+        replicaSets: {
+          items: [replicaSet('default', 'web-1', 'web')],
+        } as unknown as V1ReplicaSetList,
+        deployments: deployments({
+          metadata: { namespace: 'default', name: 'web' },
+          spec: { replicas: 1, template: { spec: { containers: [{ image: 'nginx' }] } } },
+          status: { readyReplicas: 1 },
+        }),
         hpa: {
           items: [
             {
@@ -130,8 +184,33 @@ describe('buildGraph', () => {
 
     expect(graph.nodes.map((node) => node.id)).toContain('k8s:hpa:default:web');
     expect(graph.links).toContainEqual(
+      expect.objectContaining({
+        source: 'k8s:hpa:default:web',
+        target: 'k8s:deployment:default:web',
+        label: 'scales Deployment',
+      }),
+    );
+    expect(graph.links).not.toContainEqual(
       expect.objectContaining({ source: 'k8s:hpa:default:web', target: 'k8s:pod:default:web-xyz' }),
     );
+  });
+
+  it('drops the HPA edge when its scale target is not in the graph', () => {
+    const graph = buildGraph(
+      resources({
+        hpa: {
+          items: [
+            {
+              metadata: { namespace: 'default', name: 'web' },
+              spec: { scaleTargetRef: { kind: 'Deployment', name: 'gone' }, maxReplicas: 5 },
+            },
+          ],
+        } as unknown as V2HorizontalPodAutoscalerList,
+      }),
+    );
+
+    expect(graph.nodes.map((node) => node.id)).toContain('k8s:hpa:default:web');
+    expect(graph.links).toEqual([]);
   });
 
   function hpa(status: Record<string, unknown>) {
@@ -260,10 +339,18 @@ describe('parseResourceId', () => {
 
   it.each([
     ['docker:pod:default:web', 'a non-kubernetes prefix'],
-    ['k8s:deployment:default:web', 'an unsupported kind'],
+    ['k8s:configmap:default:web', 'an unsupported kind'],
     ['k8s:pod:default', 'a missing name'],
     ['', 'an empty id'],
   ])('rejects %s (%s)', (id) => {
     expect(() => parseResourceId(id)).toThrow();
+  });
+
+  it.each(['deployment', 'statefulset', 'daemonset'])('accepts the %s kind', (kind) => {
+    expect(parseResourceId(`k8s:${kind}:default:web`)).toEqual({
+      kind,
+      namespace: 'default',
+      name: 'web',
+    });
   });
 });
