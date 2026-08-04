@@ -11,6 +11,7 @@
     "source.graph",
     "source.logs",
     "source.metrics",
+    "source.inspect",
     "action.lifecycle",
     "action.scale",
     "ui.settings"

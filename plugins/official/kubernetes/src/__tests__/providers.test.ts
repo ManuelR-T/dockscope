@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Writable } from 'stream';
 import type { KubeClient } from '../client';
 import { mergePatchOptions } from '../client';
-import { getLogsForPod } from '../resources/pods';
+import { getLogsForPod, streamPodLogs } from '../resources/pods';
 import { entityActions, runResourceAction } from '../actions';
 
 /**
@@ -20,17 +20,21 @@ interface FakeCall {
 
 function fakeClient(pods: { namespace: string; name: string; container: string }[]) {
   const logCalls: FakeCall[] = [];
+  const streams: Writable[] = [];
 
   const client = {
     coreApi: {
-      listNamespacedPod: vi.fn(async ({ namespace }: { namespace: string }) => ({
-        items: pods
-          .filter((pod) => pod.namespace === namespace)
-          .map((pod) => ({
-            metadata: { namespace: pod.namespace, name: pod.name },
-            spec: { containers: [{ name: pod.container }] },
-          })),
-      })),
+      readNamespacedPod: vi.fn(async ({ namespace, name }: { namespace: string; name: string }) => {
+        const pod = pods.find((entry) => entry.namespace === namespace && entry.name === name);
+        if (!pod) {
+          // The real API 404s rather than returning an empty result.
+          throw new Error('HTTP-Code: 404');
+        }
+        return {
+          metadata: { namespace: pod.namespace, name: pod.name },
+          spec: { containers: [{ name: pod.container }] },
+        };
+      }),
       deleteNamespacedPod: vi.fn(async () => ({})),
     },
     autoScalingApi: {
@@ -43,15 +47,29 @@ function fakeClient(pods: { namespace: string; name: string; container: string }
       deleteNamespacedDeployment: vi.fn(async () => ({})),
     },
     logs: {
-      log: vi.fn(async (namespace: string, name: string, container: string, stream: Writable) => {
-        logCalls.push({ namespace, name, container });
-        stream.write(`logs of ${namespace}/${name}`);
-        stream.end();
-      }),
+      log: vi.fn(
+        async (
+          namespace: string,
+          name: string,
+          container: string,
+          stream: Writable,
+          options?: { follow?: boolean },
+        ) => {
+          logCalls.push({ namespace, name, container });
+          stream.write(`logs of ${namespace}/${name}`);
+          // A follow stream stays open; a one-shot read ends so the caller's
+          // promise can resolve.
+          if (!options?.follow) {
+            stream.end();
+          }
+          streams.push(stream);
+          return new AbortController();
+        },
+      ),
     },
   } as unknown as KubeClient;
 
-  return { client, logCalls };
+  return { client, logCalls, streams };
 }
 
 describe('getLogsForPod', () => {
@@ -88,6 +106,76 @@ describe('getLogsForPod', () => {
     await expect(getLogsForPod(client, { namespace: 'default', name: 'missing' })).rejects.toThrow(
       'default/missing',
     );
+  });
+
+  it('asks for timestamps, which the client shortens for display', async () => {
+    const { client } = fakeClient(pods);
+
+    await getLogsForPod(client, { namespace: 'default', name: 'web-abc' });
+
+    expect(client.logs.log).toHaveBeenCalledWith(
+      'default',
+      'web-abc',
+      'nginx',
+      expect.anything(),
+      expect.objectContaining({ timestamps: true }),
+    );
+  });
+});
+
+describe('streamPodLogs', () => {
+  const pods = [{ namespace: 'default', name: 'web-abc', container: 'nginx' }];
+
+  it('follows the pod and forwards each chunk', async () => {
+    const { client } = fakeClient(pods);
+    const chunks: string[] = [];
+
+    await streamPodLogs(client, { namespace: 'default', name: 'web-abc' }, (text) =>
+      chunks.push(text),
+    );
+
+    expect(chunks).toEqual(['logs of default/web-abc']);
+    expect(client.logs.log).toHaveBeenCalledWith(
+      'default',
+      'web-abc',
+      'nginx',
+      expect.anything(),
+      expect.objectContaining({ follow: true, timestamps: true }),
+    );
+  });
+
+  it('aborts the request when the subscriber tears down', async () => {
+    const { client } = fakeClient(pods);
+    const controller = new AbortController();
+    vi.mocked(client.logs.log).mockImplementation(async () => controller);
+
+    const stop = await streamPodLogs(client, { namespace: 'default', name: 'web-abc' }, () => {});
+    expect(controller.signal.aborted).toBe(false);
+
+    stop();
+    expect(controller.signal.aborted).toBe(true);
+  });
+
+  // Aborting is not instantaneous, so a chunk can still arrive afterwards. It
+  // must not reach a subscriber that has already gone away.
+  it('drops chunks that land after teardown', async () => {
+    const { client, streams } = fakeClient(pods);
+    const chunks: string[] = [];
+
+    const stop = await streamPodLogs(client, { namespace: 'default', name: 'web-abc' }, (text) =>
+      chunks.push(text),
+    );
+    stop();
+    streams[0]!.write('late line');
+
+    expect(chunks).toEqual(['logs of default/web-abc']);
+  });
+
+  it('refuses a pod it cannot read', async () => {
+    const { client } = fakeClient(pods);
+    await expect(
+      streamPodLogs(client, { namespace: 'default', name: 'missing' }, () => {}),
+    ).rejects.toThrow('default/missing');
   });
 });
 

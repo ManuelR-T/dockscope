@@ -4,23 +4,40 @@ import { KubeClient, makeKubeClient } from './client';
 import listResources from './resources';
 import { buildGraph } from './graph';
 import { parseResourceId } from './utils';
-import { getLogsForPod } from './resources/pods';
+import { getLogsForPod, streamPodLogs } from './resources/pods';
 import { PodMetricsCache } from './resources/metrics';
+import { inspectPod } from './resources/inspect';
 import { entityActions, runResourceAction } from './actions';
 
 const KUBERNETES_SOURCE_ID = 'kubernetes';
+
+/**
+ * Logs, stats, inspect and exec all belong to a pod. Anything else in the
+ * graph is a controller or a routing object with nothing of its own to read.
+ */
+function podRefOf(entityId: string): { namespace: string; name: string } | undefined {
+  try {
+    const resource = parseResourceId(entityId);
+    return resource.kind === 'pod' ? resource : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function requirePodRef(entityId: string, operation: string) {
+  const pod = podRefOf(entityId);
+  if (!pod) {
+    throw new Error(`${operation} are only available for Pod resources`);
+  }
+  return pod;
+}
 
 async function getResourceLogs(
   client: KubeClient,
   resourceId: string,
   options?: LogsOptions,
 ): Promise<string> {
-  const resource = parseResourceId(resourceId);
-  if (resource.kind !== 'pod') {
-    throw new Error('Logs are only available for Pod resources');
-  }
-
-  return getLogsForPod(client, resource, options);
+  return getLogsForPod(client, requirePodRef(resourceId, 'Logs'), options);
 }
 
 export default function createPlugin({ manifest, config }: PluginFactoryContext): DockscopePlugin {
@@ -71,14 +88,17 @@ export default function createPlugin({ manifest, config }: PluginFactoryContext)
     getLogsProviders() {
       return [
         {
-          canHandle(ref) {
-            try {
-              return parseResourceId(ref.entityId).kind === 'pod';
-            } catch {
-              return false;
-            }
-          },
+          canHandle: (ref) => Boolean(podRefOf(ref.entityId)),
           getLogs: (ref, options) => getResourceLogs(client, ref.entityId, options),
+        },
+      ];
+    },
+    getLogStreamProviders() {
+      return [
+        {
+          canHandle: (ref) => Boolean(podRefOf(ref.entityId)),
+          streamLogs: (ref, onData, onError) =>
+            streamPodLogs(client, requirePodRef(ref.entityId, 'Logs'), onData, onError),
         },
       ];
     },
@@ -87,17 +107,20 @@ export default function createPlugin({ manifest, config }: PluginFactoryContext)
         {
           // Only pods report usage: a Deployment's consumption is the sum of
           // its pods, which the graph already shows individually.
-          canHandle(ref) {
-            try {
-              return parseResourceId(ref.entityId).kind === 'pod';
-            } catch {
-              return false;
-            }
-          },
+          canHandle: (ref) => Boolean(podRefOf(ref.entityId)),
           async getStats(ref) {
-            const { namespace, name } = parseResourceId(ref.entityId);
+            const { namespace, name } = requirePodRef(ref.entityId, 'Stats');
             return { id: ref.nodeId ?? ref.entityId, ...(await metrics.statsFor(namespace, name)) };
           },
+        },
+      ];
+    },
+    getInspectProviders() {
+      return [
+        {
+          canHandle: (ref) => Boolean(podRefOf(ref.entityId)),
+          inspect: (ref) =>
+            inspectPod(client, requirePodRef(ref.entityId, 'Inspect'), ref.nodeId ?? ref.entityId),
         },
       ];
     },

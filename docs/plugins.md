@@ -745,7 +745,8 @@ The first official plugin is `official.kubernetes`:
 - adds a Kubernetes graph source covering Deployments, StatefulSets, DaemonSets, Pods, Services, Ingresses and HorizontalPodAutoscalers
 - resolves pod ownership through the `Pod -> ReplicaSet -> Deployment` chain, so pods attach to the controller users think in terms of; the ReplicaSet itself is never drawn
 - reports Pod CPU and memory from `metrics.k8s.io`, requiring metrics-server in the cluster
-- handles Pod logs, workload rollout restart and scale, HPA replica bounds, and delete
+- inspects Pods: env (with secret and configMap references shown as references, never resolved), labels, volume mounts and their backing storage
+- handles Pod logs as a tail or a followed stream, workload rollout restart and scale, HPA replica bounds, and delete
 
 Two conventions worth copying in your own plugin:
 
