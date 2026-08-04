@@ -1,0 +1,143 @@
+# Cluster fixture for the Kubernetes plugin end-to-end job.
+#
+# Deliberately exercises the relationships the plugin has to get right rather
+# than a single pod: a Deployment owns its pods through a ReplicaSet, a Service
+# selects them, an Ingress routes to the Service, an HPA scales the Deployment,
+# and a DaemonSet owns a pod without any ReplicaSet in between.
+#
+# Every container has a shell and writes to stdout, because a pod that logs
+# nothing cannot prove the log paths work.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: e2e-web
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: e2e-web
+  template:
+    metadata:
+      labels:
+        app: e2e-web
+    spec:
+      containers:
+        - name: app
+          image: busybox:1.36
+          command: ['/bin/sh', '-c', 'i=0; while true; do i=$((i+1)); echo "web tick $i"; sleep 1; done']
+          env:
+            - name: PLAIN_VALUE
+              value: hello
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: SECRET_VALUE
+              valueFrom:
+                secretKeyRef:
+                  name: e2e-secret
+                  key: password
+          resources:
+            limits:
+              memory: 64Mi
+            requests:
+              cpu: 10m
+              memory: 16Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/config
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: e2e-config
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: e2e-secret
+  namespace: default
+stringData:
+  password: not-a-real-password
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: e2e-config
+  namespace: default
+data:
+  app.conf: 'key = value'
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: e2e-web
+  namespace: default
+spec:
+  selector:
+    app: e2e-web
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: e2e-web
+  namespace: default
+spec:
+  rules:
+    - host: e2e.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: e2e-web
+                port:
+                  number: 80
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: e2e-web
+  namespace: default
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: e2e-web
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 80
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: e2e-agent
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: e2e-agent
+  template:
+    metadata:
+      labels:
+        app: e2e-agent
+    spec:
+      containers:
+        - name: agent
+          image: busybox:1.36
+          command: ['/bin/sh', '-c', 'while true; do echo "agent alive"; sleep 5; done']
+          resources:
+            requests:
+              cpu: 5m
+              memory: 8Mi

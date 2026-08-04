@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { Writable } from 'stream';
+import { Duplex, Writable } from 'stream';
 import { describe, expect, it, vi } from 'vitest';
 import type { V1Status } from '@kubernetes/client-node';
 import type { KubeClient } from '../client';
@@ -187,7 +187,9 @@ describe('createPodExecSession', () => {
     const { client, socket } = fakeClient();
     const session = await createPodExecSession(client, ref);
 
-    session.stream.destroy();
+    // The session contract types the stream as ReadWriteStream; the concrete
+    // duplex is what the host destroys when the terminal tab closes.
+    (session.stream as Duplex).destroy();
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(socket.close).toHaveBeenCalled();

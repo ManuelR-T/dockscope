@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import type {
   V1DaemonSetList,
   V1DeploymentList,
+  V1Pod,
   V1PodList,
+  V1ReplicaSet,
   V1ReplicaSetList,
   V1StatefulSetList,
   V2HorizontalPodAutoscalerList,
@@ -17,7 +19,9 @@ import { listWorkloads, resolveHpaTarget, resolvePodOwner } from '../resources/w
  * the piece that is easy to get wrong.
  */
 
-function pod(namespace: string, name: string, owner?: { kind: string; name: string }) {
+// Fixtures are deliberately partial: the API types demand apiVersion and uid on
+// every owner reference, which say nothing about the behaviour under test.
+function pod(namespace: string, name: string, owner?: { kind: string; name: string }): V1Pod {
   return {
     metadata: {
       namespace,
@@ -26,10 +30,10 @@ function pod(namespace: string, name: string, owner?: { kind: string; name: stri
     },
     spec: { containers: [{ image: 'nginx:1.27' }] },
     status: { phase: 'Running', conditions: [{ type: 'Ready', status: 'True' }] },
-  };
+  } as unknown as V1Pod;
 }
 
-function replicaSet(namespace: string, name: string, deployment?: string) {
+function replicaSet(namespace: string, name: string, deployment?: string): V1ReplicaSet {
   return {
     metadata: {
       namespace,
@@ -38,7 +42,7 @@ function replicaSet(namespace: string, name: string, deployment?: string) {
         ? { ownerReferences: [{ kind: 'Deployment', name: deployment, controller: true }] }
         : {}),
     },
-  };
+  } as unknown as V1ReplicaSet;
 }
 
 function resources(overrides: Partial<Resources> = {}): Resources {

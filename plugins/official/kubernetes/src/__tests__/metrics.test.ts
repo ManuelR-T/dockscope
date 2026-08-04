@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { Metrics, PodMetric } from '@kubernetes/client-node';
+import type { Metrics, PodMetric, V1Pod } from '@kubernetes/client-node';
 import type { KubeClient } from '../client';
 import {
   PodMetricsCache,
@@ -66,33 +66,30 @@ describe('sumPodUsage', () => {
 });
 
 describe('podMemoryLimit', () => {
+  /** Only `resources` matters here; the API type also demands a name. */
+  function podWithLimits(...limits: (string | undefined)[]): V1Pod {
+    return {
+      spec: {
+        containers: limits.map((memory, index) => ({
+          name: `c${index}`,
+          resources: memory ? { limits: { memory } } : {},
+        })),
+      },
+    } as unknown as V1Pod;
+  }
+
   it('sums the container limits', () => {
-    expect(
-      podMemoryLimit({
-        spec: {
-          containers: [
-            { resources: { limits: { memory: '64Mi' } } },
-            { resources: { limits: { memory: '64Mi' } } },
-          ],
-        },
-      }),
-    ).toBe(128 * 1024 * 1024);
+    expect(podMemoryLimit(podWithLimits('64Mi', '64Mi'))).toBe(128 * 1024 * 1024);
   });
 
   // A single unbounded container means the pod as a whole can grow without a
   // ceiling, so reporting the partial sum would invent a limit that is not real.
   it('reports no limit when any container is unbounded', () => {
-    expect(
-      podMemoryLimit({
-        spec: {
-          containers: [{ resources: { limits: { memory: '64Mi' } } }, { resources: {} }],
-        },
-      }),
-    ).toBe(0);
+    expect(podMemoryLimit(podWithLimits('64Mi', undefined))).toBe(0);
   });
 
   it('reports no limit for a pod with no containers', () => {
-    expect(podMemoryLimit({ spec: { containers: [] } })).toBe(0);
+    expect(podMemoryLimit(podWithLimits())).toBe(0);
   });
 });
 

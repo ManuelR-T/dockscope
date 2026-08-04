@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Writable } from 'stream';
+import type { EntityRef } from 'dockscope';
 import type { KubeClient } from '../client';
 import { mergePatchOptions } from '../client';
 import { getLogsForPod, streamPodLogs } from '../resources/pods';
@@ -179,12 +180,18 @@ describe('streamPodLogs', () => {
   });
 });
 
+/** The host always supplies a node id alongside the entity id. */
+function entityRef(
+  entityId: string,
+  metadata: Record<string, string | number | boolean> = {},
+  name = 'web',
+): EntityRef {
+  return { entityId, nodeId: entityId, context: { nodeId: entityId, name, metadata } };
+}
+
 describe('entityActions', () => {
   function hpaRef(metadata: Record<string, string | number | boolean>) {
-    return {
-      entityId: 'k8s:hpa:default:web',
-      context: { name: 'web', metadata },
-    };
+    return entityRef('k8s:hpa:default:web', metadata);
   }
 
   it('pre-fills the replica bounds from the node metadata', () => {
@@ -200,8 +207,7 @@ describe('entityActions', () => {
   });
 
   it('offers the scale action only on autoscalers', () => {
-    const ids = (id: string) =>
-      entityActions({ entityId: id, context: { name: 'x', metadata: {} } }).map((a) => a.id);
+    const ids = (id: string) => entityActions(entityRef(id, {}, 'x')).map((a) => a.id);
 
     expect(ids('k8s:hpa:default:web')).toContain('set_hpa_constraints');
     expect(ids('k8s:pod:default:web-abc')).not.toContain('set_hpa_constraints');
@@ -373,7 +379,7 @@ describe('runResourceAction', () => {
 
 describe('workload action declarations', () => {
   function actionsFor(entityId: string, metadata: Record<string, string | number | boolean> = {}) {
-    return entityActions({ entityId, context: { name: 'web', metadata } });
+    return entityActions(entityRef(entityId, metadata));
   }
 
   it('offers restart on controllers and never on a pod', () => {

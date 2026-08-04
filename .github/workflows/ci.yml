@@ -172,6 +172,14 @@ jobs:
         run: |
           npm ci
           npm run build
+      # `vite build` runs esbuild, which strips types without checking them, so
+      # the build alone proves nothing about type safety.
+      - name: Typecheck official plugin
+        working-directory: plugins/official/kubernetes
+        run: npm run typecheck
+      - name: Lint official plugin
+        working-directory: plugins/official/kubernetes
+        run: npm run lint
       - name: Test official plugin
         working-directory: plugins/official/kubernetes
         run: npm test
@@ -201,6 +209,58 @@ jobs:
               --plugins "$plugin_dir" \
               --plugin-permissions all
           done
+
+  plugin-kubernetes-e2e:
+    name: Kubernetes Plugin (live cluster)
+    runs-on: ubuntu-latest
+    needs: [build, changes]
+    if: needs.changes.outputs.plugins == 'true'
+    # The plugin's unit tests mock the Kubernetes client, so they cannot see
+    # anything the API server decides. Bugs that shipped despite green unit
+    # tests -- swapped log arguments, every PATCH rejected as the wrong content
+    # type -- are only visible against a real cluster.
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v7
+        with:
+          name: dist
+          path: dist
+      - name: Build official plugin
+        working-directory: plugins/official/kubernetes
+        run: |
+          npm ci
+          npm run build
+      - name: Create cluster
+        uses: helm/kind-action@v1.12.0
+        with:
+          cluster_name: dockscope-e2e
+          node_image: kindest/node:v1.34.0
+      - name: Install metrics-server
+        run: |
+          kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.9.0/components.yaml
+          # kind's kubelet serves a self-signed certificate, which metrics-server
+          # rejects by default and then never reports a single sample.
+          kubectl patch -n kube-system deployment metrics-server --type=json \
+            -p '[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
+          kubectl rollout status -n kube-system deployment/metrics-server --timeout=240s
+      - name: Apply cluster fixture
+        run: |
+          kubectl apply -f scripts/k8s-e2e/fixture.yaml
+          kubectl rollout status deployment/e2e-web --timeout=240s
+          kubectl rollout status daemonset/e2e-agent --timeout=240s
+      - name: Exercise the plugin against the cluster
+        run: node scripts/k8s-e2e/smoke.mjs
+      - name: Dump cluster state on failure
+        if: failure()
+        run: |
+          kubectl get all --all-namespaces
+          kubectl describe pods -n default
+          kubectl logs -n kube-system deployment/metrics-server --tail=50 || true
 
   plugin-catalog:
     name: Official Plugin Catalog
