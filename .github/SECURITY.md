@@ -10,10 +10,42 @@ If you discover a security vulnerability in DockScope, please report it responsi
 
 ## Scope
 
-DockScope runs locally and connects to your Docker daemon. Security concerns include:
+DockScope connects to your Docker daemon and, through plugins, to Kubernetes clusters. It can exec into containers and pods, run lifecycle actions, and read environment variables, so treat access to it as equivalent to access to those systems.
 
-- Container action endpoints (start/stop/kill/remove) have no authentication
-- Log streaming exposes container output
-- Environment variable inspection may expose secrets (masked by default)
+## Access control
 
-**DockScope is designed for local development use.** Do not expose it to the public internet without adding authentication.
+Two independent layers, both worth understanding because they protect against different things:
+
+- **Origin checks (always on).** The API and WebSocket reject cross-origin browser requests, so a page you visit cannot drive a DockScope instance on your machine. Configure extra origins with `DOCKSCOPE_ALLOWED_ORIGINS`. This only constrains browsers.
+- **Access token (opt-in).** A shared secret required on every API request and WebSocket handshake. This is what protects against non-browser clients: curl, scripts, or any host that can reach the port. The dashboard holds an HttpOnly, SameSite=Strict session cookie once unlocked; other clients send `Authorization: Bearer <token>`.
+
+The token can be set two ways:
+
+- **`DOCKSCOPE_TOKEN`** in the environment. Takes precedence over anything stored, and disables the setup screen. Use this for deployments that configure themselves.
+- **The dashboard.** With no token set, the first-run screen offers to choose one, and the Security panel in the status bar can set, change or remove it at any time afterwards. It is stored as a salted scrypt hash in `~/.dockscope/auth.json` (mode 0600); the file is enough to verify a token, never to recover it. In the Docker image this lives under `/data`, which must be a mounted volume to survive a restart.
+
+  Changing or removing a token requires already holding it. Silencing the first-run reminder never prevents setting one later.
+
+Failed attempts are rate limited per source address: 10 failures trigger a 5 minute lockout, cleared by a success.
+
+- **Reverse-proxy authentication (opt-in).** `DOCKSCOPE_AUTH_PROXY_HEADER` plus `DOCKSCOPE_TRUSTED_PROXIES` lets an identity proxy (Authelia, Authentik, oauth2-proxy, Cloudflare Access) do the authenticating, which is the arrangement to prefer if you already run one. The header is only trusted when the connection came from a declared proxy address, so it cannot be forged by a direct caller.
+
+  Enabling it makes authentication **mandatory**: a request that bypasses the proxy is refused even when no token is configured, and first-run setup is switched off. Keep the port unpublished so the proxy is the only route in.
+
+### Claiming an unconfigured instance
+
+While no token is set there is no authentication, so whoever reaches the instance first could set one. To bound that:
+
+- From the machine running DockScope, setup is always available. Local access already implies control of the host.
+- From the network, setup is only available during the **first 15 minutes** after startup. After that it refuses and asks you to restart or set `DOCKSCOPE_TOKEN`.
+
+Without a token there is no authentication at all. Bound to loopback that is fine, and it stays the default so local use needs no configuration. The published Docker image sets `DOCKSCOPE_BIND=0.0.0.0`, so **publishing the port without a token exposes container and cluster exec to anything that can reach it.** DockScope prints a warning at startup when it detects this.
+
+Use a long random token (`openssl rand -hex 32`); it is a bearer secret with no rate limiting beyond a small fixed delay on failures.
+
+Remaining considerations:
+
+- Log streaming exposes container and pod output
+- Environment variable inspection may expose secrets (masked by default in the UI; Kubernetes secret references are shown as references, never resolved)
+
+**DockScope is designed for local development use.** Do not expose it to the public internet, even with a token, without putting it behind TLS and a reverse proxy you trust.

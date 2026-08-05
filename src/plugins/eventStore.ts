@@ -1,5 +1,5 @@
+import { statePath } from '../paths.js';
 import { mkdir, readFile, writeFile } from 'fs/promises';
-import { homedir } from 'os';
 import path from 'path';
 import type { PluginEvent } from '../core/plugin-contract/events.js';
 import type { PluginEventWriter } from '../core/plugin-contract/manifest.js';
@@ -68,6 +68,6 @@ export class JsonPluginEventStore implements PluginEventWriter {
 
 export function createPluginEventStoreFromEnv(env: NodeJS.ProcessEnv): JsonPluginEventStore {
   return new JsonPluginEventStore(
-    env.DOCKSCOPE_PLUGIN_EVENTS || path.join(homedir(), '.dockscope', 'plugin-events.json'),
+    env.DOCKSCOPE_PLUGIN_EVENTS || statePath(env, 'plugin-events.json'),
   );
 }

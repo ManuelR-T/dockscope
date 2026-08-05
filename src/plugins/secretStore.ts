@@ -1,6 +1,6 @@
+import { statePath } from '../paths.js';
 import { mkdir, readFile, writeFile } from 'fs/promises';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypto';
-import { homedir } from 'os';
 import path from 'path';
 
 interface EncryptedPluginSecret {
@@ -140,7 +140,7 @@ export class JsonPluginSecretStore implements PluginSecretStore {
 
 export function createPluginSecretStoreFromEnv(env: NodeJS.ProcessEnv): PluginSecretStore {
   return new JsonPluginSecretStore(
-    env.DOCKSCOPE_PLUGIN_SECRETS || path.join(homedir(), '.dockscope', 'plugin-secrets.json'),
+    env.DOCKSCOPE_PLUGIN_SECRETS || statePath(env, 'plugin-secrets.json'),
     env.DOCKSCOPE_PLUGIN_SECRET_KEY,
   );
 }

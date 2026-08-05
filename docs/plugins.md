@@ -228,7 +228,7 @@ dockscope plugin:uninstall example.plugin
 dockscope plugin:catalog:install example.plugin --catalog ./plugin-catalog.json
 ```
 
-Installed plugins are copied into `~/.dockscope/plugins` by default and are loaded automatically on `dockscope up`. Installing also grants the plugin its reviewed permissions, so installed plugins load without a `--plugin-permissions` policy (see [Permissions](#permissions)). Use `--plugin-registry` or `DOCKSCOPE_PLUGIN_REGISTRY` to point DockScope at another local registry:
+Installed plugins are copied into `~/.dockscope/plugins` by default and are loaded automatically on `dockscope up`. That path, and every other plugin store, sits under `DOCKSCOPE_STATE_DIR` when it is set, which is how the Docker image keeps them on a mounted volume. Installing also grants the plugin its reviewed permissions, so installed plugins load without a `--plugin-permissions` policy (see [Permissions](#permissions)). Use `--plugin-registry` or `DOCKSCOPE_PLUGIN_REGISTRY` to point DockScope at another local registry:
 
 ```bash
 dockscope up --plugin-registry ./installed-plugins

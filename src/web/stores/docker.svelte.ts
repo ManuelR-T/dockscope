@@ -114,6 +114,13 @@ function mergeGraph(incoming: GraphData) {
   scheduleRolloutPrune();
 }
 
+/** Called when a WebSocket handshake closed without ever opening. */
+let onHandshakeRefused: (() => void) | null = null;
+
+export function setHandshakeRefusedHandler(handler: (() => void) | null): void {
+  onHandshakeRefused = handler;
+}
+
 function isSocketActive(socket: WebSocket | null): boolean {
   return socket?.readyState === WebSocket.CONNECTING || socket?.readyState === WebSocket.OPEN;
 }
@@ -130,11 +137,13 @@ function connect() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const socket = new WebSocket(`${protocol}//${window.location.host}/ws`);
   ws = socket;
+  let opened = false;
 
   socket.onopen = () => {
     if (ws !== socket) {
       return;
     }
+    opened = true;
     connected = true;
     sendLogSubscription();
   };
@@ -145,6 +154,13 @@ function connect() {
     }
     connected = false;
     ws = null;
+    // A handshake that never opened may have been refused rather than dropped.
+    // Sessions live in memory, so every server restart invalidates them, and
+    // without this the tab would reconnect forever behind a working-looking
+    // dashboard instead of asking for the token again.
+    if (!opened) {
+      onHandshakeRefused?.();
+    }
     scheduleReconnect();
   };
 
@@ -250,7 +266,12 @@ export function initDocker() {
   fetch('/api/graph')
     .then((r) => r.json())
     .then((data) => {
-      mergeGraph(data);
+      // Not while replaying: the recording owns the graph. This matters now
+      // that a session can be torn down and restarted underneath a replay, when
+      // an expired token puts the login gate up and the user signs back in.
+      if (!replayMode) {
+        mergeGraph(data);
+      }
     })
     .catch(() => {});
 

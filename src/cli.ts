@@ -8,6 +8,13 @@ import { createConnection } from 'net';
 import path from 'path';
 import { startServer } from './server/index.js';
 import { buildGraph, checkConnection, initDockerClient } from './docker/client.js';
+import {
+  MIN_TOKEN_LENGTH,
+  isExposedWithoutAuth,
+  readProxyAuthConfig,
+  tokenIsWeak,
+} from './server/auth.js';
+import { AuthStore, authStorePath, resolveAuthConfig } from './server/authStore.js';
 import { PKG_VERSION, fetchLatestVersion } from './version.js';
 import {
   loadExternalPlugins,
@@ -434,6 +441,36 @@ program
     console.log(`  Dashboard: ${url}`);
     console.log(`  API:       ${url}/api/graph`);
     console.log(`  WebSocket: ws://localhost:${port}/ws\n`);
+
+    const authConfig = resolveAuthConfig(
+      process.env,
+      await new AuthStore(authStorePath(process.env)).read(),
+    );
+    const proxyAuth = readProxyAuthConfig(process.env);
+    if (proxyAuth.enabled) {
+      console.log(
+        `  \x1b[32mAuthenticated by proxy (${proxyAuth.header} from ${proxyAuth.trustedProxies.join(', ')})\x1b[0m\n`,
+      );
+    }
+    if (authConfig.enabled) {
+      const via = authConfig.source === 'env' ? 'DOCKSCOPE_TOKEN' : 'configured in the dashboard';
+      console.log(`  \x1b[32mAccess token required (${via})\x1b[0m\n`);
+    }
+    if (tokenIsWeak(authConfig)) {
+      console.log(
+        `  \x1b[33mDOCKSCOPE_TOKEN is shorter than ${MIN_TOKEN_LENGTH} characters — use a longer secret\x1b[0m\n`,
+      );
+    }
+    // The published image sets DOCKSCOPE_BIND=0.0.0.0, so anyone who publishes
+    // the port without a token hands out container and cluster exec. A proxy in
+    // front is already doing the job, so it silences this.
+    if (!proxyAuth.enabled && isExposedWithoutAuth(bind, authConfig)) {
+      console.log(
+        `  \x1b[33mWarning: listening on ${bind} with no access token.\x1b[0m\n` +
+          '  Anything that can reach this port can exec into your containers.\n' +
+          '  Open the dashboard to set one, or set DOCKSCOPE_TOKEN.\n',
+      );
+    }
     console.log('  Star DockScope if it helps: https://github.com/ManuelR-T/dockscope\n');
     console.log('  Press Ctrl+C to stop\n');
 

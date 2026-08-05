@@ -1,3 +1,4 @@
+import { statePath } from '../paths.js';
 // Persistence for user-added plugin catalogs.
 //
 // Adding a catalog is a trust decision, not just a URL entry: every catalog is
@@ -8,7 +9,6 @@
 
 import { createHash } from 'crypto';
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'fs/promises';
-import { homedir } from 'os';
 import path from 'path';
 
 export interface StoredPluginCatalog {
@@ -151,7 +151,7 @@ export class JsonPluginCatalogStore implements PluginCatalogStore {
 }
 
 export function pluginCatalogStorePath(env: NodeJS.ProcessEnv): string {
-  return env.DOCKSCOPE_PLUGIN_CATALOGS || path.join(homedir(), '.dockscope', 'catalogs.json');
+  return env.DOCKSCOPE_PLUGIN_CATALOGS || statePath(env, 'catalogs.json');
 }
 
 export function createPluginCatalogStoreFromEnv(env: NodeJS.ProcessEnv): PluginCatalogStore {

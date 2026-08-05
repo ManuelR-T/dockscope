@@ -39,9 +39,24 @@ async function parseResponseBody(response: Response): Promise<unknown> {
   return response.text().catch(() => null);
 }
 
+/**
+ * Notified whenever the server rejects us as unauthenticated.
+ *
+ * A hook rather than a direct call into the auth store, which imports this
+ * module: the dependency has to point one way.
+ */
+let onUnauthorized: (() => void) | null = null;
+
+export function setUnauthorizedHandler(handler: (() => void) | null): void {
+  onUnauthorized = handler;
+}
+
 async function assertOk(response: Response): Promise<void> {
   if (response.ok) {
     return;
+  }
+  if (response.status === 401) {
+    onUnauthorized?.();
   }
 
   const body = await parseResponseBody(response);

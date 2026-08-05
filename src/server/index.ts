@@ -11,6 +11,9 @@ import { setupRoutes } from './routes.js';
 import type { ServerOptions, ServerHandle, WSMessage } from '../types.js';
 import { setupWebSocketHandlers } from './websocket.js';
 import { isAllowedCorsOrigin, isAllowedWsOrigin, parseAllowedOrigins } from './origin.js';
+import { isAuthorized, readProxyAuthConfig } from './auth.js';
+import { createAuthRuntime, setupAuth } from './authRoutes.js';
+import { AuthStore, authStorePath, resolveAuthConfig } from './authStore.js';
 import { createServerMonitor } from './monitor.js';
 import { createPluginRegistry } from '../plugins/internal.js';
 import {
@@ -94,18 +97,41 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
   // or WebSocket (exec, lifecycle actions) against a user's Docker daemon.
   const allowedOrigins = parseAllowedOrigins(process.env);
 
+  // Optional shared secret in front of the API and WebSocket, for instances
+  // reachable by anything other than this machine. Set through the environment
+  // or, when it isn't, through the first-run setup screen.
+  const authStore = new AuthStore(authStorePath(process.env));
+  const auth = createAuthRuntime(
+    resolveAuthConfig(process.env, await authStore.read()),
+    readProxyAuthConfig(process.env),
+  );
+
   const app = express();
   app.use(
     cors({ origin: (origin, cb) => cb(null, isAllowedCorsOrigin({ origin, allowedOrigins })) }),
   );
   app.use(express.json());
+  setupAuth(app, auth, authStore);
 
   const server = createServer(app);
   const wss = new WebSocketServer({
     server,
     path: '/ws',
     verifyClient: (info: { origin: string; req: IncomingMessage }) =>
-      isAllowedWsOrigin({ origin: info.origin, host: info.req.headers.host, allowedOrigins }),
+      isAllowedWsOrigin({ origin: info.origin, host: info.req.headers.host, allowedOrigins }) &&
+      // The socket carries exec and lifecycle actions, so it is gated exactly
+      // like the API. Browsers cannot set headers on a WebSocket, which is why
+      // the session lives in a cookie: the handshake carries it automatically.
+      isAuthorized({
+        config: auth.current(),
+        sessions: auth.sessions,
+        cookieHeader: info.req.headers.cookie,
+        authorization: info.req.headers.authorization,
+        verified: auth.verified,
+        proxy: auth.proxy,
+        headers: info.req.headers,
+        remoteAddress: info.req.socket.remoteAddress ?? undefined,
+      }),
   });
 
   // Metric history storage (shared with routes)

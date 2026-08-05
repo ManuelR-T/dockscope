@@ -1,5 +1,5 @@
+import { statePath } from '../paths.js';
 import { mkdir, readFile, writeFile } from 'fs/promises';
-import { homedir } from 'os';
 import path from 'path';
 import {
   defaultPluginConfig,
@@ -69,7 +69,7 @@ export class JsonPluginConfigStore implements PluginConfigStore {
 
 export function createPluginConfigStoreFromEnv(env: NodeJS.ProcessEnv): PluginConfigStore {
   return new JsonPluginConfigStore(
-    env.DOCKSCOPE_PLUGIN_CONFIG || path.join(homedir(), '.dockscope', 'plugin-config.json'),
+    env.DOCKSCOPE_PLUGIN_CONFIG || statePath(env, 'plugin-config.json'),
   );
 }
 

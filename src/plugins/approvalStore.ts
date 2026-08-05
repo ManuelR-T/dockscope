@@ -1,5 +1,5 @@
+import { statePath } from '../paths.js';
 import { mkdir, readFile, writeFile } from 'fs/promises';
-import { homedir } from 'os';
 import path from 'path';
 import type {
   PluginApprovalSnapshot,
@@ -66,6 +66,6 @@ export class JsonPluginApprovalStore implements PluginApprovalWriter {
 
 export function createPluginApprovalStoreFromEnv(env: NodeJS.ProcessEnv): JsonPluginApprovalStore {
   return new JsonPluginApprovalStore(
-    env.DOCKSCOPE_PLUGIN_APPROVALS || path.join(homedir(), '.dockscope', 'plugin-approvals.json'),
+    env.DOCKSCOPE_PLUGIN_APPROVALS || statePath(env, 'plugin-approvals.json'),
   );
 }

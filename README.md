@@ -45,14 +45,47 @@ dockscope up
 ### Docker (no Node.js needed)
 
 ```bash
-docker run --rm --pull always -p 4681:4681 -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/manuelr-t/dockscope
+docker run --rm --pull always -p 4681:4681 \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v dockscope-data:/data \
+  ghcr.io/manuelr-t/dockscope
 ```
+
+> `-v dockscope-data:/data` keeps the access token (and other state) across restarts. Without it, `--rm` throws it away and the instance is claimable again every time it starts.
 
 > **Note:** The Docker image does not include Compose project management (up/down/destroy) since it cannot access host compose files. All other features work normally.
 
 > **Security:** Mounting `/var/run/docker.sock` gives DockScope control over the host Docker daemon, including container actions and exec access. Only run it on trusted machines and networks.
 >
 > The API and WebSocket reject cross-origin browser requests, so a website you visit cannot reach a DockScope instance running on your machine. Same-origin and loopback access work out of the box. If you serve DockScope behind a reverse proxy or custom domain, list the browser-facing origins in `DOCKSCOPE_ALLOWED_ORIGINS` (comma-separated, e.g. `https://dock.example.com`).
+>
+> Those origin checks only stop browsers. Anything else that can reach the port (curl, a script, another host on the network) is unaffected, so an exposed instance wants an access token.
+>
+> **The dashboard offers to set one on first load.** Pick a token, and DockScope stores it hashed in `~/.dockscope/auth.json` and asks for it from then on. Choose "Not now" and it leaves you alone until the next reload. Nothing needs configuring up front, and the dashboard stays usable while you decide.
+>
+> The **Security** button in the status bar shows the current state (`OPEN`, `TOKEN` or `PROXY`) and is where you set, change or remove the token later, or turn the reminder off for good.
+>
+> To pin the token instead of choosing it in the browser, set `DOCKSCOPE_TOKEN`; it overrides whatever is stored and disables the setup screen:
+>
+> ```bash
+> docker run --rm -p 4681:4681 -e DOCKSCOPE_TOKEN="$(openssl rand -hex 32)" \
+>   -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/manuelr-t/dockscope
+> ```
+>
+> The dashboard keeps a session cookie once unlocked; scripts send `Authorization: Bearer <token>`. While no token is set there is no authentication at all, and DockScope warns at startup if it is exposed that way.
+>
+> One limit worth knowing: an instance reachable over the network can only be claimed through the setup screen during the **first 15 minutes** after it starts. Otherwise anyone who found an exposed, unconfigured instance could claim it and lock you out. From the machine running DockScope there is no time limit. If the window closes, restart it or set `DOCKSCOPE_TOKEN`.
+>
+> **Already have SSO?** If you run an identity proxy (Authelia, Authentik, oauth2-proxy, Cloudflare Access), let DockScope inherit it instead of managing a second secret. Point it at the header your proxy sets and at the addresses it comes from:
+>
+> ```bash
+> -e DOCKSCOPE_AUTH_PROXY_HEADER=Remote-User \
+> -e DOCKSCOPE_TRUSTED_PROXIES=172.18.0.0/16
+> ```
+>
+> The header is only believed when the connection came from one of those addresses, so it cannot be spoofed by someone reaching the port directly. Setting this makes authentication mandatory: requests that go around the proxy are refused even with no token configured, and the setup screen stops appearing. Keep the port unpublished so the proxy is the only way in.
+>
+> Failed token attempts are rate limited per source (10 tries, then a 5 minute lockout).
 
 ## CLI
 
@@ -107,6 +140,31 @@ The `plugin:*` commands are documented in [docs/plugins.md](docs/plugins.md).
 
 </details>
 
+<details>
+<summary><b>Environment variables</b></summary>
+
+| Variable                      | Default                 | Purpose                                                                            |
+| ----------------------------- | ----------------------- | ---------------------------------------------------------------------------------- |
+| `DOCKSCOPE_TOKEN`             | -                       | Access token. Overrides one set in the dashboard and hides the setup screen        |
+| `DOCKSCOPE_STATE_DIR`         | `~/.dockscope`          | Where all persistent state lives: token, plugin config, secrets, installed plugins |
+| `DOCKSCOPE_AUTH_FILE`         | `<state dir>/auth.json` | Move just the token file, leaving the rest in place                                |
+| `DOCKSCOPE_BIND`              | `127.0.0.1`             | Listen address (`0.0.0.0` inside a container)                                      |
+| `DOCKSCOPE_ALLOWED_ORIGINS`   | -                       | Extra browser origins allowed to reach the API and WebSocket                       |
+| `DOCKSCOPE_AUTH_PROXY_HEADER` | -                       | Header carrying the user your identity proxy authenticated                         |
+| `DOCKSCOPE_TRUSTED_PROXIES`   | -                       | Addresses or CIDRs that header is believed from                                    |
+| `DOCKSCOPE_NO_COMPOSE`        | -                       | Disable Compose project management (set in the Docker image)                       |
+
+`DOCKSCOPE_STATE_DIR` is the one that matters in a container: the image points it
+at `/data` and declares it a volume, so mounting `-v dockscope-data:/data` is what
+keeps your token and plugins across restarts.
+
+The plugin stores can each be redirected individually with `DOCKSCOPE_PLUGIN_CONFIG`,
+`DOCKSCOPE_PLUGIN_STATE`, `DOCKSCOPE_PLUGIN_SECRETS`, `DOCKSCOPE_PLUGIN_APPROVALS`,
+`DOCKSCOPE_PLUGIN_EVENTS`, `DOCKSCOPE_PLUGIN_CATALOGS` and `DOCKSCOPE_PLUGIN_REGISTRY`;
+see [docs/plugins.md](docs/plugins.md).
+
+</details>
+
 ## What you can do with it
 
 ### Read the whole stack at a glance
@@ -151,11 +209,11 @@ search and `.txt` export; an interactive `/bin/sh` terminal; env vars with
 secrets masked by default; labels, mounts, running processes, and the
 filesystem diff against the image.
 
-| Environment and labels | Processes |
-| ---------------------- | --------- |
-| <img src="assets/screenshots/sidebar-env.png" alt="Env tab with environment variables and Compose labels" width="330"> | <img src="assets/screenshots/sidebar-top.png" alt="Processes running inside the container" width="330"> |
-| **Filesystem diff** | **Logs** |
-| <img src="assets/screenshots/sidebar-diff.png" alt="Filesystem changes against the image, added, changed and deleted" width="330"> | <img src="assets/screenshots/sidebar-logs.png" alt="Live log stream with in-log search" width="330"> |
+| Environment and labels                                                                                                             | Processes                                                                                               |
+| ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| <img src="assets/screenshots/sidebar-env.png" alt="Env tab with environment variables and Compose labels" width="330">             | <img src="assets/screenshots/sidebar-top.png" alt="Processes running inside the container" width="330"> |
+| **Filesystem diff**                                                                                                                | **Logs**                                                                                                |
+| <img src="assets/screenshots/sidebar-diff.png" alt="Filesystem changes against the image, added, changed and deleted" width="330"> | <img src="assets/screenshots/sidebar-logs.png" alt="Live log stream with in-log search" width="330">    |
 
 Start, stop, restart, pause, unpause, kill and remove are there too, with a
 confirmation step on the destructive ones. Whole Compose projects go up and

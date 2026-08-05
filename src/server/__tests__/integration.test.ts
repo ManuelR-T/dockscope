@@ -1,4 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { randomUUID } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import type { GraphData, ServerHandle } from '../../types';
 
@@ -128,6 +132,36 @@ function requiredLogCallback(callback: ((text: string) => void) | null): (text: 
   }
   return callback;
 }
+
+/**
+ * Auth state is read from the environment at startup, so every test in this
+ * file gets a throwaway file. Without this the suite reads whatever the
+ * developer has configured in `~/.dockscope/auth.json` and fails on their
+ * machine while passing in CI. Individual describes override these afterwards.
+ */
+let sharedAuthDir = '';
+
+beforeAll(async () => {
+  sharedAuthDir = await mkdtemp(path.join(tmpdir(), 'dockscope-it-shared-'));
+});
+
+afterAll(async () => {
+  await rm(sharedAuthDir, { recursive: true, force: true });
+});
+
+beforeEach(() => {
+  delete process.env.DOCKSCOPE_TOKEN;
+  delete process.env.DOCKSCOPE_AUTH_PROXY_HEADER;
+  delete process.env.DOCKSCOPE_TRUSTED_PROXIES;
+  process.env.DOCKSCOPE_AUTH_FILE = path.join(sharedAuthDir, `${randomUUID()}.json`);
+});
+
+afterEach(() => {
+  delete process.env.DOCKSCOPE_TOKEN;
+  delete process.env.DOCKSCOPE_AUTH_PROXY_HEADER;
+  delete process.env.DOCKSCOPE_TRUSTED_PROXIES;
+  delete process.env.DOCKSCOPE_AUTH_FILE;
+});
 
 describe('server integration', () => {
   let server: ServerHandle | null = null;
@@ -491,6 +525,604 @@ describe('server integration', () => {
     server = await startTestServer();
     const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`, {
       origin: `http://127.0.0.1:${server.port}`,
+    });
+
+    const initial = await readWsMessage(ws);
+    expect(initial).toEqual({ type: 'graph', data: mockGraph });
+    ws.close();
+  });
+});
+
+/**
+ * The origin checks above stop a web page driving the API; they do nothing
+ * about anything that can open a socket. These cover the token gate end to end,
+ * because the pure functions cannot show middleware ordering or that the
+ * WebSocket upgrade is actually refused.
+ */
+describe('access token', () => {
+  const TOKEN = 'integration-test-token';
+  let server: ServerHandle | null = null;
+  let authDir = '';
+
+  beforeAll(async () => {
+    authDir = await mkdtemp(path.join(tmpdir(), 'dockscope-it-auth-'));
+  });
+
+  afterAll(async () => {
+    await rm(authDir, { recursive: true, force: true });
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.checkConnection.mockResolvedValue(true);
+    mocks.buildGraph.mockResolvedValue(mockGraph);
+    // The graph has to reach the handler for real, so an authorised request can
+    // be distinguished from one that merely got past the middleware.
+    const source = {
+      id: 'local',
+      label: 'local',
+      kind: 'docker',
+      pluginId: 'core.docker',
+      capabilities: ['source.graph'],
+      status: 'connected',
+    };
+    mocks.listDockerGraphSources.mockReturnValue([
+      {
+        describe: () => source,
+        collectGraph: async () => ({ source, graph: mockGraph, collectedAt: 1 }),
+        startEvents: mocks.watchEvents,
+      },
+    ]);
+    mocks.listDockerHosts.mockReturnValue([]);
+    mocks.watchEvents.mockReturnValue(vi.fn());
+    process.env.DOCKSCOPE_TOKEN = TOKEN;
+    // Never let a test read or write the developer's own state file.
+    process.env.DOCKSCOPE_AUTH_FILE = path.join(authDir, 'auth.json');
+  });
+
+  afterEach(async () => {
+    delete process.env.DOCKSCOPE_TOKEN;
+    delete process.env.DOCKSCOPE_AUTH_FILE;
+    await server?.close();
+    server = null;
+  });
+
+  const base = () => `http://127.0.0.1:${server!.port}`;
+
+  async function openSession(): Promise<string> {
+    const response = await fetch(`${base()}/api/auth/session`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: TOKEN }),
+    });
+    expect(response.status).toBe(200);
+    const cookie = response.headers.get('set-cookie');
+    expect(cookie).toBeTruthy();
+    return cookie!.split(';')[0]!;
+  }
+
+  it('refuses an API request that carries no credentials', async () => {
+    server = await startTestServer();
+    const response = await fetch(`${base()}/api/graph`);
+    expect(response.status).toBe(401);
+  });
+
+  it('still answers the status check, so the UI knows to prompt', async () => {
+    server = await startTestServer();
+    const response = await fetch(`${base()}/api/auth`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ required: true, authenticated: false });
+  });
+
+  it('refuses the wrong token and hands out no cookie', async () => {
+    server = await startTestServer();
+    const response = await fetch(`${base()}/api/auth/session`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: 'wrong' }),
+    });
+    expect(response.status).toBe(401);
+    expect(response.headers.get('set-cookie')).toBeNull();
+  });
+
+  it('issues an HttpOnly session for the right token', async () => {
+    server = await startTestServer();
+    const response = await fetch(`${base()}/api/auth/session`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: TOKEN }),
+    });
+
+    expect(response.status).toBe(200);
+    const cookie = response.headers.get('set-cookie') ?? '';
+    expect(cookie).toContain('HttpOnly');
+    expect(cookie).toContain('SameSite=Strict');
+    // Plain HTTP here, so marking it Secure would stop it being sent at all.
+    expect(cookie).not.toContain('Secure');
+  });
+
+  it('accepts an API request carrying the session', async () => {
+    server = await startTestServer();
+    const cookie = await openSession();
+
+    const response = await fetch(`${base()}/api/graph`, { headers: { cookie } });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(mockGraph);
+  });
+
+  it('accepts the raw token as a bearer header, for non-browser clients', async () => {
+    server = await startTestServer();
+    const response = await fetch(`${base()}/api/graph`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(response.status).toBe(200);
+  });
+
+  it('stops honouring a session after sign-out', async () => {
+    server = await startTestServer();
+    const cookie = await openSession();
+
+    await fetch(`${base()}/api/auth/session`, { method: 'DELETE', headers: { cookie } });
+
+    const response = await fetch(`${base()}/api/graph`, { headers: { cookie } });
+    expect(response.status).toBe(401);
+  });
+
+  // The socket carries exec and lifecycle actions, so leaving it open would
+  // make gating the REST API pointless.
+  it('refuses a WebSocket handshake with no session', async () => {
+    server = await startTestServer();
+    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`, {
+      origin: base(),
+    });
+
+    const outcome = await new Promise<'open' | 'rejected'>((resolve) => {
+      ws.once('open', () => resolve('open'));
+      ws.once('error', () => resolve('rejected'));
+      ws.once('unexpected-response', () => resolve('rejected'));
+    });
+
+    expect(outcome).toBe('rejected');
+    ws.close();
+  });
+
+  it('accepts a WebSocket handshake carrying the session cookie', async () => {
+    server = await startTestServer();
+    const cookie = await openSession();
+
+    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`, {
+      origin: base(),
+      headers: { cookie },
+    });
+
+    const initial = await readWsMessage(ws);
+    expect(initial).toEqual({ type: 'graph', data: mockGraph });
+    ws.close();
+  });
+
+  it('reports that the token is pinned by the environment', async () => {
+    server = await startTestServer();
+    const status = await (await fetch(`${base()}/api/auth`)).json();
+    expect(status).toMatchObject({ required: true, managedByEnv: true, setup: 'configured' });
+  });
+
+  /**
+   * Regression: every endpoint returned whichever fields it happened to know,
+   * and the client filled the gaps with defaults. Signing in answered without
+   * `managedByEnv`, so the dashboard forgot the token was pinned by
+   * DOCKSCOPE_TOKEN and started offering to change it.
+   */
+  it('answers every auth endpoint with the same status shape', async () => {
+    server = await startTestServer();
+    const shape = ['required', 'authenticated', 'managedByEnv', 'viaProxy', 'setup'];
+
+    const status = await (await fetch(`${base()}/api/auth`)).json();
+    const login = await fetch(`${base()}/api/auth/session`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: TOKEN }),
+    });
+    const cookie = login.headers.get('set-cookie')!.split(';')[0]!;
+    const loggedIn = await login.json();
+    const signedOut = await (
+      await fetch(`${base()}/api/auth/session`, { method: 'DELETE', headers: { cookie } })
+    ).json();
+
+    for (const body of [status, loggedIn, signedOut]) {
+      expect(Object.keys(body)).toEqual(expect.arrayContaining(shape));
+      expect(body.managedByEnv).toBe(true);
+    }
+    expect(loggedIn.authenticated).toBe(true);
+    expect(signedOut.authenticated).toBe(false);
+  });
+});
+
+/**
+ * First-run setup: with no token anywhere, the dashboard is open but offers to
+ * claim the instance. Tests connect over loopback, which is always allowed.
+ */
+describe('first-run setup', () => {
+  let server: ServerHandle | null = null;
+  let authDir = '';
+
+  beforeAll(async () => {
+    authDir = await mkdtemp(path.join(tmpdir(), 'dockscope-it-setup-'));
+  });
+
+  afterAll(async () => {
+    await rm(authDir, { recursive: true, force: true });
+  });
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    mocks.checkConnection.mockResolvedValue(true);
+    mocks.buildGraph.mockResolvedValue(mockGraph);
+    const source = {
+      id: 'local',
+      label: 'local',
+      kind: 'docker',
+      pluginId: 'core.docker',
+      capabilities: ['source.graph'],
+      status: 'connected',
+    };
+    mocks.listDockerGraphSources.mockReturnValue([
+      {
+        describe: () => source,
+        collectGraph: async () => ({ source, graph: mockGraph, collectedAt: 1 }),
+        startEvents: mocks.watchEvents,
+      },
+    ]);
+    mocks.listDockerHosts.mockReturnValue([]);
+    mocks.watchEvents.mockReturnValue(vi.fn());
+    delete process.env.DOCKSCOPE_TOKEN;
+    // A fresh file per test, so one test's token cannot leak into the next.
+    process.env.DOCKSCOPE_AUTH_FILE = path.join(authDir, `${randomUUID()}.json`);
+  });
+
+  afterEach(async () => {
+    delete process.env.DOCKSCOPE_AUTH_FILE;
+    await server?.close();
+    server = null;
+  });
+
+  const base = () => `http://127.0.0.1:${server!.port}`;
+
+  const setup = (token: string) =>
+    fetch(`${base()}/api/auth/setup`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token }),
+    });
+
+  it('offers setup and leaves the dashboard usable meanwhile', async () => {
+    server = await startTestServer();
+
+    expect(await (await fetch(`${base()}/api/auth`)).json()).toMatchObject({
+      required: false,
+      authenticated: true,
+      setup: 'available',
+    });
+    expect((await fetch(`${base()}/api/graph`)).status).toBe(200);
+  });
+
+  it('refuses a token that is too short to be worth having', async () => {
+    server = await startTestServer();
+    const response = await setup('short');
+    expect(response.status).toBe(400);
+    expect((await (await fetch(`${base()}/api/auth`)).json()).required).toBe(false);
+  });
+
+  it('locks the instance and signs in whoever set it up', async () => {
+    server = await startTestServer();
+
+    const response = await setup('a-perfectly-good-token');
+    expect(response.status).toBe(200);
+    // Handing back a session is what stops setup locking you out of the page
+    // you are looking at.
+    const cookie = response.headers.get('set-cookie')?.split(';')[0];
+    expect(cookie).toBeTruthy();
+
+    expect((await fetch(`${base()}/api/graph`)).status).toBe(401);
+    expect((await fetch(`${base()}/api/graph`, { headers: { cookie: cookie! } })).status).toBe(200);
+  });
+
+  it('accepts the freshly chosen token as a bearer credential', async () => {
+    server = await startTestServer();
+    await setup('a-perfectly-good-token');
+
+    const response = await fetch(`${base()}/api/graph`, {
+      headers: { authorization: 'Bearer a-perfectly-good-token' },
+    });
+    expect(response.status).toBe(200);
+  });
+
+  it('keeps the token across a restart', async () => {
+    server = await startTestServer();
+    await setup('a-perfectly-good-token');
+    await server.close();
+
+    server = await startTestServer();
+    expect((await fetch(`${base()}/api/graph`)).status).toBe(401);
+    expect(
+      (
+        await fetch(`${base()}/api/graph`, {
+          headers: { authorization: 'Bearer a-perfectly-good-token' },
+        })
+      ).status,
+    ).toBe(200);
+  });
+
+  // Claiming is for an unclaimed instance; changing an existing token requires
+  // already holding it.
+  it('refuses to overwrite the token without credentials', async () => {
+    server = await startTestServer();
+    await setup('a-perfectly-good-token');
+
+    expect((await setup('someone-elses-token')).status).toBe(401);
+  });
+
+  it('lets an authenticated user change the token', async () => {
+    server = await startTestServer();
+    const first = await setup('a-perfectly-good-token');
+    const cookie = first.headers.get('set-cookie')!.split(';')[0]!;
+
+    const changed = await fetch(`${base()}/api/auth/setup`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({ token: 'the-second-good-token' }),
+    });
+    expect(changed.status).toBe(200);
+
+    expect(
+      (
+        await fetch(`${base()}/api/graph`, {
+          headers: { authorization: 'Bearer the-second-good-token' },
+        })
+      ).status,
+    ).toBe(200);
+    // The old one stops working, which is the point of changing it.
+    expect(
+      (
+        await fetch(`${base()}/api/graph`, {
+          headers: { authorization: 'Bearer a-perfectly-good-token' },
+        })
+      ).status,
+    ).toBe(401);
+  });
+
+  /**
+   * Regression: sessions are verified by id alone, so a cookie issued under the
+   * previous token kept working after a rotation. Rotating is normally a
+   * response to the token being exposed, which made it worthless.
+   */
+  it('cuts off sessions issued under the previous token', async () => {
+    server = await startTestServer();
+    const claimed = await setup('a-perfectly-good-token');
+    const oldCookie = claimed.headers.get('set-cookie')!.split(';')[0]!;
+
+    expect((await fetch(`${base()}/api/graph`, { headers: { cookie: oldCookie } })).status).toBe(
+      200,
+    );
+
+    const rotated = await fetch(`${base()}/api/auth/setup`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: oldCookie },
+      body: JSON.stringify({ token: 'the-rotated-good-token' }),
+    });
+    expect(rotated.status).toBe(200);
+
+    // The cookie that performed the rotation is replaced, not merely kept.
+    const newCookie = rotated.headers.get('set-cookie')!.split(';')[0]!;
+    expect(newCookie).not.toBe(oldCookie);
+
+    expect((await fetch(`${base()}/api/graph`, { headers: { cookie: oldCookie } })).status).toBe(
+      401,
+    );
+    expect((await fetch(`${base()}/api/graph`, { headers: { cookie: newCookie } })).status).toBe(
+      200,
+    );
+  });
+
+  it('cuts off sessions when the token is removed', async () => {
+    server = await startTestServer();
+    const claimed = await setup('a-perfectly-good-token');
+    const cookie = claimed.headers.get('set-cookie')!.split(';')[0]!;
+
+    await fetch(`${base()}/api/auth/token`, { method: 'DELETE', headers: { cookie } });
+    // Auth is off now, so the request succeeds on its own merits; what matters
+    // is that the session itself is gone if a token is set again.
+    await setup('a-second-good-token');
+    expect((await fetch(`${base()}/api/graph`, { headers: { cookie } })).status).toBe(401);
+  });
+
+  it('removes the token again, reopening the instance', async () => {
+    server = await startTestServer();
+    const claimed = await setup('a-perfectly-good-token');
+    const cookie = claimed.headers.get('set-cookie')!.split(';')[0]!;
+
+    const removed = await fetch(`${base()}/api/auth/token`, {
+      method: 'DELETE',
+      headers: { cookie },
+    });
+    expect(removed.status).toBe(200);
+    expect((await fetch(`${base()}/api/graph`)).status).toBe(200);
+
+    // And it stays removed across a restart.
+    await server.close();
+    server = await startTestServer();
+    expect((await (await fetch(`${base()}/api/auth`)).json()).required).toBe(false);
+  });
+
+  it('refuses to remove the token without credentials', async () => {
+    server = await startTestServer();
+    await setup('a-perfectly-good-token');
+    expect((await fetch(`${base()}/api/auth/token`, { method: 'DELETE' })).status).toBe(401);
+  });
+
+  const setReminder = (declined: boolean) =>
+    fetch(`${base()}/api/auth/reminder`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ declined }),
+    });
+
+  it('stops offering setup once the reminder is declined, and remembers it', async () => {
+    server = await startTestServer();
+    expect((await setReminder(true)).status).toBe(200);
+
+    expect(await (await fetch(`${base()}/api/auth`)).json()).toMatchObject({
+      required: false,
+      setup: 'declined',
+    });
+
+    await server.close();
+    server = await startTestServer();
+    expect((await (await fetch(`${base()}/api/auth`)).json()).setup).toBe('declined');
+  });
+
+  // Regression: this used to be a one-way door, recoverable only by deleting
+  // the state file by hand.
+  it('offers setup again when the reminder is turned back on', async () => {
+    server = await startTestServer();
+    await setReminder(true);
+    expect((await setReminder(false)).status).toBe(200);
+
+    expect((await (await fetch(`${base()}/api/auth`)).json()).setup).toBe('available');
+    // And claiming works again straight away.
+    expect((await setup('a-perfectly-good-token')).status).toBe(200);
+  });
+
+  it('still allows setup while the reminder is declined', async () => {
+    server = await startTestServer();
+    await setReminder(true);
+    // Declining only silences the prompt; the security panel can still set one.
+    expect((await setup('a-perfectly-good-token')).status).toBe(200);
+  });
+
+  it('locks out a source that keeps guessing', async () => {
+    server = await startTestServer();
+    await setup('a-perfectly-good-token');
+
+    const guess = () =>
+      fetch(`${base()}/api/auth/session`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ token: 'wrong' }),
+      });
+
+    let status = 401;
+    for (let i = 0; i < 12 && status === 401; i += 1) {
+      status = (await guess()).status;
+    }
+    expect(status).toBe(429);
+
+    // Even the correct token is refused while the lockout stands.
+    const correct = await fetch(`${base()}/api/auth/session`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: 'a-perfectly-good-token' }),
+    });
+    expect(correct.status).toBe(429);
+    expect(correct.headers.get('retry-after')).toBeTruthy();
+  }, 20000);
+});
+
+/**
+ * The arrangement most homelabs actually use: an identity proxy (Authelia,
+ * Authentik, oauth2-proxy) authenticates the user and passes it down. Tests
+ * connect over loopback, so loopback is the trusted proxy here.
+ */
+describe('reverse-proxy authentication', () => {
+  let server: ServerHandle | null = null;
+  let authDir = '';
+
+  beforeAll(async () => {
+    authDir = await mkdtemp(path.join(tmpdir(), 'dockscope-it-proxy-'));
+  });
+
+  afterAll(async () => {
+    await rm(authDir, { recursive: true, force: true });
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.checkConnection.mockResolvedValue(true);
+    mocks.buildGraph.mockResolvedValue(mockGraph);
+    const source = {
+      id: 'local',
+      label: 'local',
+      kind: 'docker',
+      pluginId: 'core.docker',
+      capabilities: ['source.graph'],
+      status: 'connected',
+    };
+    mocks.listDockerGraphSources.mockReturnValue([
+      {
+        describe: () => source,
+        collectGraph: async () => ({ source, graph: mockGraph, collectedAt: 1 }),
+        startEvents: mocks.watchEvents,
+      },
+    ]);
+    mocks.listDockerHosts.mockReturnValue([]);
+    mocks.watchEvents.mockReturnValue(vi.fn());
+    process.env.DOCKSCOPE_TOKEN = 'a-token-that-is-long-enough';
+    process.env.DOCKSCOPE_AUTH_PROXY_HEADER = 'Remote-User';
+    process.env.DOCKSCOPE_TRUSTED_PROXIES = '127.0.0.1';
+    process.env.DOCKSCOPE_AUTH_FILE = path.join(authDir, `${randomUUID()}.json`);
+  });
+
+  afterEach(async () => {
+    delete process.env.DOCKSCOPE_TOKEN;
+    delete process.env.DOCKSCOPE_AUTH_PROXY_HEADER;
+    delete process.env.DOCKSCOPE_TRUSTED_PROXIES;
+    delete process.env.DOCKSCOPE_AUTH_FILE;
+    await server?.close();
+    server = null;
+  });
+
+  const base = () => `http://127.0.0.1:${server!.port}`;
+
+  it('accepts a request the proxy vouched for, with no token exchange', async () => {
+    server = await startTestServer();
+    const response = await fetch(`${base()}/api/graph`, { headers: { 'Remote-User': 'manuel' } });
+    expect(response.status).toBe(200);
+  });
+
+  it('still refuses a request with no header at all', async () => {
+    server = await startTestServer();
+    expect((await fetch(`${base()}/api/graph`)).status).toBe(401);
+  });
+
+  // Regression: with a proxy configured but no token, a request that went
+  // around the proxy straight to the port used to be waved through.
+  it('refuses an unproxied request even with no token configured', async () => {
+    delete process.env.DOCKSCOPE_TOKEN;
+    server = await startTestServer();
+
+    expect((await fetch(`${base()}/api/graph`)).status).toBe(401);
+    expect(
+      (await fetch(`${base()}/api/graph`, { headers: { 'Remote-User': 'manuel' } })).status,
+    ).toBe(200);
+    // And there is nothing to claim, so no setup screen appears either.
+    expect(await (await fetch(`${base()}/api/auth`)).json()).toMatchObject({
+      required: true,
+      setup: 'configured',
+    });
+  });
+
+  it('reports that a proxy is handling the login, so no prompt is shown', async () => {
+    server = await startTestServer();
+    const status = await (
+      await fetch(`${base()}/api/auth`, { headers: { 'Remote-User': 'manuel' } })
+    ).json();
+    expect(status).toMatchObject({ authenticated: true, viaProxy: true, setup: 'configured' });
+  });
+
+  it('accepts a WebSocket the proxy vouched for', async () => {
+    server = await startTestServer();
+    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`, {
+      origin: base(),
+      headers: { 'Remote-User': 'manuel' },
     });
 
     const initial = await readWsMessage(ws);

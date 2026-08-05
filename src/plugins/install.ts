@@ -1,5 +1,5 @@
+import { statePath } from '../paths.js';
 import { cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'fs/promises';
-import { homedir } from 'os';
 import path from 'path';
 import { validateExternalPluginManifests } from './loader.js';
 import { extractPluginPackage, isPluginPackageFile, verifyPluginPackage } from './package.js';
@@ -64,7 +64,7 @@ async function withRegistryTransaction<T>(
 }
 
 export function defaultPluginRegistryDir(): string {
-  return path.join(homedir(), '.dockscope', 'plugins');
+  return statePath(process.env, 'plugins');
 }
 
 function indexPath(registryDir: string): string {

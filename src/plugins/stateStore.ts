@@ -1,5 +1,5 @@
+import { statePath } from '../paths.js';
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'fs/promises';
-import { homedir } from 'os';
 import path from 'path';
 
 export interface PluginPersistedRuntimeState {
@@ -146,6 +146,6 @@ export class JsonPluginStateStore implements PluginStateStore {
 
 export function createPluginStateStoreFromEnv(env: NodeJS.ProcessEnv): PluginStateStore {
   return new JsonPluginStateStore(
-    env.DOCKSCOPE_PLUGIN_STATE || path.join(homedir(), '.dockscope', 'plugin-state.json'),
+    env.DOCKSCOPE_PLUGIN_STATE || statePath(env, 'plugin-state.json'),
   );
 }

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { initDocker, getDockerState } from './stores/docker.svelte';
+  import { initDocker, getDockerState, setHandshakeRefusedHandler } from './stores/docker.svelte';
+  import { setUnauthorizedHandler } from './lib/api';
   import GraphView from './components/GraphView.svelte';
   import Sidebar from './components/Sidebar.svelte';
   import StatusBar from './components/StatusBar.svelte';
@@ -12,6 +13,16 @@
   import Icon from './components/Icon.svelte';
   import ReplayBar from './components/ReplayBar.svelte';
   import Toast from './components/Toast.svelte';
+  import TokenGate from './components/TokenGate.svelte';
+  import SecurityPanel from './components/SecurityPanel.svelte';
+  import Tooltip from './components/Tooltip.svelte';
+  import {
+    checkAuth,
+    closeSecurityPanel,
+    gateMode,
+    getAuthState,
+    openSecurityPanel,
+  } from './stores/auth.svelte';
   import { Button, IconButton, Select } from './components/ui';
   import { getRecorderState, togglePlay } from './stores/recorder.svelte';
   import { addToast } from './stores/toast.svelte';
@@ -78,8 +89,29 @@
     }
   });
 
-  onMount(() => {
-    // Check for updates
+  const auth = getAuthState();
+  let cleanupDocker: (() => void) | undefined;
+
+  // An open instance is the state worth noticing, so the padlock is closed and
+  // quiet when secured and filled amber when anyone can reach the API.
+  let securedInstance = $derived(auth.required || auth.viaProxy);
+  let securityTitle = $derived(
+    auth.viaProxy
+      ? 'Security: authentication handled by your reverse proxy'
+      : auth.required
+        ? 'Security: an access token is required'
+        : 'Security: no access token, anyone who can reach this port has full control',
+  );
+
+  /**
+   * Nothing is fetched or connected until the token check answers: starting the
+   * WebSocket first would just produce a stream of rejected handshakes behind
+   * the prompt.
+   */
+  function startSession() {
+    if (cleanupDocker) {
+      return;
+    }
     fetch('/api/version')
       .then((r) => r.json())
       .then((d) => {
@@ -89,8 +121,46 @@
       })
       .catch(() => {});
     loadPluginUiExtensions();
-    const cleanup = initDocker();
-    return cleanup;
+    cleanupDocker = initDocker();
+  }
+
+  /**
+   * Credentials stopped working: re-check, and if we really are locked out,
+   * stop the live session so it is not reconnecting behind the prompt.
+   *
+   * Guarded on `authenticated` so a server that is merely down does not mean a
+   * status request on every reconnect attempt.
+   */
+  function recheckAuth() {
+    if (!auth.authenticated) {
+      return;
+    }
+    checkAuth().then((status) => {
+      if (status.required && !status.authenticated) {
+        cleanupDocker?.();
+        cleanupDocker = undefined;
+      }
+    });
+  }
+
+  onMount(() => {
+    setUnauthorizedHandler(recheckAuth);
+    setHandshakeRefusedHandler(recheckAuth);
+
+    // The first-run setup screen appears over a working dashboard: no token is
+    // configured yet, so there is nothing to be shut out of. Only the login
+    // gate holds the session back.
+    checkAuth().then(() => {
+      if (gateMode() !== 'login') {
+        startSession();
+      }
+    });
+    return () => {
+      setUnauthorizedHandler(null);
+      setHandshakeRefusedHandler(null);
+      cleanupDocker?.();
+      cleanupDocker = undefined;
+    };
   });
 
   function loadPluginUiExtensions() {
@@ -202,6 +272,12 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
+{#if gateMode() === 'setup'}
+  <TokenGate mode="setup" onDone={() => {}} />
+{:else if gateMode() === 'login'}
+  <TokenGate mode="login" onDone={startSession} />
+{/if}
+
 <div
   class="app"
   class:is-dragging={dragging !== null}
@@ -312,6 +388,32 @@
           <Icon name="plug" size={12} />
         </IconButton>
       {/each}
+      <IconButton
+        variant={securedInstance ? 'outline' : 'filled'}
+        tone="warn"
+        title={securityTitle}
+        ariaLabel="Security"
+        onclick={openSecurityPanel}
+      >
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          {#if securedInstance}
+            <rect x="4" y="10" width="16" height="11" rx="2" />
+            <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+          {:else}
+            <rect x="4" y="10" width="16" height="11" rx="2" />
+            <path d="M8 10V7a4 4 0 0 1 7.5-2" />
+          {/if}
+        </svg>
+      </IconButton>
       <IconButton variant="outline" title="Plugins" onclick={() => (showPlugins = true)}>
         <svg
           width="12"
@@ -549,4 +651,11 @@
   {#if showPlugins}
     <PluginManager onClose={closePluginManager} />
   {/if}
+  {#if auth.panelOpen}
+    <SecurityPanel onClose={closeSecurityPanel} />
+  {/if}
 </div>
+
+<!-- One shared bubble for every `use:tooltip` in the app, at the document root
+     so no clipping or containing-block ancestor can trap it. -->
+<Tooltip />
