@@ -11,13 +11,14 @@ replacing a local rule with a primitive is a like-for-like swap, not a redesign.
 
 ## Button
 
-| Prop                                                | Values                                          | Notes                                               |
-| --------------------------------------------------- | ----------------------------------------------- | --------------------------------------------------- |
-| `variant`                                           | `secondary` (default), `primary`, `ghost`       | Shape and emphasis                                  |
-| `tone`                                              | `accent` (default), `success`, `warn`, `danger` | Colour, independent of shape                        |
-| `size`                                              | `sm`, `md` (default), `lg`                      | `sm` for inline row actions, `lg` for modal actions |
-| `block`                                             | boolean                                         | Full width, for stacked action groups               |
-| `disabled`, `title`, `ariaLabel`, `type`, `onclick` |                                                 | Forwarded to the element                            |
+| Prop                                       | Values                                          | Notes                                               |
+| ------------------------------------------ | ----------------------------------------------- | --------------------------------------------------- |
+| `variant`                                  | `secondary` (default), `primary`, `ghost`       | Shape and emphasis                                  |
+| `tone`                                     | `accent` (default), `success`, `warn`, `danger` | Colour, independent of shape                        |
+| `size`                                     | `sm`, `md` (default), `lg`                      | `sm` for inline row actions, `lg` for modal actions |
+| `block`                                    | boolean                                         | Full width, for stacked action groups               |
+| `title`, `shortcut`                        | strings                                         | Render a styled tooltip; see [Tooltips](#tooltips)  |
+| `disabled`, `ariaLabel`, `type`, `onclick` |                                                 | Forwarded to the element                            |
 
 Shape and colour are separate props so semantic actions compose:
 `variant="secondary" tone="success"` is the green Up button,
@@ -95,13 +96,14 @@ inlined in around two dozen places and drifted apart.
 
 Square, icon-only, sized by its box rather than its padding.
 
-| Prop        | Values                                           | Notes                                                                  |
-| ----------- | ------------------------------------------------ | ---------------------------------------------------------------------- |
-| `variant`   | `bare` (default), `outline`, `accent`, `surface` | `surface` has a panel background, for controls floating over the graph |
-| `size`      | number, default `26`                             | Pixel width and height                                                 |
-| `glyphSize` | number                                           | Font size for glyph children such as `&times;`; ignored for SVG icons  |
-| `active`    | boolean                                          | Toggled-on state, rendered amber                                       |
-| `danger`    | boolean                                          | Turns red on hover                                                     |
+| Prop                | Values                                           | Notes                                                                  |
+| ------------------- | ------------------------------------------------ | ---------------------------------------------------------------------- |
+| `variant`           | `bare` (default), `outline`, `accent`, `surface` | `surface` has a panel background, for controls floating over the graph |
+| `size`              | number, default `26`                             | Pixel width and height                                                 |
+| `glyphSize`         | number                                           | Font size for glyph children such as `&times;`; ignored for SVG icons  |
+| `active`            | boolean                                          | Toggled-on state, rendered amber                                       |
+| `danger`            | boolean                                          | Turns red on hover                                                     |
+| `title`, `shortcut` | strings                                          | Render a styled tooltip; see [Tooltips](#tooltips)                     |
 
 ## TabBar and Tab
 
@@ -112,6 +114,57 @@ Square, icon-only, sized by its box rather than its padding.
 ```
 
 `Tab` takes children rather than a label so it can hold an icon plus text.
+
+## Tooltips
+
+Every primitive that takes a `title` renders one: `Button`, `IconButton`,
+`Chip`, `Tab`, `Text` and `TextButton`. `Button` and `IconButton` also take a
+`shortcut` for a keyboard chip.
+
+Passing `title` to a primitive never produces the browser's own tooltip; mixing
+the two would give the same app two tooltip styles with different delays and
+positions.
+
+```svelte
+<IconButton title="Zoom to fit" shortcut="F" onclick={zoomToFit}>…</IconButton>
+```
+
+On anything else, use the action directly:
+
+```svelte
+<script>
+  import { tooltip } from '../lib/tooltip';
+</script>
+
+<span use:tooltip={'Bytes received since the container started'}>…</span>
+<span use:tooltip={{ text: 'Play', shortcut: 'Space', placement: 'bottom' }}>…</span>
+```
+
+Four pieces, split so the logic worth testing stays free of the DOM:
+
+| File                        | Role                                                       |
+| --------------------------- | ---------------------------------------------------------- |
+| `lib/tooltip.ts`            | The `use:tooltip` action: listeners, ARIA, reading `title` |
+| `lib/tooltipPosition.ts`    | Pure placement maths (flip, clamp, arrow offset)           |
+| `lib/tooltipSchedule.ts`    | Pure timing (open delay, warm window)                      |
+| `components/Tooltip.svelte` | The single bubble, mounted once at the app root            |
+
+Things worth knowing:
+
+- **One bubble for the whole app**, rendered at the document root. Nesting a
+  tooltip beside its trigger breaks the moment an ancestor sets `overflow:
+hidden` or a property that creates a containing block, such as the status
+  bar's `backdrop-filter`.
+- **The action removes `title`** while attached, otherwise the browser's own
+  tooltip appears alongside this one. It copies the text to `aria-label` first
+  if the element has no other accessible name.
+- **Hover and focus both open it**, so keyboard users get the description too.
+  Escape, click, blur, scroll and resize all close it.
+- **The first one waits 400ms; the next opens instantly** for half a second
+  after. That is what makes a row of icon buttons feel like one control strip
+  rather than a series of separate delays.
+- `pointer-events: none` on the bubble, so it can never sit between the cursor
+  and the control it describes.
 
 ## What is deliberately not a primitive
 

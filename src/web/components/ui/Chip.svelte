@@ -6,6 +6,7 @@
   such as tag counts and licences.
 -->
 <script lang="ts">
+  import { tooltip } from '../../lib/tooltip';
   import type { Snippet } from 'svelte';
 
   type Tone = 'neutral' | 'accent' | 'warn' | 'danger' | 'success' | 'info';
@@ -40,7 +41,7 @@
   class:ds-chip--pill={pill}
   class:ds-chip--bold={bold}
   class:ds-chip--mono={mono}
-  {title}
+  use:tooltip={title}
 >
   {@render children()}
 </span>

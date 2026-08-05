@@ -668,10 +668,10 @@
   <div bind:this={container} style="width: 100%; height: 100%;"></div>
 
   <div class="graph-controls">
-    <IconButton variant="surface" size={32} title="Zoom to fit (F)" onclick={zoomToFit}>
+    <IconButton variant="surface" size={32} title="Zoom to fit" shortcut="F" onclick={zoomToFit}>
       <Icon name="fit" size={16} />
     </IconButton>
-    <IconButton variant="surface" size={32} title="Reset camera (R)" onclick={resetCamera}>
+    <IconButton variant="surface" size={32} title="Reset camera" shortcut="R" onclick={resetCamera}>
       <Icon name="restart" size={16} strokeWidth={2} />
     </IconButton>
     {#if selectedNode}

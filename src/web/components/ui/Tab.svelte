@@ -9,6 +9,7 @@
   behaviour, focus handling, and ARIA wiring in one place.
 -->
 <script lang="ts">
+  import { tooltip } from '../../lib/tooltip';
   import type { Snippet } from 'svelte';
 
   interface Props {
@@ -25,7 +26,7 @@
 <button
   class="ds-tab ds-tab--{variant}"
   class:ds-tab--active={active}
-  {title}
+  use:tooltip={title}
   role="tab"
   aria-selected={active}
   {onclick}

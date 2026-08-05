@@ -4,6 +4,7 @@
   imposing its own.
 -->
 <script lang="ts">
+  import { tooltip } from '../../lib/tooltip';
   import type { Snippet } from 'svelte';
 
   interface Props {
@@ -21,7 +22,7 @@
   class="ds-textbtn"
   class:ds-textbtn--mono={mono}
   type="button"
-  {title}
+  use:tooltip={title}
   aria-label={ariaLabel}
   {onclick}
 >

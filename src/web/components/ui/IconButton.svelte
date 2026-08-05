@@ -12,6 +12,7 @@
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import { tooltip } from '../../lib/tooltip';
 
   interface Props {
     variant?: 'bare' | 'outline' | 'accent' | 'surface' | 'filled';
@@ -21,6 +22,8 @@
     /** Font size for glyph content such as "×". Ignored for SVG children. */
     glyphSize?: number;
     title?: string;
+    /** Keyboard shortcut shown as a chip in the tooltip, e.g. `F`. */
+    shortcut?: string;
     ariaLabel?: string;
     disabled?: boolean;
     danger?: boolean;
@@ -38,6 +41,7 @@
     size = 26,
     glyphSize,
     title,
+    shortcut,
     ariaLabel,
     disabled = false,
     danger = false,
@@ -56,7 +60,7 @@
   aria-pressed={active}
   style:--ds-iconbtn-size="{size}px"
   style:--ds-iconbtn-glyph={glyphSize ? `${glyphSize}px` : null}
-  {title}
+  use:tooltip={title ? { text: title, shortcut } : null}
   aria-label={ariaLabel ?? title}
   {disabled}
   {onclick}

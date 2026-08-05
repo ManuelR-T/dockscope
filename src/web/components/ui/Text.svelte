@@ -10,6 +10,7 @@
   visual size is chosen independently.
 -->
 <script lang="ts">
+  import { tooltip } from '../../lib/tooltip';
   import type { Snippet } from 'svelte';
 
   /** Named steps on the type scale, smallest to largest. */
@@ -50,7 +51,7 @@
   class:ds-text--mono={mono}
   class:ds-text--caps={caps}
   class:ds-text--truncate={truncate}
-  {title}
+  use:tooltip={title}
 >
   {@render children()}
 </svelte:element>

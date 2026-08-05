@@ -67,6 +67,14 @@ export const HOST_PALETTE = [
   '#aabb33',
 ] as const;
 
+// --- Tooltips ---
+export const TOOLTIP = {
+  /** Long enough that sweeping the cursor across a toolbar stays quiet. */
+  showDelay: 400,
+  /** After one closes, the next opens instantly for this long. */
+  warmWindow: 500,
+} as const;
+
 // --- Project cluster palette ---
 export const PROJECT_PALETTE = [
   '#00e4ff',

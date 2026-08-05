@@ -10,6 +10,7 @@
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import { tooltip } from '../../lib/tooltip';
 
   type Variant = 'primary' | 'secondary' | 'ghost' | 'surface';
   /** Colour, orthogonal to shape, for semantic actions such as start and stop. */
@@ -31,6 +32,8 @@
     block?: boolean;
     type?: 'button' | 'submit';
     title?: string;
+    /** Keyboard shortcut shown as a chip in the tooltip, e.g. `F`. */
+    shortcut?: string;
     ariaLabel?: string;
     onclick?: (event: MouseEvent) => void;
     children: Snippet;
@@ -47,6 +50,7 @@
     block = false,
     type = 'button',
     title,
+    shortcut,
     ariaLabel,
     onclick,
     children,
@@ -61,7 +65,7 @@
   class:ds-btn--mono={mono}
   aria-pressed={active ? true : undefined}
   {type}
-  {title}
+  use:tooltip={title ? { text: title, shortcut } : null}
   {disabled}
   aria-label={ariaLabel}
   {onclick}
