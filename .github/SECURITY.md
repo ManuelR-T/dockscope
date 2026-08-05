@@ -41,7 +41,7 @@ While no token is set there is no authentication, so whoever reaches the instanc
 
 Without a token there is no authentication at all. Bound to loopback that is fine, and it stays the default so local use needs no configuration. The published Docker image sets `DOCKSCOPE_BIND=0.0.0.0`, so **publishing the port without a token exposes container and cluster exec to anything that can reach it.** DockScope prints a warning at startup when it detects this.
 
-Use a long random token (`openssl rand -hex 32`); it is a bearer secret with no rate limiting beyond a small fixed delay on failures.
+Use a long random token (`openssl rand -hex 32`). It is a bearer secret: anything holding it has full access, and the per-source lockout above slows online guessing but is no substitute for length.
 
 Remaining considerations:
 

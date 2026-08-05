@@ -53,10 +53,9 @@ export default function createPlugin({ manifest, config }: PluginFactoryContext)
 
   const kubeConfig = new KubeConfig();
 
-  // Default discovery honours $KUBECONFIG and ~/.kube/config, which is what
-  // kubectl did before this plugin talked to the API directly. The explicit
-  // path is only an override: loadFromFile(undefined) throws, so reaching for
-  // it unconditionally made the plugin fail to load whenever it was unset.
+  // Default discovery honours $KUBECONFIG and ~/.kube/config, the same as
+  // kubectl. The configured path is only an override, and is checked first
+  // because loadFromFile(undefined) throws.
   const kubeConfigPath = config['KUBE_CONFIG'];
   if (typeof kubeConfigPath === 'string' && kubeConfigPath.trim() !== '') {
     kubeConfig.loadFromFile(kubeConfigPath);

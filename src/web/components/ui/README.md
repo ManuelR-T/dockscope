@@ -159,7 +159,9 @@ hidden` or a property that creates a containing block, such as the status
   tooltip appears alongside this one. It copies the text to `aria-label` first
   if the element has no other accessible name.
 - **Hover and focus both open it**, so keyboard users get the description too.
-  Escape, click, blur, scroll and resize all close it.
+  Escape, click and blur close it. Scrolling and resizing reposition it instead,
+  because the log pane auto-scrolls on every chunk and would otherwise dismiss
+  every tooltip in the app.
 - **The first one waits 400ms; the next opens instantly** for half a second
   after. That is what makes a row of icon buttons feel like one control strip
   rather than a series of separate delays.

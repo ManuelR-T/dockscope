@@ -235,9 +235,17 @@ and status filters you have applied.
 ### It is not only Docker
 
 Everything above is served by plugins, and the Docker source is just the
-built-in one. Kubernetes ships as an official external plugin that renders
-Pods, Services, Ingresses and HPAs next to your containers, with pod logs,
-restart and delete actions, and HPA replica controls.
+built-in one. Kubernetes ships as an official external plugin that talks to the
+cluster API directly, with no `kubectl` needed. It draws Deployments,
+StatefulSets, DaemonSets, Pods, Services, Ingresses and HPAs next to your
+containers, attaching each pod to the controller that owns it, and gives them
+the same sidebar as a container: CPU and memory from metrics-server, env and
+mounts, logs as a tail or a stream, and an interactive shell. Rollout restart,
+scale, HPA replica bounds and delete are all there.
+
+A cluster that refuses part of the API still renders the part it can read, so a
+read-only ServiceAccount or a pre-1.23 cluster gets a partial graph rather than
+an empty one.
 
 External plugins run in child processes with operation timeouts, memory limits
 and health telemetry, and are quarantined automatically if they keep crashing.

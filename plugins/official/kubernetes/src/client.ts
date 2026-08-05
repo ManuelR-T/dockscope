@@ -15,11 +15,10 @@ import { ObjectAutoscalingV2Api } from '@kubernetes/client-node/dist/gen/types/O
  * Every patch in this plugin must pass this as the request options.
  *
  * The generated client picks the first media type it advertises, which is
- * `application/json-patch+json`. That expects an RFC 6902 array of ops, so
- * sending the natural `{ spec: { ... } }` object made the API server reject the
- * request with "cannot unmarshal object into Go value of type
- * []handlers.jsonPatchOp". Strategic merge is what kubectl uses and what these
- * bodies are written for.
+ * `application/json-patch+json`. That expects an RFC 6902 array of ops, so a
+ * `{ spec: { ... } }` body is rejected with "cannot unmarshal object into Go
+ * value of type []handlers.jsonPatchOp". Strategic merge is what kubectl uses
+ * and what these bodies are written for.
  */
 export const mergePatchOptions = setHeaderOptions(
   'Content-Type',

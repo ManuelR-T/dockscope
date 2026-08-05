@@ -15,8 +15,7 @@ import { parseResourceId } from '../utils';
 
 /**
  * buildGraph is a pure function over the API list objects, so the graph shape
- * can be asserted without a cluster or an HTTP mock. This is the coverage the
- * kubectl-era tests provided before the plugin moved to the API client.
+ * can be asserted without a cluster or an HTTP mock.
  */
 
 function pod(namespace: string, name: string, labels: Record<string, string>, phase = 'Running') {

@@ -25,11 +25,47 @@ diagnostic messages. It is the same data the dashboard renders.
 > Cross-origin browser requests are rejected. See the security note in the
 > [README](../README.md#quick-start) if you serve DockScope behind a proxy.
 
+## Authentication
+
+With no access token configured there is none, and every endpoint below answers
+directly. Once a token is set, everything under `/api` and the `/ws` handshake
+returns `401` without credentials.
+
+Scripts send the token as a bearer header:
+
+```bash
+curl -s -H "Authorization: Bearer $DOCKSCOPE_TOKEN" localhost:4681/api/graph
+```
+
+The dashboard instead exchanges the token for an HttpOnly session cookie, since
+a browser cannot set headers on a WebSocket handshake.
+
+`GET /api/auth` needs no credentials and doubles as a liveness probe. It
+reports whether a token is required, whether you currently hold one, whether it
+is pinned by `DOCKSCOPE_TOKEN`, whether a reverse proxy authenticated you, and
+whether first-run setup is still on offer.
+
+| Method | Path                 | Description                                                     |
+| ------ | -------------------- | --------------------------------------------------------------- |
+| GET    | `/api/auth`          | Current auth status. Never requires credentials                 |
+| POST   | `/api/auth/setup`    | Claim an unconfigured instance, or change the token you hold    |
+| POST   | `/api/auth/session`  | Exchange a token for a session cookie                           |
+| DELETE | `/api/auth/session`  | Sign out                                                        |
+| DELETE | `/api/auth/token`    | Remove the token, reopening the instance. Requires holding it   |
+| POST   | `/api/auth/reminder` | Turn the first-run setup prompt on or off                       |
+
+Claiming an unconfigured instance is only possible from the machine itself, or
+from the network within 15 minutes of startup. Failed attempts are rate limited
+per source: 10 failures, then a 5 minute lockout. See
+[SECURITY.md](../.github/SECURITY.md) for the full model.
+
 ## Endpoints
 
 | Method | Path                                  | Description                                                        |
 | ------ | ------------------------------------- | ------------------------------------------------------------------ |
 | GET    | `/api/graph`                          | Full graph (nodes + links)                                         |
+| GET    | `/api/sources`                        | Registered data sources                                            |
+| GET    | `/api/features`                       | Which optional features this instance has (Compose)                |
 | GET    | `/api/entities/:id/operations`        | Matching plugin operation descriptors                              |
 | GET    | `/api/entities/:id/actions`           | Contextual plugin-owned actions                                    |
 | POST   | `/api/entities/:id/actions/:pluginId/:actionId` | Run an exact entity action                              |
