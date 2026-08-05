@@ -58,6 +58,27 @@ the only one.
 - [#25 Custom dashboards][25]
   Pin containers, save layouts, build focused views.
 
+## Be safe to reach from somewhere other than your laptop
+
+Access tokens and reverse proxy auth landed in v0.10, which made an exposed
+instance possible. It is not yet comfortable. DockScope drives a Docker daemon
+and can open a shell in any container, so the honest position today is that it
+belongs on a trusted network behind a proxy you run.
+
+- [#49 Read-only access mode][49] [help wanted][hw]
+  Holding the token currently grants a shell in every container. There is no way
+  to leave the graph on a wall display, or point a colleague at it, without also
+  handing over full control.
+- [#47 Serve HTTPS directly][47]
+  The server is plain HTTP, so the token crosses your LAN in the clear unless
+  something else terminates TLS.
+- [#48 Audit log for container actions][48]
+  Nothing records who exec'd into what. Exec is the highest-privilege thing
+  DockScope offers and the least accountable.
+- [#50 Document a hardened Docker socket proxy][50] [good first issue][gfi]
+  "Only run it on trusted machines" is accurate advice that gives the reader
+  nothing to do. A socket proxy is the thing to do.
+
 ## Make incidents shareable
 
 Recording and replay landed in v0.7. The remaining piece is getting a clip out
@@ -105,3 +126,7 @@ because the data exists.
 [41]: https://github.com/ManuelR-T/dockscope/issues/41
 [42]: https://github.com/ManuelR-T/dockscope/issues/42
 [44]: https://github.com/ManuelR-T/dockscope/issues/44
+[47]: https://github.com/ManuelR-T/dockscope/issues/47
+[48]: https://github.com/ManuelR-T/dockscope/issues/48
+[49]: https://github.com/ManuelR-T/dockscope/issues/49
+[50]: https://github.com/ManuelR-T/dockscope/issues/50
