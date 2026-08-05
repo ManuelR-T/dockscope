@@ -22,7 +22,7 @@ Two independent layers, both worth understanding because they protect against di
 The token can be set two ways:
 
 - **`DOCKSCOPE_TOKEN`** in the environment. Takes precedence over anything stored, and disables the setup screen. Use this for deployments that configure themselves.
-- **The dashboard.** With no token set, the first-run screen offers to choose one, and the Security panel in the status bar can set, change or remove it at any time afterwards. It is stored as a salted scrypt hash in `~/.dockscope/auth.json` (mode 0600); the file is enough to verify a token, never to recover it. In the Docker image this lives under `/data`, which must be a mounted volume to survive a restart.
+- **The dashboard.** With no token set, the first-run screen offers to choose one, and the Security panel in the status bar can set, change or remove it at any time afterwards. It is stored as a salted scrypt hash in `~/.dockscope/auth.json` (mode 0600); the file is enough to verify a token, never to recover it. In the Docker image this lives under `/data`, which must be a mounted volume to survive the container being recreated.
 
   Changing or removing a token requires already holding it. Silencing the first-run reminder never prevents setting one later.
 

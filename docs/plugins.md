@@ -1,8 +1,19 @@
-# DockScope Plugins
+# Writing a DockScope Plugin
 
-DockScope loads built-in features and external integrations through the same typed plugin registry. A plugin is a data-oriented module: it declares a manifest, the capabilities it provides, the permissions it needs, and optional providers for graph data, metrics, logs, lifecycle actions, exec, projects, resources, diagnostics, and UI-facing metadata.
+DockScope loads built-in features and external integrations through the same
+typed plugin registry. A plugin declares a manifest, the capabilities it
+provides, the permissions it needs, and optional providers for graph data,
+metrics, logs, lifecycle actions, exec, projects, diagnostics and UI metadata.
 
-If you are writing a plugin, start with [Your First Plugin](#your-first-plugin). The sections after it are reference material for operators and plugin authors.
+New here? Start with [Your First Plugin](#your-first-plugin). It goes from an
+empty directory to a packaged plugin in five commands.
+
+**The other two plugin guides:**
+
+| Guide                                          | For                                                        |
+| ---------------------------------------------- | ---------------------------------------------------------- |
+| [Publishing](plugin-publishing.md)             | Packaging, signing and distributing a plugin through a catalog |
+| [Operating](plugin-operations.md)              | Loading, permissions policy, health and the plugin API      |
 
 ## Your First Plugin
 
@@ -61,9 +72,9 @@ dockscope plugin:pack --source ./my-plugin --out ./dist/acme.hello.dockscope-plu
 dockscope plugin:verify --package ./dist/acme.hello.dockscope-plugin
 ```
 
-`plugin:pack` produces a distributable package and prints its SHA-256. Signing is optional for local installs and required for catalog distribution, covered in [Packaging and Signing](#packaging-and-signing).
+`plugin:pack` produces a distributable package and prints its SHA-256. Signing is optional for local installs and required for catalog distribution, covered in [Packaging and Signing](plugin-publishing.md#packaging-and-signing).
 
-To get the plugin into someone else's DockScope, see [Publishing Your Plugin](#publishing-your-plugin).
+To get the plugin into someone else's DockScope, see [Publishing a plugin](plugin-publishing.md).
 
 ### Where to go next
 
@@ -73,41 +84,8 @@ To get the plugin into someone else's DockScope, see [Publishing Your Plugin](#p
 - [Commands and Events](#commands-and-events) for command input schemas and event publishing
 - [Permissions](#permissions) for the permission model and what each permission unlocks
 - [Module Contract](#module-contract) for the exact factory and provider shapes
-- [Publishing Your Plugin](#publishing-your-plugin) to get it into someone else's DockScope
-
-## Loading
-
-External plugins are loaded from the local plugin registry and any explicit plugin paths.
-
-```bash
-dockscope up --plugins ./plugins --plugin-permissions all
-```
-
-The equivalent environment variables are:
-
-```bash
-DOCKSCOPE_PLUGIN_PATHS=./plugins dockscope up
-DOCKSCOPE_PLUGIN_PERMISSIONS=network.local,docker.socket dockscope up
-DOCKSCOPE_PLUGIN_STATE=./plugin-state.json dockscope up
-DOCKSCOPE_PLUGIN_CONFIG=./plugin-config.json dockscope up
-DOCKSCOPE_PLUGIN_SECRETS=./plugin-secrets.json dockscope up
-DOCKSCOPE_PLUGIN_SECRET_KEY='local encryption key' dockscope up
-DOCKSCOPE_PLUGIN_EVENTS=./plugin-events.json dockscope up
-DOCKSCOPE_PLUGIN_APPROVALS=./plugin-approvals.json dockscope up
-DOCKSCOPE_PLUGIN_CATALOG=./plugin-catalog.json dockscope up
-DOCKSCOPE_PLUGIN_CATALOG_PUBLIC_KEY="$(cat ./keys/catalog.public.pem)" dockscope up
-DOCKSCOPE_PLUGIN_CATALOG_TRUST="$(cat ./keys/catalog-trust.json)" dockscope up
-DOCKSCOPE_DISABLE_OFFICIAL_PLUGIN_CATALOG=1 dockscope up
-DOCKSCOPE_PLUGIN_REGISTRY=./installed-plugins dockscope up
-DOCKSCOPE_PLUGIN_ALLOW_UNSIGNED=1 dockscope up
-DOCKSCOPE_DISABLE_EXTERNAL_PLUGINS=1 dockscope up
-```
-
-`DOCKSCOPE_PLUGIN_PATHS` uses the platform path delimiter (`:` on Linux/macOS, `;` on Windows). Each entry can be either a plugin directory containing `plugin.json` or a directory containing multiple plugin directories. The local registry is `~/.dockscope/plugins` by default and is included automatically unless external plugins are disabled.
-
-An explicit Marketplace or CLI install persists the exact permissions reviewed at install time. The grant is bound to the installed plugin ID and registry path, and is reused on restart and hot reload. Plugins loaded directly from `DOCKSCOPE_PLUGIN_PATHS` receive no permissions by default and rely on `DOCKSCOPE_PLUGIN_PERMISSIONS` or `--plugin-permissions` for globally allowed permissions.
-
-DockScope uses its official GitHub Pages catalog by default and pins the `official-catalog-v1` Ed25519 public key in the application. `DOCKSCOPE_PLUGIN_CATALOG` adds one or more comma-separated catalogs alongside the official one, described in [Catalogs](#catalogs). `DOCKSCOPE_PLUGIN_CATALOG_PUBLIC_KEY` contains one custom pinned public key, while `DOCKSCOPE_PLUGIN_CATALOG_TRUST` contains a JSON trust store for key overlap or revocation. Use `--no-official-plugin-catalog` or `DOCKSCOPE_DISABLE_OFFICIAL_PLUGIN_CATALOG=1` to trust only the catalogs you configure, or none at all. `DOCKSCOPE_PLUGIN_ALLOW_UNSIGNED=1` is intended for local development only; by default marketplace installs require each catalog entry to include an Ed25519 package signature.
+- [Process Isolation](#process-isolation) for the execution policy you declare in the manifest
+- [Publishing a plugin](plugin-publishing.md) to get it into someone else's DockScope
 
 ## Manifest
 
@@ -395,379 +373,6 @@ Event API filters:
 GET /api/plugins/events?pluginId=example.plugin&type=refresh.completed&since=1780000000000&limit=100
 ```
 
-## Process Isolation
-
-External plugins run in a dedicated child process by default. Use the explicit `in-process` mode only for trusted local development plugins:
-
-```json
-{
-  "execution": {
-    "isolation": "process",
-    "operationTimeoutMs": 30000,
-    "maxStderrBytes": 64000,
-    "memoryLimitMb": 128
-  }
-}
-```
-
-DockScope validates the manifest and imports plugin code only inside a persistent worker. Commands, graph sources and events, entity/action providers, project providers, system and connection providers, analysis providers, log streams, and exec sessions are proxied over typed IPC. Permission-checked host calls execute in the parent process, and the worker receives a scrubbed environment instead of DockScope's full environment.
-
-`operationTimeoutMs` applies to each request. `memoryLimitMb` sets the worker's V8 old-generation heap limit, and `maxStderrBytes` terminates a worker that emits excessive stderr. A crash rejects in-flight work without taking down DockScope; the next operation starts a fresh worker. Mutating operations are not retried automatically.
-
-Process isolation is a fault and resource boundary, not a complete operating-system sandbox. Only install signed plugins from catalogs you trust.
-
-## Packaging and Signing
-
-Create and verify package artifacts:
-
-```bash
-dockscope plugin:pack --source ./plugins/example --out ./example.dockscope-plugin
-dockscope plugin:verify --package ./example.dockscope-plugin
-```
-
-Add an HMAC signature with a local key:
-
-```bash
-dockscope plugin:pack --source ./plugins/example --out ./example.dockscope-plugin --signing-key "$KEY"
-dockscope plugin:verify --package ./example.dockscope-plugin --signing-key "$KEY"
-dockscope plugin:install --source ./example.dockscope-plugin --signing-key "$KEY"
-```
-
-Packages store every file with a SHA-256 hash, plus a whole-package SHA-256. Signatures are optional, but when a signing key is provided verification requires a matching package signature.
-
-For distribution, prefer Ed25519 public-key signatures:
-
-```bash
-dockscope plugin:keys --out-dir ./keys
-dockscope plugin:pack --source ./plugins/example --out ./example.dockscope-plugin --private-key ./keys/dockscope-plugin.private.pem --key-id maintainer-1
-dockscope plugin:verify --package ./example.dockscope-plugin --public-key ./keys/dockscope-plugin.public.pem
-dockscope plugin:install --source ./example.dockscope-plugin --public-key ./keys/dockscope-plugin.public.pem
-```
-
-Generate a catalog entry from a signed package:
-
-```bash
-dockscope plugin:catalog:entry --package ./example.dockscope-plugin --public-key ./keys/dockscope-plugin.public.pem --key-id maintainer-1
-```
-
-Build the repo-local official plugin catalog after a DockScope build:
-
-```bash
-npm run build
-npm run plugins:catalog -- --source plugins/official --out dist/plugin-catalog --dev-keys
-```
-
-For release signing, pass real key files instead of `--dev-keys`:
-
-```bash
-npm run plugins:catalog -- \
-  --source plugins/official \
-  --out dist/plugin-catalog \
-  --package-private-key ./keys/package.private.pem \
-  --package-public-key ./keys/package.public.pem \
-  --catalog-private-key ./keys/catalog.private.pem \
-  --catalog-public-key ./keys/catalog.public.pem \
-  --package-key-id official-package \
-  --catalog-key-id official-catalog
-```
-
-The script packages every directory under `plugins/official`, writes package artifacts under `dist/plugin-catalog/packages`, writes `catalog.json` and `catalog-trust.json`, and signs the catalog when a catalog private key is provided. Pass `--package-trust-policy <file>` to carry previous package keys and package revocations, and `--catalog-trust-store <file>` to carry overlapping catalog signer keys. The equivalent CI variables are `DOCKSCOPE_PLUGIN_PACKAGE_TRUST_POLICY` and `DOCKSCOPE_PLUGIN_CATALOG_TRUST_STORE`.
-
-Set `SOURCE_DATE_EPOCH` to a Unix timestamp to make `updatedAt`, default `publishedAt`, packages, signatures, and catalog files reproducible from identical inputs:
-
-```bash
-SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" npm run plugins:catalog -- --out dist/plugin-catalog
-```
-
-### Official catalog releases
-
-CI builds a temporary signed catalog, verifies its signature, installs the Kubernetes package, and loads it through the public plugin path. The release workflow builds the production catalog, attaches its files to the GitHub release, and deploys the same files under `/plugins/` on GitHub Pages.
-
-Configure these GitHub Actions secrets before releasing:
-
-- `PLUGIN_PACKAGE_PRIVATE_KEY`: Ed25519 private key used to sign plugin packages.
-- `PLUGIN_CATALOG_PRIVATE_KEY`: Ed25519 private key used to sign the catalog metadata.
-- `PLUGIN_PACKAGE_TRUST_POLICY`: optional JSON with overlapping package keys and revocations.
-- `PLUGIN_CATALOG_TRUST_STORE`: optional JSON with overlapping catalog signing keys and revocations.
-
-Generate each pair with `dockscope plugin:keys`. Keep private keys outside the repository and retain them between releases. The catalog builder derives and publishes `package.public.pem` and `catalog.public.pem`; it also accepts the corresponding `DOCKSCOPE_PLUGIN_*_PRIVATE_KEY` environment variables in CI. Release builds use `--require-signatures` and fail closed when either secret is absent.
-
-GitHub Pages must use **GitHub Actions** as its deployment source. Once enabled, the stable catalog URL is `https://<owner>.github.io/<repository>/plugins/catalog.json`.
-
-## Publishing Your Plugin
-
-There are three ways to get a plugin into someone else's DockScope. Pick the lightest one that fits your audience. All three use only the `dockscope` CLI from npm, with no clone of this repository.
-
-### Option 1: Load it from a path
-
-For your own machine, a teammate's checkout, or a plugin you never intend to distribute:
-
-```bash
-dockscope up --plugins /path/to/my-plugin --plugin-permissions all
-```
-
-No packaging and no signing. Plugins loaded this way receive no permissions unless you grant them explicitly, either with `--plugin-permissions` or `DOCKSCOPE_PLUGIN_PERMISSIONS`.
-
-### Option 2: Distribute a package file
-
-The simplest real distribution. Produce a single package file and attach it to a GitHub release:
-
-```bash
-dockscope plugin:pack --source ./my-plugin --out ./my-plugin.dockscope-plugin
-```
-
-Users install it directly, and can inspect it first:
-
-```bash
-dockscope plugin:verify  --package ./my-plugin.dockscope-plugin
-dockscope plugin:install --source  ./my-plugin.dockscope-plugin
-```
-
-Sign the package so users can verify provenance. `plugin:pack` accepts `--private-key` and `--key-id`, and `plugin:verify` accepts the matching `--public-key`.
-
-### Option 3: Publish a signed catalog
-
-A catalog gives your users the same browse-and-install experience as the official plugins, with signature verification on both the catalog and each package.
-
-Generate a signing key pair once and keep the private keys out of your repository:
-
-```bash
-dockscope plugin:keys --out-dir ./keys --name acme
-```
-
-Pack the plugin with a signature, then generate its catalog entry:
-
-```bash
-dockscope plugin:pack --source ./my-plugin --out ./acme.hello.dockscope-plugin \
-  --private-key ./keys/acme.private.pem --key-id acme-v1
-
-dockscope plugin:catalog:entry --package ./acme.hello.dockscope-plugin \
-  --public-key ./keys/acme.public.pem --key-id acme-v1 \
-  --category Utilities --license MIT > entry.json
-```
-
-`plugin:catalog:entry` writes the entry to stdout. Its `packageUrl` defaults to the package filename, so **edit it to the URL users will download from** before publishing.
-
-Assemble `catalog.json` around one or more entries. The `format` value is exact:
-
-```json
-{
-  "format": "dockscope-plugin-catalog/v1",
-  "name": "Acme Plugins",
-  "updatedAt": "2026-07-25T00:00:00.000Z",
-  "entries": [{ "...": "contents of entry.json" }]
-}
-```
-
-Sign the catalog in place, which adds its `signature` block:
-
-```bash
-dockscope plugin:catalog:sign --catalog ./catalog.json \
-  --private-key ./keys/acme.private.pem --key-id acme-catalog-v1
-```
-
-Publish `catalog.json` and the package file at stable URLs. Users need your catalog public key to verify the signature, either passed directly or through a trust store that supports key rotation and revocation:
-
-```json
-{
-  "format": "dockscope-plugin-catalog-trust/v1",
-  "keys": [
-    {
-      "algorithm": "ed25519",
-      "keyId": "acme-catalog-v1",
-      "publicKey": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----\n",
-      "status": "active"
-    }
-  ],
-  "revokedKeyIds": []
-}
-```
-
-Users then browse and install from it:
-
-```bash
-dockscope plugin:catalog --catalog https://acme.example/catalog.json \
-  --trust ./acme-trust.json
-dockscope plugin:catalog:install acme.hello \
-  --catalog https://acme.example/catalog.json \
-  --catalog-trust ./acme-trust.json
-```
-
-To use your catalog for a whole session, pass `--plugin-catalog` and `--plugin-catalog-trust` to `dockscope up`, or set `DOCKSCOPE_PLUGIN_CATALOG` and `DOCKSCOPE_PLUGIN_CATALOG_TRUST`.
-
-Configured catalogs are added to the official one rather than replacing it, so your plugins appear alongside the official ones. Users who want only your catalog can pass `--no-official-plugin-catalog`.
-
-### Choosing an id
-
-Publish under your own publisher segment, for example `acme.hello`. The `official.` prefix is reserved and requires a verified package signature, as described in [Plugin ids and the reserved namespace](#plugin-ids-and-the-reserved-namespace).
-
-## Catalogs
-
-A plugin catalog is a signed-package index. DockScope connects to the pinned official catalog by default.
-
-`--plugin-catalog` and `DOCKSCOPE_PLUGIN_CATALOG` accept a **comma-separated list** of local JSON files or HTTP(S) URLs. Those catalogs are added to the official one, so official and third-party plugins are browsable together:
-
-```bash
-dockscope up \
-  --plugin-catalog https://acme.example/catalog.json,https://team.internal/catalog.json \
-  --plugin-catalog-trust ./trust.json
-```
-
-Catalogs are loaded independently and in order. Rules that follow from that:
-
-- One unreachable or untrusted catalog does not hide the others. Each failure is reported separately in the Plugins panel.
-- When the same plugin id appears in more than one catalog, the **earlier** catalog wins. The official catalog is first unless disabled, so a third-party catalog cannot shadow an official plugin.
-- Each entry records which catalog it came from, shown next to the entry once more than one catalog is configured.
-- The official catalog always keeps its pinned key. A key configured for a third-party catalog is used in addition to the pin, never instead of it.
-
-Use `--no-official-plugin-catalog` or `DOCKSCOPE_DISABLE_OFFICIAL_PLUGIN_CATALOG=1` for an instance that trusts only the catalogs you configure.
-
-### Adding a catalog from the UI
-
-Catalogs can also be added from the **Plugins panel** without restarting, under the Catalogs section of the Marketplace tab. Paste the catalog URL and press Fetch, and DockScope inspects it before anything is stored:
-
-1. The catalog is read unverified, purely to learn its name and signing key id.
-2. The signing key is discovered from the publisher. A catalog's signature carries only a key id, never the key, so `catalog.public.pem` and `catalog-trust.json` are probed next to `catalog.json`, which is where the release tooling publishes them.
-3. That key must actually verify the catalog's signature. If it does not, or if the catalog is unsigned, or if no key is published, the catalog is refused and the reason is shown.
-4. The key's SHA-256 fingerprint is displayed. **Compare it against the fingerprint the publisher advertises** before accepting, since that comparison is what protects you from a substituted key at add time.
-
-Accepting pins the catalog to that exact key, stored in `~/.dockscope/catalogs.json` (override with `DOCKSCOPE_PLUGIN_CATALOGS`). Pinning matters: if the catalog is later signed by a different key, it fails with a signature mismatch instead of loading silently, so a rotated or stolen key is visible rather than invisible. A pinned catalog is verified against its own key alone, never against `DOCKSCOPE_PLUGIN_CATALOG_PUBLIC_KEY`.
-
-Catalogs added this way behave exactly like configured ones: same ordering, same per-catalog error isolation, same provenance badges. Only user-added catalogs show a Remove button; the official catalog and anything set by flag or environment variable cannot be removed from the UI.
-
-A single trust store can hold the signing keys of several catalogs, since keys are matched by `keyId`, so configuring multiple catalogs does not require multiple trust files.
-
-A catalog document looks like this:
-
-```json
-{
-  "format": "dockscope-plugin-catalog/v1",
-  "name": "Official DockScope Plugins",
-  "updatedAt": "2026-07-10T19:00:00.000Z",
-  "trust": {
-    "packageKeys": [
-      {
-        "algorithm": "ed25519",
-        "keyId": "maintainer-2",
-        "publicKey": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----\n",
-        "status": "active"
-      }
-    ],
-    "revokedPackageKeyIds": [],
-    "revokedPackages": []
-  },
-  "signature": {
-    "algorithm": "ed25519",
-    "value": "catalog-signature-base64",
-    "keyId": "catalog-1"
-  },
-  "entries": [
-    {
-      "id": "example.plugin",
-      "name": "Example Plugin",
-      "version": "1.0.0",
-      "description": "Adds an example command",
-      "homepage": "https://github.com/ManuelR-T/dockscope",
-      "repositoryUrl": "https://github.com/ManuelR-T/dockscope",
-      "readmeUrl": "https://github.com/ManuelR-T/dockscope/blob/main/docs/plugins.md",
-      "readme": "# Example Plugin\n\nRendered in the Marketplace review panel.",
-      "iconUrl": "https://example.com/icon.png",
-      "license": "MIT",
-      "category": "Utilities",
-      "status": "active",
-      "tags": ["demo"],
-      "screenshots": [],
-      "publishedAt": "2026-07-10T19:00:00.000Z",
-      "releaseNotes": "Initial catalog release.",
-      "compatibility": {
-        "minDockscopeVersion": "0.7.0"
-      },
-      "capabilities": ["ui.command"],
-      "permissions": [],
-      "packageUrl": "./example.dockscope-plugin",
-      "packageSha256": "package-bundle-sha256-from-plugin-pack",
-      "signature": {
-        "algorithm": "ed25519",
-        "keyId": "maintainer-2"
-      }
-    }
-  ]
-}
-```
-
-Package signatures and catalog signatures are separate:
-
-- Each entry `signature` verifies the downloaded plugin package.
-- The top-level `signature` verifies the catalog contents and entry metadata.
-- The signed top-level `trust` policy resolves package `keyId` values and rejects revoked package keys, versions, or SHA-256 hashes.
-- `dockscope plugin:catalog:sign --catalog ./plugin-catalog.json --private-key ./keys/catalog.private.pem --key-id catalog-1` signs the catalog in place.
-- `--plugin-catalog-public-key ./keys/catalog.public.pem` or `DOCKSCOPE_PLUGIN_CATALOG_PUBLIC_KEY` makes catalog verification strict. Unsigned catalogs or mismatched signatures are rejected.
-
-Use `dockscope plugin:catalog --catalog ./plugin-catalog.json --trust ./keys/catalog-trust.json` to inspect a signed catalog and `dockscope plugin:catalog:install <pluginId> --catalog ./plugin-catalog.json --catalog-trust ./keys/catalog-trust.json` to install from it. The legacy single-key options remain available. When DockScope is started with `--plugin-catalog`, the Plugin Manager Marketplace tab can install, update, and uninstall catalog plugins in the configured local registry. Install and update actions open a review step with package signature, package hash, capabilities, permissions, compatibility range, target registry, installed version, and release notes.
-
-The local catalog signer trust store is deliberately outside the signed catalog, so a compromised catalog signer cannot un-revoke itself:
-
-```json
-{
-  "format": "dockscope-plugin-catalog-trust/v1",
-  "keys": [
-    {
-      "algorithm": "ed25519",
-      "keyId": "catalog-1",
-      "publicKey": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----\n",
-      "status": "retiring"
-    },
-    {
-      "algorithm": "ed25519",
-      "keyId": "catalog-2",
-      "publicKey": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----\n",
-      "status": "active"
-    }
-  ],
-  "revokedKeyIds": []
-}
-```
-
-For package-key rotation, publish both keys in the signed catalog policy, mark the old key `retiring`, start signing packages with the new key, then add the old id to `revokedPackageKeyIds` after the migration window. For catalog-root rotation, distribute a local trust store containing both signer keys before switching the catalog signature; remove or revoke the old signer only after clients have received the new root. Emergency package revocations may target a plugin id, version, SHA-256, or any combination.
-
-Marketplace installs reject `yanked` entries, incompatible entries, hash mismatches, untrusted or revoked keys, revoked packages, and unsigned package entries by default. The capabilities and permissions displayed from the catalog must exactly match the signed package manifest before installation. Package contents are fully verified in a staging directory, then the plugin directory and registry index are activated atomically. A failed activation restores the previous version. Use `--allow-unsigned-plugins`, `DOCKSCOPE_PLUGIN_ALLOW_UNSIGNED=1`, or `dockscope plugin:catalog:install --allow-unsigned` only for local development catalogs.
-
-Marketplace entries can include `iconUrl`, `screenshots`, `repositoryUrl`, `readmeUrl`, and inline `readme` text. DockScope renders screenshots and inline README content in the install/update review panel.
-
-## Official Plugins
-
-Official plugins live in `plugins/official`. They are not registered as built-ins; they are packaged and installed through a catalog like any other external plugin.
-
-The first official plugin is `official.kubernetes`:
-
-- talks to the Kubernetes API directly through `@kubernetes/client-node`
-- requires `kubernetes.api`
-- adds a Kubernetes graph source covering Deployments, StatefulSets, DaemonSets, Pods, Services, Ingresses and HorizontalPodAutoscalers
-- resolves pod ownership through the `Pod -> ReplicaSet -> Deployment` chain, so pods attach to the controller users think in terms of; the ReplicaSet itself is never drawn
-- reports Pod CPU and memory from `metrics.k8s.io`, requiring metrics-server in the cluster
-- inspects Pods: env (with secret and configMap references shown as references, never resolved), labels, volume mounts and their backing storage
-- handles Pod logs as a tail or a followed stream, workload rollout restart and scale, HPA replica bounds, and delete
-- opens an interactive shell in a Pod, adapting the host's single duplex stream onto the API's separate stdin/stdout
-
-Two conventions worth copying in your own plugin:
-
-- **Kinds beyond the built-in set.** `ServiceNode.kind` accepts `deployment`, `statefulset` and `daemonset` alongside `container`, `pod`, `service`, `ingress` and `hpa`. Nothing validates the field at runtime, so a source can emit a kind the host does not know yet; it simply renders with the default node treatment.
-- **Facts belong in `metadata`.** `ServiceNode.metadata` is a flat `Record<string, string | number | boolean>` that the node sidebar renders as its own Details section, and that `EntityRef.context.metadata` hands back to your action declarations. The Kubernetes plugin uses it both ways: it publishes `minReplicas`/`maxReplicas` as numbers so the scale form can pre-fill the current bounds. Keep the keys stable, because your own action code reads them back.
-- **Cache whole-cluster reads behind `getStats`.** The monitor calls `getStats` once per running node every few seconds. If your upstream exposes a list endpoint, fetch it once per sweep and serve every node from that snapshot rather than issuing a request per entity. `PodMetricsCache` in the Kubernetes plugin is a worked example: a short TTL plus in-flight deduplication turns a whole polling sweep into one request.
-
-Local development:
-
-```bash
-dockscope plugin:dev --plugins plugins/official/kubernetes --plugin-permissions all
-```
-
-Marketplace API:
-
-- `GET /api/plugins/marketplace`
-- `POST /api/plugins/marketplace/:pluginId/install`
-- `POST /api/plugins/marketplace/:pluginId/update`
-- `DELETE /api/plugins/marketplace/:pluginId`
-
 ## Configuration
 
 Plugins can expose a typed config schema in `plugin.json`. DockScope persists config in `~/.dockscope/plugin-config.json` by default, or in the file passed to `--plugin-config`.
@@ -780,40 +385,6 @@ Supported field types are:
 - `select`
 
 Plugins receive the current config in the factory context and through `configure(config)` whenever it changes.
-
-## Review and Migration
-
-Expanding a plugin on the Plugins panel's Installed tab shows a Security review section that summarizes that plugin before and while enabling it:
-
-- capabilities and permissions
-- declared secrets
-- commands and UI slots
-- config fields
-- execution isolation
-- compatibility warnings
-- risk level derived from permissions and execution mode
-- approval state based on a hash of the security-relevant manifest surface
-
-Approvals are persisted in `~/.dockscope/plugin-approvals.json` by default. If a plugin changes capabilities, permissions, secrets, commands, UI actions, config fields, or execution policy, the Security review section marks the approval as `changed`.
-
-Compatibility migrations become executable when a migration declares `commandId`:
-
-```json
-{
-  "compatibility": {
-    "migrations": [
-      {
-        "from": "0.x",
-        "to": "1.x",
-        "notes": "Rename config keys",
-        "commandId": "migrate"
-      }
-    ]
-  }
-}
-```
-
-The API endpoint is `POST /api/plugins/:pluginId/migrate` with `{ "from": "0.x", "to": "1.x" }`.
 
 ## State
 
@@ -937,48 +508,24 @@ Current permissions are:
 - `process.exec`
 - `secrets.read`
 
-## Runtime Inspection
+## Process Isolation
 
-Use these endpoints to inspect plugin state:
+External plugins run in a dedicated child process by default. Use the explicit `in-process` mode only for trusted local development plugins:
 
-- `GET /api/plugins` returns registered plugins and lifecycle status.
-- `GET /api/plugins/health` returns process state, PID, uptime, CPU, memory, pending work, restart count, crash history, and quarantine state.
-- `GET /api/plugins/errors` returns external plugin manifest, permission, load, and register failures.
-- `GET /api/plugins/warnings` returns non-blocking manifest deprecation and compatibility warnings.
-- `GET /api/plugins/ui` returns frontend extension descriptors.
-- `GET /api/plugins/:pluginId/frontend` returns a declared sandboxed frontend bundle.
-- `POST /api/plugins/:pluginId/ui/:extensionId/action` runs an extension's declared action.
-- `GET /api/plugins/commands` returns command descriptors.
-- `POST /api/plugins/:pluginId/commands/:commandId` runs a plugin command.
-- `GET /api/plugins/events` returns recent plugin events.
-- `GET /api/plugins/review` returns permission/capability review reports.
-- `GET /api/plugins/catalog` returns the configured plugin catalog.
-- `GET /api/plugins/marketplace` returns catalog entries merged with local install state.
-- `POST /api/plugins/marketplace/:pluginId/install` installs a catalog plugin.
-- `POST /api/plugins/marketplace/:pluginId/update` updates an installed catalog plugin.
-- `DELETE /api/plugins/marketplace/:pluginId` uninstalls a local marketplace plugin.
-- `GET /api/plugins/approvals` returns persisted plugin approvals.
-- `GET /api/plugins/compatibility` returns version, deprecation, and migration reports.
-- `POST /api/plugins/:pluginId/migrate` runs a declared compatibility migration.
-- `POST /api/plugins/:pluginId/approve` approves the current plugin fingerprint.
-- `POST /api/plugins/:pluginId/revoke-approval` revokes approval.
+```json
+{
+  "execution": {
+    "isolation": "process",
+    "operationTimeoutMs": 30000,
+    "maxStderrBytes": 64000,
+    "memoryLimitMb": 128
+  }
+}
+```
 
-External process runtimes are quarantined after three crashes within 60 seconds. Quarantine stops and disables the plugin, persists the reason across restarts, and publishes a `runtime.quarantined` event. Explicitly enabling or reloading the plugin clears the quarantine and starts a fresh crash window.
-- `GET /api/plugins/config` returns config schemas and current values.
-- `PUT /api/plugins/:pluginId/config` updates plugin config.
-- `GET /api/plugins/secrets` returns declared secret status without values.
-- `PUT /api/plugins/:pluginId/secrets/:key` stores a declared secret value.
-- `POST /api/plugins/:pluginId/enable` enables an external plugin.
-- `POST /api/plugins/:pluginId/disable` disables an external plugin.
-- `POST /api/plugins/:pluginId/reload` reloads an external plugin from disk.
-- `GET /api/entities/:entityId/operations` returns matching plugin operation descriptors.
-- `GET /api/entities/:entityId/actions` returns contextual entity actions.
-- `POST /api/entities/:entityId/actions/:pluginId/:actionId` runs an owned entity action.
-- `GET /api/entities/:entityId/{stats|logs|inspect|history|top|diff|diagnostic}` routes an entity read.
-- `GET /api/systems` returns plugin-owned system inventory.
-- `GET /api/connections/providers` returns typed connection provider forms.
-- `GET /api/connections` returns configured plugin connections.
-- `POST /api/connections/:pluginId/:providerId` adds a connection.
-- `DELETE /api/connections/:pluginId/:providerId/:connectionId` removes a connection.
+DockScope validates the manifest and imports plugin code only inside a persistent worker. Commands, graph sources and events, entity/action providers, project providers, system and connection providers, analysis providers, log streams, and exec sessions are proxied over typed IPC. Permission-checked host calls execute in the parent process, and the worker receives a scrubbed environment instead of DockScope's full environment.
 
-Start/stop failures mark the plugin as `failed` without preventing the rest of DockScope from running.
+`operationTimeoutMs` applies to each request. `memoryLimitMb` sets the worker's V8 old-generation heap limit, and `maxStderrBytes` terminates a worker that emits excessive stderr. A crash rejects in-flight work without taking down DockScope; the next operation starts a fresh worker. Mutating operations are not retried automatically.
+
+Process isolation is a fault and resource boundary, not a complete operating-system sandbox. Only install signed plugins from catalogs you trust.
+

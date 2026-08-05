@@ -22,8 +22,9 @@ curl -X POST localhost:4681/api/entities/<id>/actions/core.docker/restart
 The WebSocket at `/ws` pushes graph, stats, event, log, exec, anomaly and
 diagnostic messages. It is the same data the dashboard renders.
 
-> Cross-origin browser requests are rejected. See the security note in the
-> [README](../README.md#quick-start) if you serve DockScope behind a proxy.
+> Cross-origin browser requests are rejected. If you serve DockScope behind a
+> proxy or a custom domain, see
+> [Access control](configuration.md#access-control).
 
 ## Authentication
 

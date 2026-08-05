@@ -2,6 +2,35 @@
 
 Thanks for your interest in contributing! Here's how to get started.
 
+## What to work on
+
+**If you want something small to start with**, these are labelled
+[good first issue][gfi]. They are self-contained, and each one builds on code
+that already exists:
+
+| Issue                              | Why it is approachable                                              |
+| ---------------------------------- | ------------------------------------------------------------------- |
+| [#23 Theme support][23]            | The CSS token layer in `src/web/App.css` is already the seam for it |
+| [#39 Cleanup panel][39]            | Mirrors patterns the sidebar tabs already use                       |
+| [#44 Replay to GIF][44]            | Canvas capture already exists in `src/web/lib/snapshot.ts`          |
+
+**If you want something meatier**, [help wanted][hw] marks the issues that are
+open and specified enough to start on. [ROADMAP.md](ROADMAP.md) groups
+everything by theme if you would rather pick a direction than an issue.
+
+**If you found a bug**, a report is a real contribution. Use the
+[bug report][bug] template.
+
+**If you want DockScope to talk to something it does not**, that is a plugin
+rather than a core change. Start at [Your First Plugin](docs/plugins.md#your-first-plugin).
+
+Two things worth knowing before you start:
+
+- **Comment on the issue first.** Nothing is assigned, so a quick "taking this"
+  stops two people building the same thing.
+- **Small PRs get reviewed faster.** If a change touches the graph rendering,
+  the plugin contract and the server at once, it is probably several PRs.
+
 ## Commit Messages
 
 This project uses [Conventional Commits](https://www.conventionalcommits.org/). All commit messages must follow the format:
@@ -63,7 +92,7 @@ The codebase is split into small, focused modules. Key directories:
 
 ## Writing a Plugin
 
-Most integrations belong in a plugin rather than in core. See [docs/plugins.md](docs/plugins.md) for the full guide, starting with [Your First Plugin](docs/plugins.md#your-first-plugin).
+Most integrations belong in a plugin rather than in core. Start with [Your First Plugin](docs/plugins.md#your-first-plugin), then [Publishing](docs/plugin-publishing.md) when you want to share it.
 
 ```bash
 dockscope plugin:init --dir ./my-plugin --id acme.hello --name "Acme Hello"
@@ -96,3 +125,10 @@ Use the [Feature Request](https://github.com/ManuelR-T/dockscope/issues/new?temp
 ## Security
 
 See [SECURITY.md](.github/SECURITY.md) for vulnerability reporting.
+
+[gfi]: https://github.com/ManuelR-T/dockscope/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22
+[hw]: https://github.com/ManuelR-T/dockscope/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22
+[bug]: https://github.com/ManuelR-T/dockscope/issues/new?template=bug_report.yml
+[23]: https://github.com/ManuelR-T/dockscope/issues/23
+[39]: https://github.com/ManuelR-T/dockscope/issues/39
+[44]: https://github.com/ManuelR-T/dockscope/issues/44
