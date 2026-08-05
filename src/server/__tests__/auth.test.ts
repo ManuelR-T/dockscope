@@ -175,7 +175,7 @@ describe('SessionStore', () => {
   });
 
   // A browser closed without signing out never comes back to be verified, so
-  // its session used to sit in the map until the process restarted.
+  // nothing else would ever evict its session.
   it('sweeps expired sessions when a new one is issued', () => {
     let now = 0;
     const store = new SessionStore(1000, () => now);
@@ -602,11 +602,8 @@ describe('isAuthorized behind a proxy', () => {
     ).toBe(false);
   });
 
-  /**
-   * Regression: configuring a proxy but no token used to leave the instance
-   * open, because the "no token means no auth" branch ran first. Anyone who
-   * reached the port directly, going around the proxy, was let straight in.
-   */
+  // Configuring a proxy makes authentication mandatory, so reaching the port
+  // directly is refused rather than falling through the "no token" branch.
   it('refuses an unproxied request even when no token is set', () => {
     const open = readAuthConfig({} as NodeJS.ProcessEnv);
     expect(isAuthorized({ config: open, sessions: new SessionStore(), proxy, headers: {} })).toBe(
@@ -685,8 +682,8 @@ describe('AttemptLimiter', () => {
     expect(limiter.retryAfterMs('a')).toBe(0);
   });
 
-  // Entries used to be dropped only when the same address came back, so a scan
-  // from many addresses left one behind each, for the life of the process.
+  // A scan from many addresses would otherwise leave one entry behind each,
+  // for the life of the process.
   it('drops expired counters instead of keeping one per source forever', () => {
     let now = 0;
     const limiter = new AttemptLimiter(5, 1000, () => now);

@@ -10,12 +10,8 @@ export interface TooltipContent {
 
 export interface ActiveTooltip extends TooltipContent {
   /**
-   * The element described, not a snapshot of its box.
-   *
-   * Keeping the element means the bubble can be re-measured when something
-   * moves it. A snapshot forced the alternative of dismissing on any scroll,
-   * and scroll events arrive constantly: the log pane auto-scrolls on every
-   * chunk, which made tooltips vanish the moment a container was streaming.
+   * The element described, not a snapshot of its box, so the bubble can be
+   * re-measured when something moves it instead of being dismissed.
    */
   element: HTMLElement;
 }

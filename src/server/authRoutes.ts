@@ -98,12 +98,8 @@ export function setupAuth(
     });
 
   /**
-   * The one shape every auth endpoint answers with.
-   *
-   * Each route used to return whichever fields it happened to know, and the
-   * client filled the gaps with defaults. Signing in returned no
-   * `managedByEnv`, so the dashboard forgot that a token was pinned by
-   * `DOCKSCOPE_TOKEN` and started offering to change it.
+   * The one shape every auth endpoint answers with, complete on every route, so
+   * the client never has to fill a missing field with a default.
    */
   const statusPayload = async (req: Request, override?: { authenticated: boolean }) => {
     const config = runtime.current();
@@ -224,11 +220,8 @@ export function setupAuth(
   });
 
   /**
-   * Whether to keep offering the setup screen on this instance.
-   *
-   * Reversible on purpose: the earlier version persisted a one-way "declined"
-   * flag from a button on the first-run screen, which left no way back short of
-   * deleting the state file by hand.
+   * Whether to keep offering the setup screen on this instance. The flag is
+   * reversible: the security panel can turn the reminder back on.
    */
   app.post('/api/auth/reminder', (req: Request, res: Response) => {
     void (async () => {
@@ -280,9 +273,8 @@ export function setupAuth(
     void (async () => {
       runtime.sessions.revoke(parseCookies(req.headers.cookie)[SESSION_COOKIE]);
       res.setHeader('Set-Cookie', clearedSessionCookie());
-      // Computed after the revoke, so `authenticated` reflects the sign-out.
-      // The cookie header is still on the request, which is why the session had
-      // to be dropped from the store first.
+      // Computed after the revoke, so `authenticated` reflects the sign-out:
+      // the cookie header is still on the request.
       res.json(await statusPayload(req));
     })();
   });
@@ -290,9 +282,9 @@ export function setupAuth(
   // Everything else under /api needs credentials. Registered after the routes
   // above so those stay reachable, and before the API routes so it guards them.
   //
-  // The gate is open only when nothing is configured at all: a proxy counts as
-  // configured even with no token, otherwise a request that went around it
-  // would be waved straight through.
+  // The gate is open only when nothing is configured at all. A proxy counts as
+  // configured even with no token, so a request that went around it is still
+  // refused.
   app.use('/api', (req: Request, res: Response, next: NextFunction) => {
     const gated = runtime.current().enabled || runtime.proxy.enabled;
     if (!gated || isPublicApiPath(req.path) || authorized(req)) {

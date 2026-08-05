@@ -19,13 +19,12 @@ function normalize(options: TooltipOptions): TooltipContent | null {
  *     <button use:tooltip={'Zoom to fit'}>…
  *     <button use:tooltip={{ text: 'Zoom to fit', shortcut: 'F' }}>…
  *
- * An action rather than a wrapper component, for two reasons. It adds no DOM,
- * so it cannot disturb the flex rows it is used in; and it works on the
- * existing primitives without every one of them having to grow a slot.
+ * An action rather than a wrapper component: it adds no DOM, so it cannot
+ * disturb the flex rows it is used in, and it works on the existing primitives
+ * without every one of them having to grow a slot.
  *
- * The element's `title` is removed while the action is attached. Leaving it
- * would show the browser's own tooltip alongside this one, and the delay before
- * the native one appears is not configurable.
+ * The element's `title` is removed while the action is attached, so the browser
+ * does not draw its own tooltip alongside this one.
  */
 export function tooltip(node: HTMLElement, options: TooltipOptions) {
   let content = normalize(options);
@@ -81,11 +80,9 @@ export function tooltip(node: HTMLElement, options: TooltipOptions) {
   let listening = false;
 
   /**
-   * Listeners are attached only while there is something to show.
-   *
-   * The action is applied by every primitive that accepts a `title`, including
-   * typography ones that usually have none. Binding six listeners to each of
-   * those regardless would put hundreds of dead handlers on a list of chips.
+   * Listeners are attached only while there is something to show. Every
+   * primitive that accepts a `title` applies this action, including typography
+   * ones that usually have none.
    */
   function listen() {
     if (listening) {

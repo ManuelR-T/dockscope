@@ -55,10 +55,8 @@ export function hpaNode(hpa: V2HorizontalPodAutoscaler): ServiceNode {
 }
 
 /**
- * An HPA scales a controller, not pods. The edge used to fan out to every pod
- * matching a name heuristic while labelling itself "scales Deployment", so the
- * graph asserted a relationship to something that was not a Deployment. It now
- * points at the workload named by scaleTargetRef.
+ * An HPA scales a controller, not pods, so the edge points at the workload
+ * named by `scaleTargetRef` rather than fanning out to matching pods.
  */
 export function hpaLink(hpa: V2HorizontalPodAutoscaler, target: WorkloadRef): ServiceLink {
   const namespace = hpa.metadata?.namespace || 'default';

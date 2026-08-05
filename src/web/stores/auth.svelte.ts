@@ -72,12 +72,10 @@ export function dismissSetup() {
 }
 
 /**
- * Open state for the security panel.
- *
- * It lives here rather than in the status bar because the panel has to render
- * at the top of the app: the status bar sets `backdrop-filter`, which makes it
- * a containing block for fixed-position children, so an overlay rendered inside
- * it gets framed and clipped to the event log.
+ * Open state for the security panel, held here rather than in the status bar
+ * so the panel can render at the top of the app. The status bar sets
+ * `backdrop-filter`, which makes it a containing block for fixed-position
+ * children, and an overlay rendered inside it is clipped to the event log.
  */
 let panelOpen = $state(false);
 
@@ -176,7 +174,7 @@ export async function clearToken(): Promise<boolean> {
   }
 }
 
-/** Turn the first-run reminder on or off. Reversible, unlike the old skip. */
+/** Turn the first-run reminder on or off. The choice is reversible. */
 export async function setReminderDeclined(declined: boolean): Promise<boolean> {
   submitting = true;
   error = '';

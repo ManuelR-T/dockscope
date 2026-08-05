@@ -183,8 +183,8 @@ export class SessionStore {
   ) {}
 
   create(): string {
-    // Sessions were only dropped when the same id came back to be verified, so
-    // a browser closed without signing out left one behind until restart.
+    // A browser closed without signing out never comes back to be verified, so
+    // expired ids are swept here rather than on read alone.
     this.prune();
     const id = randomUUID();
     this.sessions.set(id, this.now() + this.ttlMs);
@@ -222,12 +222,8 @@ export class SessionStore {
   }
 
   /**
-   * Drop every session.
-   *
-   * Sessions are checked by id alone, so they outlive the token they were
-   * issued under unless they are cleared explicitly. Rotating a token is
-   * normally a response to it being exposed, and leaving the old sessions
-   * working would make that rotation worthless.
+   * Drop every session. Sessions are checked by id alone, so they outlive the
+   * token they were issued under until this is called; a rotation calls it.
    */
   revokeAll(): void {
     this.sessions.clear();
@@ -291,9 +287,9 @@ export function isAuthorized(params: {
     ) {
       return true;
     }
-    // Configuring a proxy declares that authentication is required. Without
-    // this, a request that went around the proxy straight to the port would be
-    // waved through whenever no token happened to be set.
+    // Configuring a proxy declares that authentication is required, so a
+    // request that went around it straight to the port is refused even when no
+    // token is set.
     if (!config.enabled) {
       return false;
     }
@@ -375,10 +371,8 @@ export function setupAvailability(params: {
   if (config.enabled || proxyEnabled) {
     return 'configured';
   }
-  // The window is checked before the reminder, because the two answer different
-  // questions: the window decides whether a token may be set at all, while
-  // declining only silences the prompt. Checking `declined` first would let a
-  // remote caller past a closed window.
+  // The window is checked before the reminder: it decides whether a token may
+  // be set at all, while declining only silences the prompt.
   if (!isLoopbackAddress(remoteAddress) && uptimeMs > windowMs) {
     return 'window-closed';
   }
@@ -386,11 +380,8 @@ export function setupAvailability(params: {
 }
 
 /**
- * Whether a token may be set right now.
- *
- * Declining the reminder hides the first-run screen but must not prevent
- * setting a token later from the security panel: that was exactly the dead end
- * the reminder used to create.
+ * Whether a token may be set right now. Declining the reminder hides the
+ * first-run screen but still allows setting a token from the security panel.
  */
 export function canSetToken(state: SetupAvailability): boolean {
   return state === 'available' || state === 'declined';
@@ -565,12 +556,8 @@ export class AttemptLimiter {
   }
 
   /**
-   * Drop expired counters.
-   *
-   * Entries are keyed by source address and were only ever removed when that
-   * same address came back, so a scan from many addresses left one entry each,
-   * for the life of the process. Pruning on write keeps that bounded without a
-   * timer.
+   * Drop expired counters. Entries are keyed by source address, so pruning on
+   * write bounds the map under a scan from many addresses, without a timer.
    */
   private prune(): void {
     const now = this.now();

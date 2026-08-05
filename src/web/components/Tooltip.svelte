@@ -53,12 +53,9 @@
   });
 
   /**
-   * Follow the trigger rather than dismissing when something moves.
-   *
-   * Dismissing on any scroll looks equivalent and is not: scroll events arrive
-   * constantly from panes that are not involved, and the log view auto-scrolls
-   * on every chunk, so a streaming container made every tooltip in the app
-   * disappear on sight.
+   * Follow the trigger rather than dismissing when something moves. Scroll
+   * events arrive constantly from panes that are not involved, and the log view
+   * auto-scrolls on every chunk.
    */
   $effect(() => {
     if (!tooltips.active) {

@@ -18,9 +18,8 @@ export interface Resources {
   deployments: V1DeploymentList;
   statefulSets: V1StatefulSetList;
   daemonSets: V1DaemonSetList;
-  // ReplicaSets are fetched but never drawn: they are only the hop between a
-  // pod and its Deployment. Rendering them would add a node per rollout
-  // revision for no insight, so resolvePodOwner walks through them instead.
+  // Fetched but never drawn: ReplicaSets are the hop between a pod and its
+  // Deployment, which resolvePodOwner walks through.
   replicaSets: V1ReplicaSetList;
 }
 
@@ -33,14 +32,12 @@ interface Attempt<T> {
 }
 
 /**
- * Fetch one resource kind, degrading to nothing rather than taking the graph
- * down with it.
+ * Fetch one resource kind, degrading to an empty list when the cluster refuses
+ * it.
  *
- * These eight calls span four API groups, and a cluster can legitimately refuse
- * any of them: a read-only ServiceAccount often has no access to `apps/v1`, and
- * `autoscaling/v2` does not exist before Kubernetes 1.23. Failing the whole
- * collection on one rejection meant a user who could see their pods perfectly
- * well got an empty graph and no explanation.
+ * The eight calls span four API groups and any of them can be denied: a
+ * read-only ServiceAccount often has no access to `apps/v1`, and
+ * `autoscaling/v2` does not exist before Kubernetes 1.23.
  */
 async function listOrEmpty<T extends { items: unknown[] }>(
   kind: string,
@@ -76,9 +73,7 @@ export default async function listResources({
   ]);
 
   // Nothing at all came back: the cluster is unreachable rather than
-  // restrictive. Reporting that as an empty graph would show the source as
-  // connected with no resources, hiding the real problem from the one tool
-  // meant to surface it. The host turns this into a source-level error.
+  // restrictive. The host turns this throw into a source-level error.
   if (attempts.every((attempt) => attempt.error !== undefined)) {
     const [first] = attempts;
     throw new Error(

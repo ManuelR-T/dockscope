@@ -6,8 +6,7 @@ import { buildGraph } from '../graph';
 /**
  * A cluster can legitimately refuse any of these calls: a read-only
  * ServiceAccount often has no access to `apps/v1`, and `autoscaling/v2` does
- * not exist before Kubernetes 1.23. One rejection used to take the whole graph
- * with it, so someone who could see their pods perfectly well got nothing.
+ * not exist before Kubernetes 1.23.
  */
 
 function pods(...names: string[]) {
@@ -102,12 +101,8 @@ describe('listResources', () => {
     expect(warn.mock.calls.flat().join(' ')).toContain('deployments');
   });
 
-  /**
-   * A cluster that answers nothing at all is unreachable, not restrictive.
-   * Degrading that to an empty graph would show the source as connected with no
-   * resources and hide the real problem; the host turns a throw into a
-   * source-level error the dashboard can display.
-   */
+  // A cluster that answers nothing at all is unreachable, not restrictive. The
+  // host turns the throw into a source-level error the dashboard can display.
   it('throws when not a single resource kind could be listed', async () => {
     const everythingFails = Object.fromEntries(
       [
@@ -143,7 +138,7 @@ describe('listResources', () => {
     expect(buildGraph(resources).nodes.map((node) => node.id)).toContain('k8s:pod:default:web-1');
   });
 
-  // The point of degrading: a partial cluster still draws the part it can see.
+  // A partial cluster still draws the part it can see.
   it('builds a usable graph from a partial cluster', async () => {
     const resources = await listResources(
       client({

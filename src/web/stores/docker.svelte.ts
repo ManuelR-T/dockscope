@@ -155,9 +155,8 @@ function connect() {
     connected = false;
     ws = null;
     // A handshake that never opened may have been refused rather than dropped.
-    // Sessions live in memory, so every server restart invalidates them, and
-    // without this the tab would reconnect forever behind a working-looking
-    // dashboard instead of asking for the token again.
+    // Sessions live in memory, so a server restart invalidates them and the
+    // tab has to ask for the token again instead of reconnecting forever.
     if (!opened) {
       onHandshakeRefused?.();
     }
@@ -266,9 +265,9 @@ export function initDocker() {
   fetch('/api/graph')
     .then((r) => r.json())
     .then((data) => {
-      // Not while replaying: the recording owns the graph. This matters now
-      // that a session can be torn down and restarted underneath a replay, when
-      // an expired token puts the login gate up and the user signs back in.
+      // Not while replaying: the recording owns the graph. A session can be
+      // torn down and restarted underneath a replay, when an expired token puts
+      // the login gate up and the user signs back in.
       if (!replayMode) {
         mergeGraph(data);
       }

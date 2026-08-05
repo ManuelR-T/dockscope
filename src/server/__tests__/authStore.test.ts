@@ -61,7 +61,7 @@ describe('AuthStore', () => {
     expect((await store.read()).declined).toBe(true);
   });
 
-  // The earlier version had no way back short of editing the file by hand.
+  // Declining is reversible without touching the file by hand.
   it('takes the decline back again', async () => {
     await store.setDeclined(true);
     await store.setDeclined(false);

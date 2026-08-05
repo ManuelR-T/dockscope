@@ -110,8 +110,8 @@
   });
 
   // ---- per-plugin facet lookups ----
-  // Each of these used to back a whole tab. They are attributes of one plugin,
-  // so they are resolved per row and omitted entirely when empty.
+  // Attributes of one plugin, so they are resolved per row and omitted
+  // entirely when empty.
 
   function reviewFor(pluginId: string): PluginReviewReport | undefined {
     return reviews.find((review) => review.pluginId === pluginId);

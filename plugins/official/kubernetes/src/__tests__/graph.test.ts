@@ -151,8 +151,8 @@ describe('buildGraph', () => {
     expect(graph.links).toHaveLength(0);
   });
 
-  // An HPA scales a controller, not pods. It used to fan out to every pod whose
-  // name looked related while labelling itself "scales Deployment".
+  // An HPA scales a controller, not pods: one edge to the target workload,
+  // never a fan-out to pods whose names look related.
   it('links an HPA to the workload named by its scale target', () => {
     const graph = buildGraph(
       resources({
@@ -239,8 +239,8 @@ describe('buildGraph', () => {
     expect(node.metadata).toMatchObject({ replicas: '2/2 replicas' });
   });
 
-  // Regression: the bounds used to ship only as a formatted "2-5" string, so the
-  // scale form's numeric pre-fill found nothing and defaulted to 1/1.
+  // Numbers, not just the formatted "2-5" string: the scale form pre-fills
+  // from these and would otherwise fall back to 1/1.
   it('publishes the replica bounds as numbers the scale form can pre-fill', () => {
     const node = buildGraph(hpa({ currentReplicas: 2, desiredReplicas: 2 })).nodes[0];
     expect(node.metadata).toMatchObject({ minReplicas: 2, maxReplicas: 5 });
@@ -251,9 +251,8 @@ describe('buildGraph', () => {
     expect(node).toMatchObject({ health: 'starting', image: 'HPA 2/4 replicas' });
   });
 
-  // Regression: an HPA that cannot compute a target leaves desiredReplicas at 0
-  // and sets ScalingActive=False. Reading only the counts rendered it healthy
-  // with a meaningless "2/0 replicas".
+  // An HPA that cannot compute a target leaves desiredReplicas at 0 and sets
+  // ScalingActive=False, so the condition decides the health, not the counts.
   it('reports an HPA that cannot scale as unhealthy, with the reason', () => {
     const node = buildGraph(
       hpa({

@@ -82,8 +82,8 @@ describe('getLogsForPod', () => {
     const logs = await getLogsForPod(client, { namespace: 'default', name: 'web-abc' });
 
     expect(logs).toBe('logs of default/web-abc');
-    // Regression: the caller passed (namespace, name) into a (name, namespace)
-    // signature, so every pod looked up namespace "web-abc" and 404'd.
+    // Both are strings, so only an assertion on the values catches namespace
+    // and name being passed the wrong way round.
     expect(logCalls).toEqual([{ namespace: 'default', name: 'web-abc', container: 'nginx' }]);
   });
 
@@ -198,8 +198,8 @@ describe('entityActions', () => {
     const actions = entityActions(hpaRef({ minReplicas: 2, maxReplicas: 5 }));
     const scale = actions.find((action) => action.id === 'set_hpa_constraints');
 
-    // Regression: these defaulted to 1/1 because the bounds were only published
-    // as a "2-5" string, so accepting the form scaled a 2-5 autoscaler down.
+    // The defaults come from the numeric bounds, so accepting the form
+    // unchanged leaves the autoscaler where it is.
     expect(scale?.input?.fields).toEqual([
       expect.objectContaining({ key: 'minReplicas', default: 2 }),
       expect.objectContaining({ key: 'maxReplicas', default: 5 }),
@@ -341,11 +341,10 @@ describe('runResourceAction', () => {
   });
 
   /**
-   * Regression: every patch body in this plugin is a merge object, but the
-   * generated client defaults to `application/json-patch+json`, which expects
-   * an array of RFC 6902 ops. The API server rejected all of them with 400
-   * "cannot unmarshal object into Go value of type []handlers.jsonPatchOp".
-   * Mocks accept any arguments, so only asserting the options catches it.
+   * Every patch body in this plugin is a merge object, but the generated client
+   * defaults to `application/json-patch+json`, which expects an array of RFC
+   * 6902 ops and is rejected with a 400. Mocks accept any arguments, so the
+   * options have to be asserted explicitly.
    */
   it.each([
     ['k8s:deployment:default:web', 'restart', undefined, 'patchNamespacedDeployment'],

@@ -8,8 +8,8 @@ import path from 'node:path';
  * `DOCKSCOPE_STATE_DIR` exists for containers. The default sits under the home
  * directory, which in an image is part of the writable layer and is discarded
  * with the container, so the published image points this at a declared volume.
- * Every store resolves through here: when only some of them did, mounting the
- * volume saved the token and silently lost the installed plugins.
+ * Every store resolves through here, so mounting that one volume persists all
+ * of it.
  */
 export function stateDir(env: NodeJS.ProcessEnv = process.env): string {
   return env.DOCKSCOPE_STATE_DIR || path.join(homedir(), '.dockscope');

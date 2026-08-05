@@ -163,8 +163,8 @@ async function main() {
       ),
     );
 
-    // Regression: the HPA edge used to fan out to pods matched by a name
-    // heuristic while labelling itself "scales Deployment".
+    // One edge to the workload named by scaleTargetRef, never a fan-out to
+    // pods matched by a name heuristic.
     const hpaLinks = links.filter((link) => link.source.includes('k8s:hpa:default:e2e-web'));
     check(
       'the HPA points at the Deployment, not at pods',
@@ -204,7 +204,8 @@ async function main() {
     );
 
     console.log('\nLogs');
-    // Regression: (name, namespace) were swapped, so this 404'd for every pod.
+    // A real 404 here is what a namespace and name passed the wrong way round
+    // looks like.
     const logs = await api(entityUrl(podId, '/logs', '&tail=5'));
     check(
       'a pod returns its logs',
@@ -261,17 +262,16 @@ async function main() {
       'a Deployment offers restart',
       actions.some((action) => action.id === 'restart'),
     );
-    // Regression: the form defaulted to 1 because the bounds were published
-    // only as a formatted string, so accepting it silently scaled down.
+    // The form pre-fills from the numeric metadata, so accepting it unchanged
+    // does not scale the workload down.
     check(
       'the scale form pre-fills the current replica count',
       scale?.input?.fields?.[0]?.default === deployment?.metadata?.desiredReplicas,
       `form ${JSON.stringify(scale?.input?.fields)} vs node ${JSON.stringify(deployment?.metadata)}`,
     );
 
-    // Regression: every patch went out as application/json-patch+json and the
-    // API server rejected it with 400. Mocked tests accepted any arguments, so
-    // this is the assertion that would have caught it.
+    // A real API server is the only thing that rejects the wrong patch
+    // content type; mocked tests accept any arguments.
     const restart = await api(entityUrl(deploymentId, '/actions/official.kubernetes/restart'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

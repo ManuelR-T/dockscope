@@ -706,12 +706,8 @@ describe('access token', () => {
     expect(status).toMatchObject({ required: true, managedByEnv: true, setup: 'configured' });
   });
 
-  /**
-   * Regression: every endpoint returned whichever fields it happened to know,
-   * and the client filled the gaps with defaults. Signing in answered without
-   * `managedByEnv`, so the dashboard forgot the token was pinned by
-   * DOCKSCOPE_TOKEN and started offering to change it.
-   */
+  // Every field on every route, so the client never fills a gap with a default
+  // and forgets, say, that DOCKSCOPE_TOKEN pinned the token.
   it('answers every auth endpoint with the same status shape', async () => {
     server = await startTestServer();
     const shape = ['required', 'authenticated', 'managedByEnv', 'viaProxy', 'setup'];
@@ -890,11 +886,8 @@ describe('first-run setup', () => {
     ).toBe(401);
   });
 
-  /**
-   * Regression: sessions are verified by id alone, so a cookie issued under the
-   * previous token kept working after a rotation. Rotating is normally a
-   * response to the token being exposed, which made it worthless.
-   */
+  // Sessions are verified by id alone, so a rotation has to clear them
+  // explicitly; it is normally a response to the token being exposed.
   it('cuts off sessions issued under the previous token', async () => {
     server = await startTestServer();
     const claimed = await setup('a-perfectly-good-token');
@@ -980,8 +973,7 @@ describe('first-run setup', () => {
     expect((await (await fetch(`${base()}/api/auth`)).json()).setup).toBe('declined');
   });
 
-  // Regression: this used to be a one-way door, recoverable only by deleting
-  // the state file by hand.
+  // Not a one-way door: the choice is reversible from the security panel.
   it('offers setup again when the reminder is turned back on', async () => {
     server = await startTestServer();
     await setReminder(true);
@@ -1093,8 +1085,8 @@ describe('reverse-proxy authentication', () => {
     expect((await fetch(`${base()}/api/graph`)).status).toBe(401);
   });
 
-  // Regression: with a proxy configured but no token, a request that went
-  // around the proxy straight to the port used to be waved through.
+  // With a proxy configured, a request that goes around it straight to the
+  // port is refused even though no token is set.
   it('refuses an unproxied request even with no token configured', async () => {
     delete process.env.DOCKSCOPE_TOKEN;
     server = await startTestServer();

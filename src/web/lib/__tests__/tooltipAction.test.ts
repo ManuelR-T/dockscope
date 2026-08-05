@@ -61,7 +61,7 @@ describe('tooltip action', () => {
     vi.restoreAllMocks();
   });
 
-  // Regression: every Chip and Text in the app carried six dead listeners.
+  // Otherwise every Chip and Text in the app carries six dead listeners.
   it('attaches nothing when there is no tooltip text', () => {
     const { node, count } = fakeNode();
     tooltip(node, undefined);

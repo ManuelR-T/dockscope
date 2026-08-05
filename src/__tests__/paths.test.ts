@@ -22,9 +22,8 @@ describe('stateDir', () => {
 
 /**
  * The Docker image sets DOCKSCOPE_STATE_DIR to a declared volume, and the
- * README tells people to mount it. Every store has to resolve through it or
- * that mount quietly saves some state and drops the rest: the access token
- * survived a restart while the installed plugins did not.
+ * README tells people to mount it. Every store has to resolve through it, or
+ * that mount persists some state and drops the rest.
  */
 describe('state directory coverage', () => {
   const env = { DOCKSCOPE_STATE_DIR: '/data' } as NodeJS.ProcessEnv;
