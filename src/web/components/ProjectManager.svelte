@@ -4,12 +4,15 @@
   import { Button, CloseButton } from './ui';
 
   import type { ProjectSummary } from '../../core/entities/operations';
+  import { allowsUiIntent, type AccessRole } from '../../core/access';
 
   interface Props {
     onClose: () => void;
+    role: AccessRole | null;
   }
 
-  let { onClose }: Props = $props();
+  let { onClose, role }: Props = $props();
+  let canOperate = $derived(allowsUiIntent(role, 'mutation'));
 
   let projects = $state<ProjectSummary[]>([]);
   let loading = $state(true);
@@ -36,6 +39,9 @@
   }
 
   async function doAction(project: ProjectSummary, action: string) {
+    if (!canOperate) {
+      return;
+    }
     const key = projectKey(project);
     pendingAction = `${key}:${action}`;
     try {
@@ -101,79 +107,85 @@
                 {/if}
               </span>
             </div>
-            <div class="pm-actions">
-              {#if project.running === 0 && project.stopped === 0}
-                <!-- Cached project (after down) — can only Up or Destroy -->
-                <Button
-                  size="sm"
-                  tone="success"
-                  disabled={!!pendingAction}
-                  onclick={() => doAction(project, 'up')}
-                  title="Up (start all)"
-                >
-                  {isPending(project, 'up') ? '...' : 'Up'}
-                </Button>
-              {:else if project.running === 0}
-                <!-- All stopped — can Up or Down -->
-                <Button
-                  size="sm"
-                  tone="success"
-                  disabled={!!pendingAction}
-                  onclick={() => doAction(project, 'up')}
-                  title="Up (start all)"
-                >
-                  {isPending(project, 'up') ? '...' : 'Up'}
-                </Button>
+            {#if canOperate}
+              <div class="pm-actions">
+                {#if project.running === 0 && project.stopped === 0}
+                  <!-- Cached project (after down) — can only Up or Destroy -->
+                  <Button
+                    size="sm"
+                    tone="success"
+                    disabled={!!pendingAction}
+                    onclick={() => doAction(project, 'up')}
+                    title="Up (start all)"
+                  >
+                    {isPending(project, 'up') ? '...' : 'Up'}
+                  </Button>
+                {:else if project.running === 0}
+                  <!-- All stopped — can Up or Down -->
+                  <Button
+                    size="sm"
+                    tone="success"
+                    disabled={!!pendingAction}
+                    onclick={() => doAction(project, 'up')}
+                    title="Up (start all)"
+                  >
+                    {isPending(project, 'up') ? '...' : 'Up'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    tone="danger"
+                    disabled={!!pendingAction}
+                    onclick={() => doAction(project, 'down')}
+                    title="Down (remove containers)"
+                  >
+                    {isPending(project, 'down') ? '...' : 'Down'}
+                  </Button>
+                {:else}
+                  <!-- Running — full control -->
+                  <Button
+                    size="sm"
+                    tone="accent"
+                    disabled={!!pendingAction}
+                    onclick={() => doAction(project, 'restart')}
+                    title="Restart all"
+                  >
+                    {isPending(project, 'restart') ? '...' : 'Restart'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    tone="warn"
+                    disabled={!!pendingAction}
+                    onclick={() => doAction(project, 'stop')}
+                    title="Stop all"
+                  >
+                    {isPending(project, 'stop') ? '...' : 'Stop'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    tone="danger"
+                    disabled={!!pendingAction}
+                    onclick={() => doAction(project, 'down')}
+                    title="Down (remove containers)"
+                  >
+                    {isPending(project, 'down') ? '...' : 'Down'}
+                  </Button>
+                {/if}
+                <!-- Destroy always available — removes containers, volumes, orphans, and cache -->
                 <Button
                   size="sm"
                   tone="danger"
                   disabled={!!pendingAction}
-                  onclick={() => doAction(project, 'down')}
-                  title="Down (remove containers)"
+                  onclick={() => doAction(project, 'destroy')}
+                  title="Destroy (remove containers + volumes)"
                 >
-                  {isPending(project, 'down') ? '...' : 'Down'}
+                  {isPending(project, 'destroy') ? '...' : 'Destroy'}
                 </Button>
-              {:else}
-                <!-- Running — full control -->
-                <Button
-                  size="sm"
-                  tone="accent"
-                  disabled={!!pendingAction}
-                  onclick={() => doAction(project, 'restart')}
-                  title="Restart all"
-                >
-                  {isPending(project, 'restart') ? '...' : 'Restart'}
-                </Button>
-                <Button
-                  size="sm"
-                  tone="warn"
-                  disabled={!!pendingAction}
-                  onclick={() => doAction(project, 'stop')}
-                  title="Stop all"
-                >
-                  {isPending(project, 'stop') ? '...' : 'Stop'}
-                </Button>
-                <Button
-                  size="sm"
-                  tone="danger"
-                  disabled={!!pendingAction}
-                  onclick={() => doAction(project, 'down')}
-                  title="Down (remove containers)"
-                >
-                  {isPending(project, 'down') ? '...' : 'Down'}
-                </Button>
-              {/if}
-              <!-- Destroy always available — removes containers, volumes, orphans, and cache -->
-              <Button
-                size="sm"
-                tone="danger"
-                disabled={!!pendingAction}
-                onclick={() => doAction(project, 'destroy')}
-                title="Destroy (remove containers + volumes)"
-              >
-                {isPending(project, 'destroy') ? '...' : 'Destroy'}
-              </Button>
-            </div>
+              </div>
+            {:else}
+              <span class="pm-read-only" title="Operator access is required for project actions">
+                Read-only
+              </span>
+            {/if}
           </div>
         {/each}
       </div>
@@ -290,6 +302,13 @@
     display: flex;
     gap: 5px;
     flex-shrink: 0;
+  }
+
+  .pm-read-only {
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    text-transform: uppercase;
   }
 
   @keyframes fadeIn {

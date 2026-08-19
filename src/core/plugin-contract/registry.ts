@@ -2,6 +2,7 @@
 // fan-out that the rest of the app consumes. The manifest contract it validates
 // against lives in ./manifest.js.
 import { createHash } from 'crypto';
+import { pluginUiActionAllowed, type AccessRole } from '../access.js';
 import type { DataSourceDescriptor, GraphSourceAdapter } from '../sources/model.js';
 import type {
   EntityDiagnosticProvider,
@@ -367,6 +368,7 @@ export class PluginRegistry {
     pluginId: string,
     extensionId: string,
     payload: { context?: unknown; input?: unknown } = {},
+    options: { accessRole?: AccessRole } = {},
   ): Promise<PluginUiActionResult> {
     const extension = this.listUiExtensions().find(
       (candidate) => candidate.pluginId === pluginId && candidate.id === extensionId,
@@ -382,6 +384,9 @@ export class PluginRegistry {
         400,
         `Plugin UI extension has no action: ${pluginId}/${extensionId}`,
       );
+    }
+    if (!pluginUiActionAllowed(options.accessRole ?? 'operator', extension.action)) {
+      throw new PluginOperationError(403, 'Operator access required');
     }
     const context: PluginUiContext = validatePluginUiContext(payload.context);
     if (!pluginUiContextMatches(extension, context)) {

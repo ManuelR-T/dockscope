@@ -136,4 +136,28 @@ describe('resolveAuthConfig', () => {
       }),
     ).toMatchObject({ enabled: true, source: 'env', token: TOKEN });
   });
+
+  it('adds an environment read-only token to a stored operator token', () => {
+    const stored = { salt: 'a', hash: 'b' };
+    expect(
+      resolveAuthConfig(
+        { DOCKSCOPE_READ_ONLY_TOKEN: 'a-sufficiently-long-reader-token' } as NodeJS.ProcessEnv,
+        { version: 1, token: stored },
+      ),
+    ).toMatchObject({
+      enabled: true,
+      source: 'file',
+      stored,
+      readOnlyToken: 'a-sufficiently-long-reader-token',
+    });
+  });
+
+  it('refuses a read-only token without any operator credential', () => {
+    expect(() =>
+      resolveAuthConfig(
+        { DOCKSCOPE_READ_ONLY_TOKEN: 'a-sufficiently-long-reader-token' } as NodeJS.ProcessEnv,
+        { version: 1 },
+      ),
+    ).toThrow('DOCKSCOPE_READ_ONLY_TOKEN requires a full-access token');
+  });
 });

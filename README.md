@@ -51,10 +51,28 @@ volumes:
 
 </details>
 
-`dockscope-data` is what keeps your access token and installed plugins. Without
-it they sit in the container's writable layer and vanish the next time you
-recreate the container, pulling a new image for instance. See
+`dockscope-data` is what keeps a dashboard-set full-access token and installed
+plugins. Without it they sit in the container's writable layer and vanish the
+next time you recreate the container, pulling a new image for instance. See
 [Where state lives](docs/configuration.md#where-state-lives).
+
+To share an observational dashboard without handing out exec or mutation
+access, configure distinct operator and reader secrets:
+
+```bash
+export DOCKSCOPE_TOKEN="$(openssl rand -hex 32)"
+export DOCKSCOPE_READ_ONLY_TOKEN="$(openssl rand -hex 32)"
+
+docker run --name dockscope --restart unless-stopped -p 4681:4681 \
+  --env DOCKSCOPE_TOKEN \
+  --env DOCKSCOPE_READ_ONLY_TOKEN \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v dockscope-data:/data \
+  ghcr.io/manuelr-t/dockscope
+```
+
+Keep both values out of source control. The read-only token requires a
+full-access token; DockScope refuses to start if it is configured alone.
 
 Compose project management (up and down) is the one feature unavailable in a
 container, since it cannot reach your host's compose files.
@@ -161,8 +179,11 @@ localhost only, and websites you visit cannot reach it.
 
 Two things to know before you expose it anywhere:
 
-- It controls your Docker daemon, including shell access to containers. Treat
-  access to DockScope as access to the host.
+- Operator access controls your Docker daemon, including shell access to
+  containers. Treat an operator token as access to the host.
+- Reader access prevents mutations and exec, but it still exposes sensitive
+  logs, environment values, inspection data, filesystem diffs and process
+  arguments. It is not anonymous or public access.
 - The first time you open a reachable instance, it offers to set an access
   token. Take it. If you already run Authelia, Authentik, oauth2-proxy or
   Cloudflare Access, DockScope can use that instead.

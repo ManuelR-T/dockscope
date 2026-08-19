@@ -29,8 +29,8 @@ diagnostic messages. It is the same data the dashboard renders.
 ## Authentication
 
 With no access token configured there is none, and every endpoint below answers
-directly. Once a token is set, everything under `/api` and the `/ws` handshake
-returns `401` without credentials.
+directly with operator access. Once a full-access token is set, everything
+under `/api` and the `/ws` handshake returns `401` without credentials.
 
 Scripts send the token as a bearer header:
 
@@ -38,22 +38,43 @@ Scripts send the token as a bearer header:
 curl -s -H "Authorization: Bearer $DOCKSCOPE_TOKEN" localhost:4681/api/graph
 ```
 
+An optional `DOCKSCOPE_READ_ONLY_TOKEN` authenticates as `reader`; the existing
+environment or dashboard token authenticates as `operator`. The reader token
+requires a full-access token and must be distinct unless operator access is
+intended.
+
 The dashboard instead exchanges the token for an HttpOnly session cookie, since
 a browser cannot set headers on a WebSocket handshake.
 
 `GET /api/auth` needs no credentials and doubles as a liveness probe. It
 reports whether a token is required, whether you currently hold one, whether it
 is pinned by `DOCKSCOPE_TOKEN`, whether a reverse proxy authenticated you, and
-whether first-run setup is still on offer.
+whether first-run setup is still on offer. Its `role` field is `operator`,
+`reader`, or `null`; browser sessions preserve the role used at login.
 
-| Method | Path                 | Description                                                     |
-| ------ | -------------------- | --------------------------------------------------------------- |
-| GET    | `/api/auth`          | Current auth status. Never requires credentials                 |
-| POST   | `/api/auth/setup`    | Claim an unconfigured instance, or change the token you hold    |
-| POST   | `/api/auth/session`  | Exchange a token for a session cookie                           |
-| DELETE | `/api/auth/session`  | Sign out                                                        |
-| DELETE | `/api/auth/token`    | Remove the token, reopening the instance. Requires holding it   |
-| POST   | `/api/auth/reminder` | Turn the first-run setup prompt on or off                       |
+Authenticated readers may use every `GET` and `HEAD` endpoint, WebSocket live
+updates and log subscriptions, plus these observational POST operations:
+
+- `/api/compare`
+- `/api/kubernetes/logs`
+- plugin UI actions declared as `open_url`
+
+Catalog preview remains operator-only because it initiates an outbound request
+to a user-supplied location.
+
+Every other mutation, token-setting change, plugin command and WebSocket
+`exec_*` message requires an operator. A missing or invalid credential returns
+`401`; an authenticated reader attempting an operator operation receives
+`403 {"error":"Operator access required"}`.
+
+| Method | Path                 | Description                                                      |
+| ------ | -------------------- | ---------------------------------------------------------------- |
+| GET    | `/api/auth`          | Current auth status. Never requires credentials                  |
+| POST   | `/api/auth/setup`    | Claim an instance or change its full token. Operator after setup |
+| POST   | `/api/auth/session`  | Exchange a token for a session cookie                            |
+| DELETE | `/api/auth/session`  | Sign out                                                         |
+| DELETE | `/api/auth/token`    | Remove the full token, reopening the instance. Operator only     |
+| POST   | `/api/auth/reminder` | Turn the first-run setup prompt on or off. Operator only         |
 
 Claiming an unconfigured instance is only possible from the machine itself, or
 from the network within 15 minutes of startup. Failed attempts are rate limited

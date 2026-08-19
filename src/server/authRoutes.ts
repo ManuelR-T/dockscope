@@ -1,6 +1,9 @@
 import type { Express, NextFunction, Request, Response } from 'express';
+import { apiRequestAllowed, pluginUiActionRef } from '../core/access.js';
+import type { PluginUiAction } from '../core/plugin-contract/ui.js';
 import {
   AttemptLimiter,
+  AccessRole,
   AuthConfig,
   MIN_TOKEN_LENGTH,
   ProxyAuthConfig,
@@ -8,14 +11,15 @@ import {
   SESSION_COOKIE,
   VerifiedTokenCache,
   buildSessionCookie,
+  authenticateRequest,
   canSetToken,
   clearedSessionCookie,
-  isAuthorized,
   isPublicApiPath,
   parseCookies,
   proxyAuthenticatedUser,
+  redactAccessSecrets,
   setupAvailability,
-  tokenIsValid,
+  tokenAccessRole,
 } from './auth.js';
 import { AuthStore } from './authStore.js';
 
@@ -66,10 +70,14 @@ export function setupAuth(
   app: Express,
   runtime: ReturnType<typeof createAuthRuntime>,
   store: AuthStore,
-  startedAt: number = Date.now(),
+  options: {
+    startedAt?: number;
+    resolvePluginUiAction?: (pluginId: string, extensionId: string) => PluginUiAction | undefined;
+  } = {},
 ): void {
-  const authorized = (req: Request): boolean =>
-    isAuthorized({
+  const startedAt = options.startedAt ?? Date.now();
+  const accessRole = (req: Request): AccessRole | undefined =>
+    authenticateRequest({
       config: runtime.current(),
       sessions: runtime.sessions,
       cookieHeader: req.headers.cookie,
@@ -79,12 +87,27 @@ export function setupAuth(
       headers: req.headers,
       remoteAddress: req.socket.remoteAddress ?? undefined,
     });
+  const requireConfiguredOperator = (req: Request, res: Response): boolean => {
+    if (!runtime.current().enabled && !runtime.proxy.enabled) {
+      return true;
+    }
+    const role = accessRole(req);
+    if (!role) {
+      res.status(401).json({ error: 'Authentication required' });
+      return false;
+    }
+    if (role !== 'operator') {
+      res.status(403).json({ error: 'Operator access required' });
+      return false;
+    }
+    return true;
+  };
 
   /** Guessing is rate limited per source, since a shared secret has no account to lock. */
   const attemptKey = (req: Request): string => req.socket.remoteAddress ?? 'unknown';
 
-  const issueSession = (req: Request, res: Response) => {
-    const id = runtime.sessions.create();
+  const issueSession = (req: Request, res: Response, role: AccessRole) => {
+    const id = runtime.sessions.create(role);
     res.setHeader('Set-Cookie', buildSessionCookie(id, { secure: wantsSecureCookie(req) }));
   };
 
@@ -101,8 +124,9 @@ export function setupAuth(
    * The one shape every auth endpoint answers with, complete on every route, so
    * the client never has to fill a missing field with a default.
    */
-  const statusPayload = async (req: Request, override?: { authenticated: boolean }) => {
+  const statusPayload = async (req: Request, override?: { role: AccessRole }) => {
     const config = runtime.current();
+    const role = override?.role ?? accessRole(req);
     const viaProxy = Boolean(
       runtime.proxy.enabled &&
       proxyAuthenticatedUser({
@@ -116,7 +140,8 @@ export function setupAuth(
       required: config.enabled || runtime.proxy.enabled,
       // A session issued by this very response is not on the request yet, so a
       // route that just signed someone in has to say so itself.
-      authenticated: override?.authenticated ?? authorized(req),
+      authenticated: role !== undefined,
+      role: role ?? null,
       managedByEnv: config.source === 'env',
       // A proxy already handled the login, so the dashboard must not offer a
       // token prompt on top of it.
@@ -146,6 +171,10 @@ export function setupAuth(
     void (async () => {
       const config = runtime.current();
 
+      if (!requireConfiguredOperator(req, res)) {
+        return;
+      }
+
       if (config.source === 'env') {
         res.status(409).json({
           error: 'The token is pinned by DOCKSCOPE_TOKEN and cannot be changed from here.',
@@ -153,12 +182,7 @@ export function setupAuth(
         return;
       }
 
-      if (config.enabled) {
-        if (!authorized(req)) {
-          res.status(401).json({ error: 'Authentication required' });
-          return;
-        }
-      } else {
+      if (!config.enabled) {
         const state = await availability(req);
         if (!canSetToken(state)) {
           res.status(409).json({
@@ -186,11 +210,17 @@ export function setupAuth(
       // rotation is usually a response to that token being exposed, so letting
       // the old sessions keep working would defeat the point.
       runtime.sessions.revokeAll();
-      runtime.set({ enabled: true, token: '', stored, source: 'file' });
+      runtime.set({
+        enabled: true,
+        token: '',
+        stored,
+        ...(config.readOnlyToken ? { readOnlyToken: config.readOnlyToken } : {}),
+        source: 'file',
+      });
       // Sign the person who just set it up straight in, so enabling auth never
       // locks them out of the page they are looking at.
-      issueSession(req, res);
-      res.json(await statusPayload(req, { authenticated: true }));
+      issueSession(req, res, 'operator');
+      res.json(await statusPayload(req, { role: 'operator' }));
     })();
   });
 
@@ -198,18 +228,21 @@ export function setupAuth(
   app.delete('/api/auth/token', (req: Request, res: Response) => {
     void (async () => {
       const config = runtime.current();
+      if (!requireConfiguredOperator(req, res)) {
+        return;
+      }
       if (config.source === 'env') {
         res.status(409).json({
           error: 'The token is pinned by DOCKSCOPE_TOKEN and cannot be removed from here.',
         });
         return;
       }
-      // Only someone who currently holds the token may give it up.
-      if (config.enabled && !authorized(req)) {
-        res.status(401).json({ error: 'Authentication required' });
+      if (config.readOnlyToken) {
+        res.status(409).json({
+          error: 'Remove DOCKSCOPE_READ_ONLY_TOKEN before removing the full-access token.',
+        });
         return;
       }
-
       await store.clearToken();
       runtime.verified.clear();
       runtime.sessions.revokeAll();
@@ -225,9 +258,7 @@ export function setupAuth(
    */
   app.post('/api/auth/reminder', (req: Request, res: Response) => {
     void (async () => {
-      const config = runtime.current();
-      if (config.enabled && !authorized(req)) {
-        res.status(401).json({ error: 'Authentication required' });
+      if (!requireConfiguredOperator(req, res)) {
         return;
       }
       const declined = req.body?.declined === true;
@@ -256,7 +287,8 @@ export function setupAuth(
       }
 
       const supplied = typeof req.body?.token === 'string' ? req.body.token : '';
-      if (!supplied || !tokenIsValid(supplied, config)) {
+      const role = supplied ? tokenAccessRole(supplied, config) : undefined;
+      if (!role) {
         runtime.attempts.recordFailure(key);
         await sleep(FAILED_ATTEMPT_DELAY_MS);
         res.status(401).json({ error: 'Invalid token' });
@@ -264,8 +296,8 @@ export function setupAuth(
       }
 
       runtime.attempts.recordSuccess(key);
-      issueSession(req, res);
-      res.json(await statusPayload(req, { authenticated: true }));
+      issueSession(req, res, role);
+      res.json(await statusPayload(req, { role }));
     })();
   });
 
@@ -287,10 +319,31 @@ export function setupAuth(
   // refused.
   app.use('/api', (req: Request, res: Response, next: NextFunction) => {
     const gated = runtime.current().enabled || runtime.proxy.enabled;
-    if (!gated || isPublicApiPath(req.path) || authorized(req)) {
+    if (!gated || isPublicApiPath(req.path)) {
       next();
       return;
     }
-    res.status(401).json({ error: 'Authentication required' });
+    const role = accessRole(req);
+    if (!role) {
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
+
+    if (role === 'reader') {
+      const send = res.send.bind(res);
+      res.send = ((body: unknown) =>
+        send(redactAccessSecrets(body, runtime.current()))) as Response['send'];
+    }
+
+    const actionRef = pluginUiActionRef(req.path);
+    const pluginUiAction = actionRef
+      ? options.resolvePluginUiAction?.(actionRef.pluginId, actionRef.extensionId)
+      : undefined;
+    if (!apiRequestAllowed(role, { method: req.method, path: req.path, pluginUiAction })) {
+      res.status(403).json({ error: 'Operator access required' });
+      return;
+    }
+    res.locals.accessRole = role;
+    next();
   });
 }

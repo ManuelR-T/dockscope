@@ -4,23 +4,32 @@
   import { pluginUiContextMatches } from '../../core/plugin-contract/ui';
   import Icon from './Icon.svelte';
   import PluginFrame from './PluginFrame.svelte';
+  import {
+    pluginUiActionAllowed,
+    pluginUiExtensionAllowed,
+    type AccessRole,
+  } from '../../core/access';
 
   interface Props {
     extension: PluginUiExtension;
     context?: PluginUiContext;
     compact?: boolean;
+    role: AccessRole | null;
     onAction: (extension: PluginUiExtension, input?: unknown) => Promise<void> | void;
   }
 
-  let { extension, context = {}, compact = false, onAction }: Props = $props();
+  let { extension, context = {}, compact = false, role, onAction }: Props = $props();
   let pending = $state(false);
-  let visible = $derived(pluginUiContextMatches(extension, context));
+  let visible = $derived(
+    pluginUiContextMatches(extension, context) && pluginUiExtensionAllowed(role, extension.action),
+  );
+  let actionAllowed = $derived(pluginUiActionAllowed(role, extension.action));
   let frameKey = $derived(
     `${extension.pluginId}:${extension.id}:${extension.frontendView ?? ''}:${JSON.stringify(context)}`,
   );
 
   async function invoke(input?: unknown) {
-    if (!extension.action || pending) {
+    if (!extension.action || !actionAllowed || pending) {
       return;
     }
     pending = true;
@@ -32,7 +41,7 @@
   }
 </script>
 
-{#if visible}
+{#if visible && (!compact || !extension.action || actionAllowed)}
   <section class="plugin-extension" class:compact data-slot={extension.slot}>
     {#if !compact}
       <header>
@@ -40,7 +49,7 @@
           <strong>{extension.title}</strong>
           <span>{extension.pluginId}</span>
         </div>
-        {#if extension.action}
+        {#if extension.action && actionAllowed}
           <Button
             size="sm"
             disabled={pending}
@@ -52,7 +61,7 @@
           </Button>
         {/if}
       </header>
-    {:else if extension.action}
+    {:else if extension.action && actionAllowed}
       <Button
         size="sm"
         disabled={pending}
@@ -100,7 +109,7 @@
 
     {#if extension.frontendView && !compact}
       {#key frameKey}
-        <PluginFrame {extension} {context} onAction={(input) => invoke(input)} />
+        <PluginFrame {extension} {context} {actionAllowed} onAction={(input) => invoke(input)} />
       {/key}
     {/if}
   </section>

@@ -9,6 +9,7 @@ import {
   SESSION_COOKIE,
   SessionStore,
   VerifiedTokenCache,
+  authenticateRequest,
   bearerToken,
   buildSessionCookie,
   hashToken,
@@ -18,6 +19,8 @@ import {
   isPublicApiPath,
   parseCookies,
   readAuthConfig,
+  readOnlyTokenIsWeak,
+  redactAccessSecrets,
   secretsMatch,
   setupAvailability,
   tokenIsWeak,
@@ -51,6 +54,142 @@ describe('readAuthConfig', () => {
 
   it('enables auth when a token is set', () => {
     expect(config()).toEqual({ enabled: true, token: TOKEN, source: 'env' });
+  });
+
+  it('loads an optional read-only token alongside the operator token', () => {
+    expect(
+      readAuthConfig({
+        DOCKSCOPE_TOKEN: TOKEN,
+        DOCKSCOPE_READ_ONLY_TOKEN: 'a-sufficiently-long-reader-token',
+      } as NodeJS.ProcessEnv),
+    ).toEqual({
+      enabled: true,
+      token: TOKEN,
+      readOnlyToken: 'a-sufficiently-long-reader-token',
+      source: 'env',
+    });
+  });
+});
+
+describe('authenticateRequest', () => {
+  const roleConfig = readAuthConfig({
+    DOCKSCOPE_TOKEN: TOKEN,
+    DOCKSCOPE_READ_ONLY_TOKEN: 'a-sufficiently-long-reader-token',
+  } as NodeJS.ProcessEnv);
+
+  it('keeps the existing token and open mode at operator access', () => {
+    expect(
+      authenticateRequest({
+        config: roleConfig,
+        sessions: new SessionStore(),
+        authorization: `Bearer ${TOKEN}`,
+      }),
+    ).toBe('operator');
+    expect(
+      authenticateRequest({
+        config: readAuthConfig({} as NodeJS.ProcessEnv),
+        sessions: new SessionStore(),
+      }),
+    ).toBe('operator');
+  });
+
+  it('authenticates the second token as a reader', () => {
+    expect(
+      authenticateRequest({
+        config: roleConfig,
+        sessions: new SessionStore(),
+        authorization: 'Bearer a-sufficiently-long-reader-token',
+      }),
+    ).toBe('reader');
+  });
+
+  it('preserves a reader role in a browser session', () => {
+    const sessions = new SessionStore();
+    const id = sessions.create('reader');
+
+    expect(
+      authenticateRequest({
+        config: roleConfig,
+        sessions,
+        cookieHeader: `${SESSION_COOKIE}=${id}`,
+      }),
+    ).toBe('reader');
+  });
+
+  it('does not let an unknown credential acquire a role', () => {
+    expect(
+      authenticateRequest({
+        config: roleConfig,
+        sessions: new SessionStore(),
+        authorization: 'Bearer wrong',
+      }),
+    ).toBeUndefined();
+  });
+
+  it('caches reader credentials without escalating their role', () => {
+    const verified = new VerifiedTokenCache();
+    const params = {
+      config: roleConfig,
+      sessions: new SessionStore(),
+      authorization: 'Bearer a-sufficiently-long-reader-token',
+      verified,
+    };
+
+    expect(authenticateRequest(params)).toBe('reader');
+    expect(verified.role('a-sufficiently-long-reader-token')).toBe('reader');
+    expect(authenticateRequest(params)).toBe('reader');
+  });
+
+  it('treats an equal operator and reader token as operator', () => {
+    const sameToken = readAuthConfig({
+      DOCKSCOPE_TOKEN: TOKEN,
+      DOCKSCOPE_READ_ONLY_TOKEN: TOKEN,
+    } as NodeJS.ProcessEnv);
+    expect(
+      authenticateRequest({
+        config: sameToken,
+        sessions: new SessionStore(),
+        authorization: `Bearer ${TOKEN}`,
+      }),
+    ).toBe('operator');
+  });
+});
+
+describe('redactAccessSecrets', () => {
+  const readerToken = 'a-sufficiently-long-reader-token';
+  const roleConfig = readAuthConfig({
+    DOCKSCOPE_TOKEN: TOKEN,
+    DOCKSCOPE_READ_ONLY_TOKEN: readerToken,
+  } as NodeJS.ProcessEnv);
+
+  it('removes both configured credentials from nested response data', () => {
+    const original = {
+      env: [`DOCKSCOPE_TOKEN=${TOKEN}`, `DOCKSCOPE_READ_ONLY_TOKEN=${readerToken}`, 'SAFE=yes'],
+      logs: `operator=${TOKEN} reader=${readerToken}`,
+      nested: [{ message: `failed with ${TOKEN}` }],
+    };
+
+    const redacted = redactAccessSecrets(original, roleConfig);
+
+    expect(JSON.stringify(redacted)).not.toContain(TOKEN);
+    expect(JSON.stringify(redacted)).not.toContain(readerToken);
+    expect(redacted).toEqual({
+      env: ['DOCKSCOPE_TOKEN=[REDACTED]', 'DOCKSCOPE_READ_ONLY_TOKEN=[REDACTED]', 'SAFE=yes'],
+      logs: 'operator=[REDACTED] reader=[REDACTED]',
+      nested: [{ message: 'failed with [REDACTED]' }],
+    });
+    expect(original.env[0]).toContain(TOKEN);
+  });
+
+  it('redacts access-token environment entries even when the operator token is stored', () => {
+    expect(
+      redactAccessSecrets(
+        { env: ['DOCKSCOPE_TOKEN=unknown-plaintext', 'DOCKSCOPE_READ_ONLY_TOKEN=another-value'] },
+        storedConfig(),
+      ),
+    ).toEqual({
+      env: ['DOCKSCOPE_TOKEN=[REDACTED]', 'DOCKSCOPE_READ_ONLY_TOKEN=[REDACTED]'],
+    });
   });
 });
 
@@ -301,6 +440,20 @@ describe('tokenIsWeak', () => {
   // A stored token is only ever a hash, so its length cannot be judged.
   it('says nothing about a token it can only see hashed', () => {
     expect(tokenIsWeak(storedConfig('short'))).toBe(false);
+  });
+});
+
+describe('readOnlyTokenIsWeak', () => {
+  it('flags a short configured reader token and ignores a missing one', () => {
+    expect(
+      readOnlyTokenIsWeak(
+        readAuthConfig({
+          DOCKSCOPE_TOKEN: TOKEN,
+          DOCKSCOPE_READ_ONLY_TOKEN: 'short',
+        } as NodeJS.ProcessEnv),
+      ),
+    ).toBe(true);
+    expect(readOnlyTokenIsWeak(config())).toBe(false);
   });
 });
 

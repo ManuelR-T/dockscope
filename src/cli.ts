@@ -11,6 +11,7 @@ import { buildGraph, checkConnection, initDockerClient } from './docker/client.j
 import {
   MIN_TOKEN_LENGTH,
   isExposedWithoutAuth,
+  readOnlyTokenIsWeak,
   readProxyAuthConfig,
   tokenIsWeak,
 } from './server/auth.js';
@@ -454,11 +455,21 @@ program
     }
     if (authConfig.enabled) {
       const via = authConfig.source === 'env' ? 'DOCKSCOPE_TOKEN' : 'configured in the dashboard';
-      console.log(`  \x1b[32mAccess token required (${via})\x1b[0m\n`);
+      console.log(`  \x1b[32mFull-access token required (${via})\x1b[0m`);
+      if (authConfig.readOnlyToken) {
+        console.log('  \x1b[32mRead-only token enabled (DOCKSCOPE_READ_ONLY_TOKEN)\x1b[0m\n');
+      } else {
+        console.log('');
+      }
     }
     if (tokenIsWeak(authConfig)) {
       console.log(
         `  \x1b[33mDOCKSCOPE_TOKEN is shorter than ${MIN_TOKEN_LENGTH} characters — use a longer secret\x1b[0m\n`,
+      );
+    }
+    if (readOnlyTokenIsWeak(authConfig)) {
+      console.log(
+        `  \x1b[33mDOCKSCOPE_READ_ONLY_TOKEN is shorter than ${MIN_TOKEN_LENGTH} characters — use a longer secret\x1b[0m\n`,
       );
     }
     // The published image sets DOCKSCOPE_BIND=0.0.0.0, so anyone who publishes

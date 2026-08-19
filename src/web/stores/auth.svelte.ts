@@ -1,10 +1,12 @@
 import { apiErrorMessage, deleteJson, getJson, postJson } from '../lib/api';
+import type { AccessRole } from '../../core/access';
 
 export type SetupAvailability = 'available' | 'configured' | 'declined' | 'window-closed';
 
-interface AuthStatus {
+export interface AuthStatus {
   required: boolean;
   authenticated: boolean;
+  role?: AccessRole | null;
   managedByEnv?: boolean;
   /** An identity proxy already authenticated this request. */
   viaProxy?: boolean;
@@ -14,6 +16,7 @@ interface AuthStatus {
 
 let required = $state(false);
 let authenticated = $state(true);
+let role = $state<AccessRole | null>(null);
 let setup = $state<SetupAvailability>('declined');
 let managedByEnv = $state(false);
 let viaProxy = $state(false);
@@ -30,6 +33,9 @@ export function getAuthState() {
     },
     get authenticated() {
       return authenticated;
+    },
+    get role() {
+      return role;
     },
     /** Whether first-run setup can still be offered, and if not, why. */
     get setup() {
@@ -104,6 +110,7 @@ export function gateMode(): 'setup' | 'login' | null {
 function apply(status: AuthStatus) {
   required = status.required;
   authenticated = status.authenticated;
+  role = status.role ?? (status.authenticated ? 'operator' : null);
   setup = status.setup ?? 'declined';
   managedByEnv = status.managedByEnv ?? false;
   viaProxy = status.viaProxy ?? false;
@@ -118,8 +125,8 @@ export async function checkAuth(): Promise<AuthStatus> {
   } catch {
     // An unreachable server is not an auth failure; let the normal connection
     // handling surface it rather than showing a prompt over a dead API.
-    apply({ required: false, authenticated: true, setup: 'declined' });
-    return { required: false, authenticated: true };
+    apply({ required: false, authenticated: true, role: 'operator', setup: 'declined' });
+    return { required: false, authenticated: true, role: 'operator' };
   } finally {
     resolved = true;
   }
@@ -135,6 +142,7 @@ export async function submitToken(token: string): Promise<boolean> {
   } catch (caught) {
     error = apiErrorMessage(caught) || 'Could not verify that token';
     authenticated = false;
+    role = null;
     return false;
   } finally {
     submitting = false;
@@ -198,5 +206,6 @@ export async function signOut(): Promise<void> {
     await fetch('/api/auth/session', { method: 'DELETE' });
   } finally {
     authenticated = false;
+    role = null;
   }
 }

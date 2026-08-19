@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { AuthConfig, StoredToken, hashToken } from './auth.js';
+import { AuthConfig, StoredToken, hashToken, readAuthConfig } from './auth.js';
 import { statePath } from '../paths.js';
 
 /**
@@ -102,12 +102,23 @@ export function authStorePath(env: NodeJS.ProcessEnv): string {
  * an immutable deployment configures itself.
  */
 export function resolveAuthConfig(env: NodeJS.ProcessEnv, stored: StoredAuth): AuthConfig {
-  const envToken = (env.DOCKSCOPE_TOKEN ?? '').trim();
-  if (envToken) {
-    return { enabled: true, token: envToken, source: 'env' };
+  const fromEnv = readAuthConfig(env);
+  if (fromEnv.enabled) {
+    return fromEnv;
   }
   if (stored.token) {
-    return { enabled: true, token: '', stored: stored.token, source: 'file' };
+    return {
+      enabled: true,
+      token: '',
+      stored: stored.token,
+      ...(fromEnv.readOnlyToken ? { readOnlyToken: fromEnv.readOnlyToken } : {}),
+      source: 'file',
+    };
   }
-  return { enabled: false, token: '', source: 'none' };
+  if (fromEnv.readOnlyToken) {
+    throw new Error(
+      'DOCKSCOPE_READ_ONLY_TOKEN requires a full-access token from DOCKSCOPE_TOKEN or the dashboard',
+    );
+  }
+  return fromEnv;
 }

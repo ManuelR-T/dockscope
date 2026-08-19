@@ -32,7 +32,7 @@
 
   async function save(event: SubmitEvent) {
     event.preventDefault();
-    if (!canSave || auth.submitting) {
+    if (auth.role !== 'operator' || !canSave || auth.submitting) {
       return;
     }
     if (await createToken(token)) {
@@ -42,6 +42,9 @@
   }
 
   async function remove() {
+    if (auth.role !== 'operator') {
+      return;
+    }
     if (await clearToken()) {
       reset();
       addToast('Access token removed. This instance is open again.', 'info');
@@ -49,6 +52,9 @@
   }
 
   async function toggleReminder() {
+    if (auth.role !== 'operator') {
+      return;
+    }
     await setReminderDeclined(auth.setup !== 'declined');
   }
 </script>
@@ -74,7 +80,12 @@
       <button class="sec-close" type="button" onclick={onClose} aria-label="Close">×</button>
     </div>
 
-    {#if auth.viaProxy}
+    {#if auth.role === 'reader'}
+      <p class="sec-state">
+        This is a read-only session. You can inspect workloads, logs, and diagnostics, but changing
+        access settings requires an operator token.
+      </p>
+    {:else if auth.viaProxy}
       <p class="sec-state">
         Authentication is handled by your reverse proxy. DockScope refuses anything that does not
         come through it.

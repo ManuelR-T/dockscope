@@ -60,15 +60,11 @@ the only one.
 
 ## Be safe to reach from somewhere other than your laptop
 
-Access tokens and reverse proxy auth landed in v0.10, which made an exposed
-instance possible. It is not yet comfortable. DockScope drives a Docker daemon
-and can open a shell in any container, so the honest position today is that it
-belongs on a trusted network behind a proxy you run.
+Access tokens and reverse proxy auth landed in v0.10, and a second read-only
+token now supports wall displays and shared observational access without exec
+or mutation permissions. Readers still see sensitive operational data, so an
+exposed instance belongs on a trusted network behind a proxy you run.
 
-- [#49 Read-only access mode][49] [help wanted][hw]
-  Holding the token currently grants a shell in every container. There is no way
-  to leave the graph on a wall display, or point a colleague at it, without also
-  handing over full control.
 - [#47 Serve HTTPS directly][47]
   The server is plain HTTP, so the token crosses your LAN in the clear unless
   something else terminates TLS.
@@ -128,5 +124,4 @@ because the data exists.
 [44]: https://github.com/ManuelR-T/dockscope/issues/44
 [47]: https://github.com/ManuelR-T/dockscope/issues/47
 [48]: https://github.com/ManuelR-T/dockscope/issues/48
-[49]: https://github.com/ManuelR-T/dockscope/issues/49
 [50]: https://github.com/ManuelR-T/dockscope/issues/50

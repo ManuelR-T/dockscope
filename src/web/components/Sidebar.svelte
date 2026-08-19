@@ -36,6 +36,7 @@
     loadEntitySidebarData,
     runEntityAction,
   } from '../lib/sidebarApi';
+  import { allowsUiIntent, type AccessRole } from '../../core/access';
 
   const docker = getDockerState();
 
@@ -44,6 +45,7 @@
     onClose: () => void;
     colorNetworks?: boolean;
     extensions?: PluginUiExtension[];
+    role: AccessRole | null;
     onPluginAction?: (extension: PluginUiExtension, input?: unknown) => Promise<void> | void;
   }
 
@@ -52,8 +54,12 @@
     onClose,
     colorNetworks = false,
     extensions = [],
+    role,
     onPluginAction = () => {},
   }: Props = $props();
+
+  let canMutate = $derived(allowsUiIntent(role, 'mutation'));
+  let canExec = $derived(allowsUiIntent(role, 'exec'));
 
   let stats = $state<ContainerStats | null>(null);
   let inspect = $state<ContainerInspect | null>(null);
@@ -116,11 +122,11 @@
     if (tab === 'diff') {
       return hasEntityOperation(operations, 'diff');
     }
-    return hasEntityOperation(operations, 'exec') && currentNode.status === 'running';
+    return canExec && hasEntityOperation(operations, 'exec') && currentNode.status === 'running';
   }
 
   function requestEntityAction(action: EntityAction): void {
-    if (actionPending) {
+    if (!canMutate || actionPending) {
       return;
     }
     if (action.confirm || (action.input?.fields.length ?? 0) > 0) {
@@ -131,7 +137,7 @@
   }
 
   async function executeEntityAction(action: EntityAction, input?: PluginConfig) {
-    if (!node || actionPending) {
+    if (!canMutate || !node || actionPending) {
       return;
     }
     const target = node;
@@ -151,6 +157,15 @@
       actionPending = false;
     }
   }
+
+  $effect(() => {
+    if (!canExec && activeTab === 'exec') {
+      activeTab = 'info';
+    }
+    if (!canMutate) {
+      actionDialog = null;
+    }
+  });
 
   // Resolve plugin-owned operations before loading entity-specific data.
   $effect(() => {
@@ -300,7 +315,7 @@
       {#if sidebarExtensions.length > 0}
         <div class="plugin-sidebar-extensions">
           {#each sidebarExtensions as extension (extension.pluginId + extension.id)}
-            <PluginExtension {extension} context={pluginContext} onAction={onPluginAction} />
+            <PluginExtension {extension} context={pluginContext} {role} onAction={onPluginAction} />
           {/each}
         </div>
       {/if}
@@ -310,7 +325,7 @@
       {node}
       actions={entityActions}
       {actionPending}
-      hideActions={docker.replayMode}
+      hideActions={docker.replayMode || !canMutate}
       {onClose}
       onAction={requestEntityAction}
     />
@@ -318,7 +333,13 @@
     {#if nodeActionExtensions.length > 0}
       <div class="plugin-node-actions">
         {#each nodeActionExtensions as extension (extension.pluginId + extension.id)}
-          <PluginExtension {extension} context={pluginContext} compact onAction={onPluginAction} />
+          <PluginExtension
+            {extension}
+            context={pluginContext}
+            {role}
+            compact
+            onAction={onPluginAction}
+          />
         {/each}
       </div>
     {/if}
@@ -350,7 +371,7 @@
             >Diff</Tab
           >
         {/if}
-        {#if supports('exec') && node.status === 'running'}
+        {#if canExec && supports('exec') && node.status === 'running'}
           <Tab variant="section" active={activeTab === 'exec'} onclick={() => (activeTab = 'exec')}
             >Exec</Tab
           >
@@ -374,7 +395,7 @@
       {#if nodePanelExtensions.length > 0}
         <div class="plugin-node-panels">
           {#each nodePanelExtensions as extension (extension.pluginId + extension.id)}
-            <PluginExtension {extension} context={pluginContext} onAction={onPluginAction} />
+            <PluginExtension {extension} context={pluginContext} {role} onAction={onPluginAction} />
           {/each}
         </div>
       {/if}
@@ -395,14 +416,14 @@
     {#if sidebarExtensions.length > 0}
       <div class="plugin-sidebar-extensions selected">
         {#each sidebarExtensions as extension (extension.pluginId + extension.id)}
-          <PluginExtension {extension} context={pluginContext} onAction={onPluginAction} />
+          <PluginExtension {extension} context={pluginContext} {role} onAction={onPluginAction} />
         {/each}
       </div>
     {/if}
   {/if}
 </div>
 
-{#if actionDialog && node}
+{#if canMutate && actionDialog && node}
   <EntityActionDialog
     action={actionDialog}
     entityName={node.name}

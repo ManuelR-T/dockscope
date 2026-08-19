@@ -5,6 +5,7 @@ import path from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import type { GraphData, ServerHandle } from '../../types';
+import type { SourceEvent } from '../../core/sources/model';
 
 const mockGraph: GraphData = {
   nodes: [
@@ -38,6 +39,7 @@ const mocks = vi.hoisted(() => ({
   checkConnection: vi.fn(),
   composeAction: vi.fn(),
   containerAction: vi.fn(),
+  createExecSession: vi.fn(),
   diagnoseCrash: vi.fn(),
   getContainerDiff: vi.fn(),
   getContainerLogs: vi.fn(),
@@ -62,7 +64,7 @@ vi.mock('../../docker/client.js', () => ({
   checkConnection: mocks.checkConnection,
   composeAction: mocks.composeAction,
   containerAction: mocks.containerAction,
-  createExecSession: vi.fn(),
+  createExecSession: mocks.createExecSession,
   diagnoseCrash: mocks.diagnoseCrash,
   getContainerDiff: mocks.getContainerDiff,
   getContainerLogs: mocks.getContainerLogs,
@@ -111,6 +113,16 @@ function readWsMessage(ws: WebSocket): Promise<unknown> {
   });
 }
 
+function closeWs(ws: WebSocket): Promise<void> {
+  if (ws.readyState === WebSocket.CLOSED) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    ws.once('close', () => resolve());
+    ws.close();
+  });
+}
+
 function waitFor(predicate: () => boolean): Promise<void> {
   return new Promise((resolve, reject) => {
     const startedAt = Date.now();
@@ -133,6 +145,15 @@ function requiredLogCallback(callback: ((text: string) => void) | null): (text: 
   return callback;
 }
 
+function requiredSourceEventCallback(
+  callback: ((event: SourceEvent) => void) | null,
+): (event: SourceEvent) => void {
+  if (!callback) {
+    throw new Error('Expected the source event watcher to be registered');
+  }
+  return callback;
+}
+
 /**
  * Auth state is read from the environment at startup, so every test in this
  * file gets a throwaway file. Without this the suite reads whatever the
@@ -151,6 +172,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   delete process.env.DOCKSCOPE_TOKEN;
+  delete process.env.DOCKSCOPE_READ_ONLY_TOKEN;
   delete process.env.DOCKSCOPE_AUTH_PROXY_HEADER;
   delete process.env.DOCKSCOPE_TRUSTED_PROXIES;
   process.env.DOCKSCOPE_AUTH_FILE = path.join(sharedAuthDir, `${randomUUID()}.json`);
@@ -158,6 +180,7 @@ beforeEach(() => {
 
 afterEach(() => {
   delete process.env.DOCKSCOPE_TOKEN;
+  delete process.env.DOCKSCOPE_READ_ONLY_TOKEN;
   delete process.env.DOCKSCOPE_AUTH_PROXY_HEADER;
   delete process.env.DOCKSCOPE_TRUSTED_PROXIES;
   delete process.env.DOCKSCOPE_AUTH_FILE;
@@ -541,6 +564,7 @@ describe('server integration', () => {
  */
 describe('access token', () => {
   const TOKEN = 'integration-test-token';
+  const READ_ONLY_TOKEN = 'integration-test-read-only-token';
   let server: ServerHandle | null = null;
   let authDir = '';
 
@@ -576,12 +600,14 @@ describe('access token', () => {
     mocks.listDockerHosts.mockReturnValue([]);
     mocks.watchEvents.mockReturnValue(vi.fn());
     process.env.DOCKSCOPE_TOKEN = TOKEN;
+    process.env.DOCKSCOPE_READ_ONLY_TOKEN = READ_ONLY_TOKEN;
     // Never let a test read or write the developer's own state file.
     process.env.DOCKSCOPE_AUTH_FILE = path.join(authDir, 'auth.json');
   });
 
   afterEach(async () => {
     delete process.env.DOCKSCOPE_TOKEN;
+    delete process.env.DOCKSCOPE_READ_ONLY_TOKEN;
     delete process.env.DOCKSCOPE_AUTH_FILE;
     await server?.close();
     server = null;
@@ -589,11 +615,11 @@ describe('access token', () => {
 
   const base = () => `http://127.0.0.1:${server!.port}`;
 
-  async function openSession(): Promise<string> {
+  async function openSession(token = TOKEN): Promise<string> {
     const response = await fetch(`${base()}/api/auth/session`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ token: TOKEN }),
+      body: JSON.stringify({ token }),
     });
     expect(response.status).toBe(200);
     const cookie = response.headers.get('set-cookie');
@@ -641,6 +667,36 @@ describe('access token', () => {
     expect(cookie).not.toContain('Secure');
   });
 
+  it('reports operator access for the existing token', async () => {
+    server = await startTestServer();
+    const response = await fetch(`${base()}/api/auth/session`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: TOKEN }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ authenticated: true, role: 'operator' });
+  });
+
+  it('issues a role-preserving browser session for the read-only token', async () => {
+    server = await startTestServer();
+    const login = await fetch(`${base()}/api/auth/session`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: READ_ONLY_TOKEN }),
+    });
+
+    expect(login.status).toBe(200);
+    const body = await login.clone().json();
+    expect(body).toMatchObject({ authenticated: true, role: 'reader' });
+    expect(JSON.stringify(body)).not.toContain(READ_ONLY_TOKEN);
+    expect(JSON.stringify(body)).not.toContain(TOKEN);
+    const cookie = login.headers.get('set-cookie')!.split(';')[0]!;
+    const status = await fetch(`${base()}/api/auth`, { headers: { cookie } });
+    expect(await status.json()).toMatchObject({ authenticated: true, role: 'reader' });
+  });
+
   it('accepts an API request carrying the session', async () => {
     server = await startTestServer();
     const cookie = await openSession();
@@ -648,6 +704,107 @@ describe('access token', () => {
     const response = await fetch(`${base()}/api/graph`, { headers: { cookie } });
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual(mockGraph);
+  });
+
+  it('lets a reader use graph and explicitly observational POST workflows', async () => {
+    server = await startTestServer();
+    const cookie = await openSession(READ_ONLY_TOKEN);
+
+    const graph = await fetch(`${base()}/api/graph`, { headers: { cookie } });
+    const compare = await fetch(`${base()}/api/compare`, {
+      method: 'POST',
+      headers: { cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ hostA: 'local', hostB: 'local' }),
+    });
+
+    expect(graph.status).toBe(200);
+    expect(compare.status).toBe(200);
+  });
+
+  it('redacts configured credentials from reader inspect, logs, and errors', async () => {
+    mocks.inspectContainer.mockResolvedValue({
+      id: '123456789abc',
+      env: [`DOCKSCOPE_TOKEN=${TOKEN}`, `DOCKSCOPE_READ_ONLY_TOKEN=${READ_ONLY_TOKEN}`, 'SAFE=yes'],
+      labels: {},
+      mounts: [],
+      restartPolicy: 'no',
+      entrypoint: null,
+      cmd: null,
+      workingDir: '/',
+      created: 'now',
+    });
+    mocks.getContainerLogs
+      .mockResolvedValueOnce(`started with ${TOKEN} and ${READ_ONLY_TOKEN}\n`)
+      .mockRejectedValueOnce(new Error(`provider rejected ${TOKEN}`));
+    server = await startTestServer();
+    const cookie = await openSession(READ_ONLY_TOKEN);
+
+    const inspect = await fetch(`${base()}/api/containers/123456789abc/inspect`, {
+      headers: { cookie },
+    });
+    const logs = await fetch(`${base()}/api/containers/123456789abc/logs`, {
+      headers: { cookie },
+    });
+    const failedLogs = await fetch(`${base()}/api/containers/123456789abc/logs`, {
+      headers: { cookie },
+    });
+    expect(inspect.status).toBe(200);
+    expect(logs.status).toBe(200);
+    expect(failedLogs.status).toBe(500);
+    const inspectBody = await inspect.json();
+    const logsBody = await logs.json();
+    const failedLogsBody = await failedLogs.json();
+    const bodies = [inspectBody, logsBody, failedLogsBody].map((body) => JSON.stringify(body));
+    for (const body of bodies) {
+      expect(body).not.toContain(TOKEN);
+      expect(body).not.toContain(READ_ONLY_TOKEN);
+    }
+    expect(inspectBody.env).toEqual([
+      'DOCKSCOPE_TOKEN=[REDACTED]',
+      'DOCKSCOPE_READ_ONLY_TOKEN=[REDACTED]',
+      'SAFE=yes',
+    ]);
+    expect(bodies.join('\n')).toContain('DOCKSCOPE_TOKEN=[REDACTED]');
+  });
+
+  it('rejects reader workload mutations before invoking their providers', async () => {
+    server = await startTestServer();
+    const cookie = await openSession(READ_ONLY_TOKEN);
+
+    const lifecycle = await fetch(`${base()}/api/containers/123456789abc/restart`, {
+      method: 'POST',
+      headers: { cookie },
+    });
+    const project = await fetch(`${base()}/api/projects/demo/restart`, {
+      method: 'POST',
+      headers: { cookie },
+    });
+
+    expect(lifecycle.status).toBe(403);
+    expect(await lifecycle.json()).toEqual({ error: 'Operator access required' });
+    expect(project.status).toBe(403);
+    expect(mocks.containerAction).not.toHaveBeenCalled();
+    expect(mocks.composeAction).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['PUT', '/api/plugins/example/config'],
+    ['PUT', '/api/plugins/example/secrets/password'],
+    ['POST', '/api/plugins/example/commands/restart'],
+    ['POST', '/api/plugins/catalogs/preview'],
+    ['DELETE', '/api/connections/example/provider/id'],
+  ])('rejects reader control-plane mutation through %s %s', async (method, path) => {
+    server = await startTestServer();
+    const cookie = await openSession(READ_ONLY_TOKEN);
+
+    const response = await fetch(`${base()}${path}`, {
+      method,
+      headers: { cookie, 'content-type': 'application/json' },
+      body: method === 'DELETE' ? undefined : '{}',
+    });
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: 'Operator access required' });
   });
 
   it('accepts the raw token as a bearer header, for non-browser clients', async () => {
@@ -700,6 +857,123 @@ describe('access token', () => {
     ws.close();
   });
 
+  it('lets a reader connect to the WebSocket but rejects exec before the provider', async () => {
+    server = await startTestServer();
+    const cookie = await openSession(READ_ONLY_TOKEN);
+    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`, {
+      origin: base(),
+      headers: { cookie },
+    });
+
+    expect(await readWsMessage(ws)).toEqual({ type: 'graph', data: mockGraph });
+    ws.send(JSON.stringify({ type: 'exec_start', data: { entityId: '123456789abc' } }));
+
+    const outcome = await readWsMessage(ws);
+    ws.close();
+    expect(outcome).toEqual({
+      type: 'error',
+      data: { message: 'Operator access required' },
+    });
+    expect(mocks.createExecSession).not.toHaveBeenCalled();
+  });
+
+  it('keeps WebSocket log streaming available to readers', async () => {
+    let pushLog: ((text: string) => void) | null = null;
+    const stopLogs = vi.fn();
+    mocks.streamContainerLogs.mockImplementation((_id, onData) => {
+      pushLog = onData;
+      return stopLogs;
+    });
+    server = await startTestServer();
+    const cookie = await openSession(READ_ONLY_TOKEN);
+    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`, {
+      origin: base(),
+      headers: { cookie },
+    });
+
+    expect(await readWsMessage(ws)).toEqual({ type: 'graph', data: mockGraph });
+    ws.send(JSON.stringify({ type: 'subscribe_logs', data: { entityId: '123456789abc' } }));
+    await waitFor(() => pushLog !== null);
+    const chunk = readWsMessage(ws);
+    requiredLogCallback(pushLog)(`reader-visible ${TOKEN} ${READ_ONLY_TOKEN}\n`);
+    expect(await chunk).toMatchObject({
+      type: 'log_chunk',
+      data: { entityId: '123456789abc', text: 'reader-visible [REDACTED] [REDACTED]\n' },
+    });
+    ws.close();
+    await waitFor(() => stopLogs.mock.calls.length === 1);
+  });
+
+  it('redacts monitor broadcasts per WebSocket role', async () => {
+    let pushEvent: ((event: SourceEvent) => void) | null = null;
+    mocks.watchEvents.mockImplementation((callback) => {
+      pushEvent = callback;
+      return vi.fn();
+    });
+    server = await startTestServer();
+    const readerCookie = await openSession(READ_ONLY_TOKEN);
+    const operatorCookie = await openSession(TOKEN);
+    const reader = new WebSocket(`ws://127.0.0.1:${server.port}/ws`, {
+      origin: base(),
+      headers: { cookie: readerCookie },
+    });
+    const operator = new WebSocket(`ws://127.0.0.1:${server.port}/ws`, {
+      origin: base(),
+      headers: { cookie: operatorCookie },
+    });
+    await Promise.all([readWsMessage(reader), readWsMessage(operator)]);
+    const readerEvent = readWsMessage(reader);
+    const operatorEvent = readWsMessage(operator);
+    requiredSourceEventCallback(pushEvent)({
+      source: {
+        id: 'local',
+        label: 'local',
+        kind: 'docker',
+        pluginId: 'core.docker',
+        capabilities: ['source.graph'],
+        status: 'connected',
+      },
+      event: {
+        id: '123456789abc',
+        type: 'container',
+        action: 'health_status',
+        actor: 'dockscope',
+        time: 1,
+        message: `monitor saw ${TOKEN} and ${READ_ONLY_TOKEN}`,
+      },
+      receivedAt: 1,
+    });
+
+    const [readerMessage, operatorMessage] = await Promise.all([readerEvent, operatorEvent]);
+    await Promise.all([closeWs(reader), closeWs(operator)]);
+    expect(readerMessage).toMatchObject({
+      type: 'event',
+      data: { message: 'monitor saw [REDACTED] and [REDACTED]' },
+    });
+    expect(operatorMessage).toMatchObject({
+      type: 'event',
+      data: { message: `monitor saw ${TOKEN} and ${READ_ONLY_TOKEN}` },
+    });
+  });
+
+  it.each([
+    ['POST', '/api/auth/setup', { token: 'a-different-operator-token' }],
+    ['DELETE', '/api/auth/token', undefined],
+    ['POST', '/api/auth/reminder', { declined: true }],
+  ])('keeps access configuration operator-only through %s %s', async (method, path, body) => {
+    server = await startTestServer();
+    const cookie = await openSession(READ_ONLY_TOKEN);
+
+    const response = await fetch(`${base()}${path}`, {
+      method,
+      headers: { cookie, 'content-type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: 'Operator access required' });
+  });
+
   it('reports that the token is pinned by the environment', async () => {
     server = await startTestServer();
     const status = await (await fetch(`${base()}/api/auth`)).json();
@@ -710,7 +984,7 @@ describe('access token', () => {
   // and forgets, say, that DOCKSCOPE_TOKEN pinned the token.
   it('answers every auth endpoint with the same status shape', async () => {
     server = await startTestServer();
-    const shape = ['required', 'authenticated', 'managedByEnv', 'viaProxy', 'setup'];
+    const shape = ['required', 'authenticated', 'role', 'managedByEnv', 'viaProxy', 'setup'];
 
     const status = await (await fetch(`${base()}/api/auth`)).json();
     const login = await fetch(`${base()}/api/auth/session`, {
@@ -729,7 +1003,9 @@ describe('access token', () => {
       expect(body.managedByEnv).toBe(true);
     }
     expect(loggedIn.authenticated).toBe(true);
+    expect(loggedIn.role).toBe('operator');
     expect(signedOut.authenticated).toBe(false);
+    expect(signedOut.role).toBeNull();
   });
 });
 
@@ -796,6 +1072,7 @@ describe('first-run setup', () => {
     expect(await (await fetch(`${base()}/api/auth`)).json()).toMatchObject({
       required: false,
       authenticated: true,
+      role: 'operator',
       setup: 'available',
     });
     expect((await fetch(`${base()}/api/graph`)).status).toBe(200);
@@ -884,6 +1161,45 @@ describe('first-run setup', () => {
         })
       ).status,
     ).toBe(401);
+  });
+
+  it('preserves an environment reader token when a stored operator token rotates', async () => {
+    server = await startTestServer();
+    await setup('a-perfectly-good-token');
+    await server.close();
+
+    process.env.DOCKSCOPE_READ_ONLY_TOKEN = 'a-persistent-reader-token';
+    server = await startTestServer();
+    const login = await fetch(`${base()}/api/auth/session`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: 'a-perfectly-good-token' }),
+    });
+    const cookie = login.headers.get('set-cookie')!.split(';')[0]!;
+    const rotated = await fetch(`${base()}/api/auth/setup`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({ token: 'the-second-good-token' }),
+    });
+
+    expect(rotated.status).toBe(200);
+    expect(
+      (
+        await fetch(`${base()}/api/graph`, {
+          headers: { authorization: 'Bearer a-persistent-reader-token' },
+        })
+      ).status,
+    ).toBe(200);
+
+    const rotatedCookie = rotated.headers.get('set-cookie')!.split(';')[0]!;
+    const removed = await fetch(`${base()}/api/auth/token`, {
+      method: 'DELETE',
+      headers: { cookie: rotatedCookie },
+    });
+    expect(removed.status).toBe(409);
+    expect(await removed.json()).toEqual({
+      error: 'Remove DOCKSCOPE_READ_ONLY_TOKEN before removing the full-access token.',
+    });
   });
 
   // Sessions are verified by id alone, so a rotation has to clear them
@@ -1107,7 +1423,12 @@ describe('reverse-proxy authentication', () => {
     const status = await (
       await fetch(`${base()}/api/auth`, { headers: { 'Remote-User': 'manuel' } })
     ).json();
-    expect(status).toMatchObject({ authenticated: true, viaProxy: true, setup: 'configured' });
+    expect(status).toMatchObject({
+      authenticated: true,
+      role: 'operator',
+      viaProxy: true,
+      setup: 'configured',
+    });
   });
 
   it('accepts a WebSocket the proxy vouched for', async () => {

@@ -13,6 +13,7 @@ import { loadAggregatedPluginCatalogs } from '../plugins/catalogAggregate.js';
 import { previewPluginCatalog } from '../plugins/catalogPreview.js';
 import type { PluginMarketplaceService } from '../plugins/marketplace.js';
 import type { EntityRef } from '../core/entities/operations.js';
+import type { AccessRole } from '../core/access.js';
 import type { GraphData, ServerOptions, ServiceNode } from '../types.js';
 import { errorMessage, shortId } from '../utils.js';
 import { PKG_VERSION, fetchLatestVersion } from '../version.js';
@@ -505,6 +506,7 @@ export function setupRoutes(
           req.params.pluginId as string,
           req.params.extensionId as string,
           body ?? {},
+          { accessRole: (res.locals.accessRole as AccessRole | undefined) ?? 'operator' },
         ),
       );
     }),

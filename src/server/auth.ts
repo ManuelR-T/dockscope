@@ -12,6 +12,9 @@
 // the first-run setup screen (see `authStore.ts`).
 
 import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
+import type { AccessRole } from '../core/access.js';
+
+export type { AccessRole } from '../core/access.js';
 
 export const SESSION_COOKIE = 'dockscope_session';
 
@@ -43,6 +46,8 @@ export interface AuthConfig {
   enabled: boolean;
   /** Plain token, only ever from the environment. */
   token: string;
+  /** Optional environment token that grants observation-only access. */
+  readOnlyToken?: string;
   /** Hashed token loaded from the state file. */
   stored?: StoredToken;
   /**
@@ -54,9 +59,13 @@ export interface AuthConfig {
 
 export function readAuthConfig(env: NodeJS.ProcessEnv): AuthConfig {
   const token = (env.DOCKSCOPE_TOKEN ?? '').trim();
-  return token
-    ? { enabled: true, token, source: 'env' }
-    : { enabled: false, token: '', source: 'none' };
+  const readOnlyToken = (env.DOCKSCOPE_READ_ONLY_TOKEN ?? '').trim();
+  return {
+    enabled: token.length > 0,
+    token,
+    ...(readOnlyToken ? { readOnlyToken } : {}),
+    source: token ? 'env' : 'none',
+  };
 }
 
 const SCRYPT_KEY_LENGTH = 32;
@@ -90,6 +99,17 @@ export function tokenIsValid(token: string, config: AuthConfig): boolean {
     return secretsMatch(token, config.token);
   }
   return config.stored ? tokenMatchesStored(token, config.stored) : false;
+}
+
+/** Resolve a submitted token to the role it grants. Operator wins on equality. */
+export function tokenAccessRole(token: string, config: AuthConfig): AccessRole | undefined {
+  if (tokenIsValid(token, config)) {
+    return 'operator';
+  }
+  if (config.readOnlyToken && secretsMatch(token, config.readOnlyToken)) {
+    return 'reader';
+  }
+  return undefined;
 }
 
 /**
@@ -175,44 +195,48 @@ export function clearedSessionCookie(): string {
  * browser storage entirely.
  */
 export class SessionStore {
-  private readonly sessions = new Map<string, number>();
+  private readonly sessions = new Map<string, { expiresAt: number; role: AccessRole }>();
 
   constructor(
     private readonly ttlMs = SESSION_TTL_MS,
     private readonly now: () => number = Date.now,
   ) {}
 
-  create(): string {
+  create(role: AccessRole = 'operator'): string {
     // A browser closed without signing out never comes back to be verified, so
     // expired ids are swept here rather than on read alone.
     this.prune();
     const id = randomUUID();
-    this.sessions.set(id, this.now() + this.ttlMs);
+    this.sessions.set(id, { expiresAt: this.now() + this.ttlMs, role });
     return id;
   }
 
   private prune(): void {
     const now = this.now();
-    for (const [id, expiry] of this.sessions) {
-      if (expiry <= now) {
+    for (const [id, session] of this.sessions) {
+      if (session.expiresAt <= now) {
         this.sessions.delete(id);
       }
     }
   }
 
   verify(id: string | undefined): boolean {
+    return this.authenticate(id) !== undefined;
+  }
+
+  authenticate(id: string | undefined): AccessRole | undefined {
     if (!id) {
-      return false;
+      return undefined;
     }
-    const expiry = this.sessions.get(id);
-    if (expiry === undefined) {
-      return false;
+    const session = this.sessions.get(id);
+    if (!session) {
+      return undefined;
     }
-    if (expiry <= this.now()) {
+    if (session.expiresAt <= this.now()) {
       this.sessions.delete(id);
-      return false;
+      return undefined;
     }
-    return true;
+    return session.role;
   }
 
   revoke(id: string | undefined): void {
@@ -240,7 +264,7 @@ export class SessionStore {
  * were proven correct, and is dropped when the process exits.
  */
 export class VerifiedTokenCache {
-  private readonly accepted = new Set<string>();
+  private readonly accepted = new Map<string, AccessRole>();
 
   private key(token: string): string {
     return createHash('sha256').update(token).digest('hex');
@@ -250,8 +274,12 @@ export class VerifiedTokenCache {
     return this.accepted.has(this.key(token));
   }
 
-  remember(token: string): void {
-    this.accepted.add(this.key(token));
+  role(token: string): AccessRole | undefined {
+    return this.accepted.get(this.key(token));
+  }
+
+  remember(token: string, role: AccessRole = 'operator'): void {
+    this.accepted.set(this.key(token), role);
   }
 
   clear(): void {
@@ -263,7 +291,7 @@ export class VerifiedTokenCache {
  * Whether a request carries valid credentials: either a session cookie issued
  * after a token exchange, or the token itself as a bearer header.
  */
-export function isAuthorized(params: {
+export interface AuthenticateRequestParams {
   config: AuthConfig;
   sessions: SessionStore;
   cookieHeader?: string | undefined;
@@ -272,7 +300,9 @@ export function isAuthorized(params: {
   proxy?: ProxyAuthConfig;
   headers?: Record<string, string | string[] | undefined>;
   remoteAddress?: string | undefined;
-}): boolean {
+}
+
+export function authenticateRequest(params: AuthenticateRequestParams): AccessRole | undefined {
   const { config, sessions, cookieHeader, authorization, verified, proxy, headers } = params;
 
   if (proxy?.enabled) {
@@ -285,35 +315,41 @@ export function isAuthorized(params: {
         remoteAddress: params.remoteAddress,
       })
     ) {
-      return true;
+      return 'operator';
     }
     // Configuring a proxy declares that authentication is required, so a
     // request that went around it straight to the port is refused even when no
     // token is set.
     if (!config.enabled) {
-      return false;
+      return undefined;
     }
   } else if (!config.enabled) {
-    return true;
+    return 'operator';
   }
 
   // Sessions first: it is the common path and the cheapest.
-  if (sessions.verify(parseCookies(cookieHeader)[SESSION_COOKIE])) {
-    return true;
+  const sessionRole = sessions.authenticate(parseCookies(cookieHeader)[SESSION_COOKIE]);
+  if (sessionRole) {
+    return sessionRole;
   }
 
   const bearer = bearerToken(authorization);
   if (!bearer) {
-    return false;
+    return undefined;
   }
-  if (verified?.has(bearer)) {
-    return true;
+  const cachedRole = verified?.role(bearer);
+  if (cachedRole) {
+    return cachedRole;
   }
-  if (tokenIsValid(bearer, config)) {
-    verified?.remember(bearer);
-    return true;
+  const role = tokenAccessRole(bearer, config);
+  if (role) {
+    verified?.remember(bearer, role);
   }
-  return false;
+  return role;
+}
+
+export function isAuthorized(params: AuthenticateRequestParams): boolean {
+  return authenticateRequest(params) !== undefined;
 }
 
 /**
@@ -403,6 +439,72 @@ export function isExposedWithoutAuth(bind: string, config: AuthConfig): boolean 
 /** Only the environment token is visible in plain text, so only it can be judged. */
 export function tokenIsWeak(config: AuthConfig): boolean {
   return config.source === 'env' && config.token.length < MIN_TOKEN_LENGTH;
+}
+
+export function readOnlyTokenIsWeak(config: AuthConfig): boolean {
+  return Boolean(config.readOnlyToken && config.readOnlyToken.length < MIN_TOKEN_LENGTH);
+}
+
+const REDACTED_ACCESS_SECRET = '[REDACTED]';
+const ACCESS_TOKEN_ASSIGNMENT = /\b(DOCKSCOPE_(?:READ_ONLY_)?TOKEN)=[^\s"',}]*/g;
+
+function redactAccessSecretString(value: string, config: AuthConfig): string {
+  const secrets = [...new Set([config.token, config.readOnlyToken])]
+    .filter((secret): secret is string => Boolean(secret))
+    .sort((a, b) => b.length - a.length);
+  let redacted = value;
+  for (const secret of secrets) {
+    redacted = redacted.split(secret).join(REDACTED_ACCESS_SECRET);
+  }
+  // A dashboard-stored operator token is intentionally unavailable in plain
+  // text. Still protect a self-inspect response by recognizing its env key.
+  return redacted.replace(
+    ACCESS_TOKEN_ASSIGNMENT,
+    (_match, name: string) => `${name}=${REDACTED_ACCESS_SECRET}`,
+  );
+}
+
+/**
+ * Remove DockScope access credentials from JSON-shaped data sent to readers.
+ * A copy is returned so provider-owned snapshots are never mutated.
+ */
+export function redactAccessSecrets(value: unknown, config: AuthConfig): unknown {
+  const seen = new WeakMap<object, unknown>();
+  const visit = (current: unknown): unknown => {
+    if (typeof current === 'string') {
+      return redactAccessSecretString(current, config);
+    }
+    if (Array.isArray(current)) {
+      const cached = seen.get(current);
+      if (cached) {
+        return cached;
+      }
+      const copy: unknown[] = [];
+      seen.set(current, copy);
+      for (const item of current) {
+        copy.push(visit(item));
+      }
+      return copy;
+    }
+    if (!current || typeof current !== 'object') {
+      return current;
+    }
+    const prototype = Object.getPrototypeOf(current);
+    if (prototype !== Object.prototype && prototype !== null) {
+      return current;
+    }
+    const cached = seen.get(current);
+    if (cached) {
+      return cached;
+    }
+    const copy: Record<string, unknown> = {};
+    seen.set(current, copy);
+    for (const [key, nested] of Object.entries(current)) {
+      copy[key] = visit(nested);
+    }
+    return copy;
+  };
+  return visit(value);
 }
 
 // --- Reverse-proxy authentication -------------------------------------------

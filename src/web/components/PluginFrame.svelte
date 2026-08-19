@@ -6,10 +6,11 @@
   interface Props {
     extension: PluginUiExtension;
     context: PluginUiContext;
+    actionAllowed: boolean;
     onAction: (input?: unknown) => Promise<void> | void;
   }
 
-  let { extension, context, onAction }: Props = $props();
+  let { extension, context, actionAllowed, onAction }: Props = $props();
   let frame = $state<HTMLIFrameElement | null>(null);
   let sourceDocument = $state('');
   let error = $state('');
@@ -91,7 +92,7 @@ ${scriptClose}</body></html>`;
       ) {
         return;
       }
-      if (message.type === 'action') {
+      if (message.type === 'action' && actionAllowed) {
         void onAction(message.input);
       } else if (
         message.type === 'resize' &&

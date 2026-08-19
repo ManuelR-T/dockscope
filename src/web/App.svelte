@@ -36,10 +36,12 @@
     invokePluginUiAction,
     pluginUiContextFromNode,
   } from './lib/pluginUi';
+  import { pluginUiExtensionAllowed, type AccessRole } from '../core/access';
 
   const DEFAULT_COLOR_NETWORKS = true;
   const docker = getDockerState();
   const recorder = getRecorderState();
+  const auth = getAuthState();
   let selectedNode = $state<ServiceNode | null>(null);
   let searchQuery = $state('');
   let statusFilter = $state<Set<StatusFilter>>(new Set());
@@ -67,13 +69,17 @@
   let toolbarExtensions = $derived(
     pluginUiExtensions.filter(
       (extension) =>
-        extension.slot === 'toolbar' && pluginUiContextMatches(extension, pluginUiContext),
+        extension.slot === 'toolbar' &&
+        pluginUiContextMatches(extension, pluginUiContext) &&
+        pluginUiExtensionAllowed(auth.role, extension.action),
     ),
   );
   let navigationExtensions = $derived(
     pluginUiExtensions.filter(
       (extension) =>
-        extension.slot === 'navigation' && pluginUiContextMatches(extension, pluginUiContext),
+        extension.slot === 'navigation' &&
+        pluginUiContextMatches(extension, pluginUiContext) &&
+        pluginUiExtensionAllowed(auth.role, extension.action),
     ),
   );
   let graphOverlayExtensions = $derived(
@@ -89,18 +95,19 @@
     }
   });
 
-  const auth = getAuthState();
   let cleanupDocker: (() => void) | undefined;
 
   // An open instance is the state worth noticing, so the padlock is closed and
   // quiet when secured and filled amber when anyone can reach the API.
   let securedInstance = $derived(auth.required || auth.viaProxy);
   let securityTitle = $derived(
-    auth.viaProxy
-      ? 'Security: authentication handled by your reverse proxy'
-      : auth.required
-        ? 'Security: an access token is required'
-        : 'Security: no access token, anyone who can reach this port has full control',
+    auth.role === 'reader'
+      ? 'Security: read-only session; operator access is required for changes'
+      : auth.viaProxy
+        ? 'Security: authentication handled by your reverse proxy'
+        : auth.required
+          ? 'Security: an access token is required'
+          : 'Security: no access token, anyone who can reach this port has full control',
   );
 
   /**
@@ -175,6 +182,10 @@
   }
 
   async function handlePluginAction(extension: PluginUiExtension, input?: unknown) {
+    if (!pluginUiExtensionAllowed(auth.role, extension.action)) {
+      addToast('Operator access required', 'error');
+      return;
+    }
     if (!extension.action) {
       showPlugins = true;
       return;
@@ -379,6 +390,11 @@
 
     <!-- Actions: projects + filters (compact) -->
     <div class="hud-group actions-group">
+      {#if auth.role === 'reader'}
+        <span class="read-only-badge" title="This session can observe but cannot make changes">
+          Read-only
+        </span>
+      {/if}
       {#each toolbarExtensions as extension}
         <IconButton
           variant="outline"
@@ -533,7 +549,12 @@
   {#if graphOverlayExtensions.length > 0}
     <div class="plugin-overlay-stack">
       {#each graphOverlayExtensions as extension (extension.pluginId + extension.id)}
-        <PluginExtension {extension} context={pluginUiContext} onAction={handlePluginAction} />
+        <PluginExtension
+          {extension}
+          context={pluginUiContext}
+          role={auth.role as AccessRole | null}
+          onAction={handlePluginAction}
+        />
       {/each}
     </div>
   {/if}
@@ -618,6 +639,7 @@
       onClose={() => (selectedNode = null)}
       {colorNetworks}
       extensions={pluginUiExtensions}
+      role={auth.role as AccessRole | null}
       onPluginAction={handlePluginAction}
     />
   </div>
@@ -643,13 +665,13 @@
     <KeyboardHelp onClose={() => (showHelp = false)} />
   {/if}
   {#if showProjects}
-    <ProjectManager onClose={() => (showProjects = false)} />
+    <ProjectManager role={auth.role as AccessRole | null} onClose={() => (showProjects = false)} />
   {/if}
   {#if showHosts}
-    <HostManager onClose={() => (showHosts = false)} />
+    <HostManager role={auth.role as AccessRole | null} onClose={() => (showHosts = false)} />
   {/if}
   {#if showPlugins}
-    <PluginManager onClose={closePluginManager} />
+    <PluginManager role={auth.role as AccessRole | null} onClose={closePluginManager} />
   {/if}
   {#if auth.panelOpen}
     <SecurityPanel onClose={closeSecurityPanel} />

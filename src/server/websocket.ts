@@ -1,4 +1,6 @@
 import { WebSocket, WebSocketServer } from 'ws';
+import type { IncomingMessage } from 'node:http';
+import type { AccessRole } from '../core/access.js';
 import type { PluginRegistry } from '../core/plugin-contract/registry.js';
 import type { EntityRef } from '../core/entities/operations.js';
 import type { GraphData } from '../types.js';
@@ -9,6 +11,7 @@ import { errorMessage } from '../utils.js';
 type WSHandler<T extends InboundWSMessage = InboundWSMessage> = (
   ws: WebSocket,
   msg: T,
+  role: AccessRole,
 ) => Promise<void> | void;
 type WSHandlers = {
   [T in InboundWSMessage['type']]: WSHandler<Extract<InboundWSMessage, { type: T }>>;
@@ -17,16 +20,23 @@ type WSHandlers = {
 interface WebSocketOptions {
   getGraph(): GraphData;
   plugins: PluginRegistry;
+  accessRole(request: IncomingMessage): AccessRole | undefined;
+  registerRole(client: WebSocket, role: AccessRole): void;
+  redact(role: AccessRole, value: unknown): unknown;
 }
 
 export function setupWebSocketHandlers(wss: WebSocketServer, opts: WebSocketOptions): void {
   const clientLogStreams = new Map<WebSocket, () => void>();
   const clientExecStreams = new Map<WebSocket, NodeJS.ReadWriteStream>();
 
-  function sendError(ws: WebSocket, message: string) {
+  function sendJson(ws: WebSocket, role: AccessRole, value: unknown) {
     if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'error', data: { message } }));
+      ws.send(JSON.stringify(opts.redact(role, value)));
     }
+  }
+
+  function sendError(ws: WebSocket, role: AccessRole, message: string) {
+    sendJson(ws, role, { type: 'error', data: { message } });
   }
 
   function entityRef(data: { entityId: string; sourceId?: string; nodeId?: string }): EntityRef {
@@ -52,22 +62,20 @@ export function setupWebSocketHandlers(wss: WebSocketServer, opts: WebSocketOpti
   }
 
   const wsHandlers: WSHandlers = {
-    subscribe_logs: async (ws, msg) => {
+    subscribe_logs: async (ws, msg, role) => {
       stopLogStream(ws);
       const stop = await opts.plugins.streamLogs(
         entityRef(msg.data),
         (text) => {
           if (ws.readyState === WebSocket.OPEN) {
-            ws.send(
-              JSON.stringify({
-                type: 'log_chunk',
-                data: { entityId: msg.data.entityId, containerId: msg.data.entityId, text },
-              }),
-            );
+            sendJson(ws, role, {
+              type: 'log_chunk',
+              data: { entityId: msg.data.entityId, containerId: msg.data.entityId, text },
+            });
           }
         },
         (err) => {
-          sendError(ws, `Log stream error: ${err.message}`);
+          sendError(ws, role, `Log stream error: ${err.message}`);
         },
       );
       clientLogStreams.set(ws, stop);
@@ -75,7 +83,7 @@ export function setupWebSocketHandlers(wss: WebSocketServer, opts: WebSocketOpti
     unsubscribe_logs: (ws) => {
       stopLogStream(ws);
     },
-    exec_start: async (ws, msg) => {
+    exec_start: async (ws, msg, role) => {
       stopExecStream(ws);
 
       try {
@@ -88,25 +96,26 @@ export function setupWebSocketHandlers(wss: WebSocketServer, opts: WebSocketOpti
         // Pipe exec stdout → WS
         execStream.on('data', (chunk: Buffer) => {
           if (ws.readyState === WebSocket.OPEN) {
-            ws.send(
-              JSON.stringify({ type: 'exec_output', data: { text: chunk.toString('utf-8') } }),
-            );
+            sendJson(ws, role, {
+              type: 'exec_output',
+              data: { text: chunk.toString('utf-8') },
+            });
           }
         });
 
         execStream.on('end', () => {
           if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'exec_exit' }));
+            sendJson(ws, role, { type: 'exec_exit' });
           }
           clientExecStreams.delete(ws);
         });
 
         execStream.on('error', (err: Error) => {
-          sendError(ws, `Exec stream error: ${err.message}`);
+          sendError(ws, role, `Exec stream error: ${err.message}`);
           clientExecStreams.delete(ws);
         });
       } catch (err) {
-        sendError(ws, `Exec failed: ${errorMessage(err)}`);
+        sendError(ws, role, `Exec failed: ${errorMessage(err)}`);
       }
     },
     exec_input: (ws, msg) => {
@@ -124,8 +133,14 @@ export function setupWebSocketHandlers(wss: WebSocketServer, opts: WebSocketOpti
     },
   };
 
-  wss.on('connection', (ws) => {
-    ws.send(JSON.stringify({ type: 'graph', data: opts.getGraph() }));
+  wss.on('connection', (ws, request) => {
+    const role = opts.accessRole(request);
+    if (!role) {
+      ws.close(1008, 'Authentication required');
+      return;
+    }
+    opts.registerRole(ws, role);
+    sendJson(ws, role, { type: 'graph', data: opts.getGraph() });
 
     ws.on('message', async (raw) => {
       try {
@@ -133,10 +148,14 @@ export function setupWebSocketHandlers(wss: WebSocketServer, opts: WebSocketOpti
         if (!msg) {
           return;
         }
+        if (role === 'reader' && msg.type.startsWith('exec_')) {
+          sendError(ws, role, 'Operator access required');
+          return;
+        }
 
-        await (wsHandlers[msg.type] as WSHandler)(ws, msg);
+        await (wsHandlers[msg.type] as WSHandler)(ws, msg, role);
       } catch (err) {
-        sendError(ws, errorMessage(err) || 'WebSocket command failed');
+        sendError(ws, role, errorMessage(err) || 'WebSocket command failed');
       }
     });
 

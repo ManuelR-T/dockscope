@@ -13,6 +13,12 @@
   import type { PluginConfigField, PluginConfigValue } from '../../core/plugin-contract/config';
   import type { PluginSecretSnapshot } from '../../core/plugin-contract/secrets';
   import type { PluginUiExtension } from '../../core/plugin-contract/ui';
+  import {
+    allowsUiIntent,
+    pluginUiActionAllowed,
+    pluginUiExtensionAllowed,
+    type AccessRole,
+  } from '../../core/access';
   import type { PluginCommand, PluginCommandResult } from '../../core/plugin-contract/commands';
   import type { PluginEvent } from '../../core/plugin-contract/events';
   import type { PluginCompatibilityReport } from '../../core/plugin-contract/compatibility';
@@ -27,6 +33,7 @@
 
   interface Props {
     onClose: () => void;
+    role: AccessRole | null;
   }
 
   type MarketplaceAction = 'install' | 'update' | 'uninstall';
@@ -37,7 +44,8 @@
     action: MarketplaceAction;
   }
 
-  let { onClose }: Props = $props();
+  let { onClose, role }: Props = $props();
+  let canOperate = $derived(allowsUiIntent(role, 'mutation'));
 
   // Three destinations, not nine. Everything that is a property *of a plugin*
   // (config, secrets, commands, extensions, review, compatibility) lives in that
@@ -156,7 +164,10 @@
 
   function settingsExtensionsFor(pluginId: string): PluginUiExtension[] {
     return extensions.filter(
-      (extension) => extension.pluginId === pluginId && extension.slot === 'settings',
+      (extension) =>
+        extension.pluginId === pluginId &&
+        extension.slot === 'settings' &&
+        pluginUiExtensionAllowed(role, extension.action),
     );
   }
 
@@ -360,7 +371,7 @@
 
   async function saveConfig(pluginId: string) {
     const snapshot = configs.find((config) => config.pluginId === pluginId);
-    if (!snapshot?.schema || saving) {
+    if (!canOperate || !snapshot?.schema || saving) {
       return;
     }
     saving = pluginId;
@@ -388,7 +399,7 @@
   }
 
   async function togglePlugin(plugin: PluginRuntimeInfo) {
-    if (plugin.manifest.builtin || toggling) {
+    if (!canOperate || plugin.manifest.builtin || toggling) {
       return;
     }
     toggling = plugin.manifest.id;
@@ -410,7 +421,7 @@
   }
 
   async function reloadPlugin(plugin: PluginRuntimeInfo) {
-    if (plugin.manifest.builtin || reloading) {
+    if (!canOperate || plugin.manifest.builtin || reloading) {
       return;
     }
     reloading = plugin.manifest.id;
@@ -431,6 +442,9 @@
   }
 
   async function runExtensionAction(extension: PluginUiExtension, input?: unknown) {
+    if (!pluginUiActionAllowed(role, extension.action)) {
+      return;
+    }
     try {
       const result = await invokePluginUiAction(extension, {}, input);
       if (result.type === 'open_url') {
@@ -459,7 +473,7 @@
 
   async function runCommand(command: PluginCommand) {
     const key = commandKey(command);
-    if (runningCommand) {
+    if (!canOperate || runningCommand) {
       return;
     }
     runningCommand = key;
@@ -489,7 +503,7 @@
 
   async function runMigration(pluginId: string, from: string, to: string) {
     const key = `${pluginId}:${from}:${to}`;
-    if (runningCommand) {
+    if (!canOperate || runningCommand) {
       return;
     }
     runningCommand = key;
@@ -515,7 +529,7 @@
   }
 
   async function approvePlugin(pluginId: string) {
-    if (saving) {
+    if (!canOperate || saving) {
       return;
     }
     saving = `${pluginId}:approval`;
@@ -531,7 +545,7 @@
   }
 
   async function revokeApproval(pluginId: string) {
-    if (saving) {
+    if (!canOperate || saving) {
       return;
     }
     saving = `${pluginId}:approval`;
@@ -550,7 +564,7 @@
 
   async function runMarketplaceAction(entry: PluginMarketplaceEntry, action: MarketplaceAction) {
     const key = `${entry.id}:${action}`;
-    if (marketplaceAction) {
+    if (!canOperate || marketplaceAction) {
       return;
     }
     marketplaceAction = key;
@@ -583,7 +597,7 @@
   }
 
   async function confirmMarketplaceReview() {
-    if (!marketplaceReview) {
+    if (!canOperate || !marketplaceReview) {
       return;
     }
     const review = marketplaceReview;
@@ -611,7 +625,7 @@
 
   async function saveSecret(pluginId: string, key: string) {
     const value = secretDrafts[pluginId]?.[key];
-    if (value === undefined || saving) {
+    if (!canOperate || value === undefined || saving) {
       return;
     }
     saving = `${pluginId}:${key}`;
@@ -720,6 +734,7 @@
   function marketplaceActionDisabled(entry: PluginMarketplaceEntry): boolean {
     const action = marketplaceActionType(entry);
     return (
+      !canOperate ||
       marketplaceAction !== null ||
       entry.status === 'yanked' ||
       (action !== 'uninstall' && entry.compatibilityWarnings.length > 0)
@@ -836,7 +851,7 @@
   }
 
   async function previewCatalog() {
-    if (!catalogSourceDraft.trim()) {
+    if (!canOperate || !catalogSourceDraft.trim()) {
       return;
     }
     catalogBusy = true;
@@ -853,7 +868,7 @@
   }
 
   async function trustCatalog() {
-    if (!catalogPreview?.signatureVerified) {
+    if (!canOperate || !catalogPreview?.signatureVerified) {
       return;
     }
     catalogBusy = true;
@@ -871,6 +886,9 @@
   }
 
   async function removeCatalog(source: string, name?: string) {
+    if (!canOperate) {
+      return;
+    }
     catalogBusy = true;
     try {
       marketplace = await deleteJson<PluginMarketplaceSnapshot>(
@@ -912,6 +930,11 @@
         <Tab active={tab === 'marketplace'} onclick={() => (tab = 'marketplace')}>Marketplace</Tab>
         <Tab active={tab === 'events'} onclick={() => (tab = 'events')}>Events</Tab>
       </TabBar>
+      {#if !canOperate}
+        <span class="read-only-badge" title="Operator access is required to change plugins">
+          Read-only
+        </span>
+      {/if}
       <span class="header-close">
         <CloseButton label="Close plugins" onclick={onClose} />
       </span>
@@ -1003,7 +1026,7 @@
                     <div class="item-desc">{detailSummary(id)}</div>
                   {/if}
                 </div>
-                {#if !plugin.manifest.builtin}
+                {#if canOperate && !plugin.manifest.builtin}
                   <div class="action-stack">
                     <Button
                       variant="secondary"
@@ -1079,22 +1102,24 @@
                             ? `approved ${new Date(review.approvedAt).toLocaleString()}`
                             : ''}
                         </span>
-                        {#if review.approvalStatus !== 'approved'}
-                          <Button
-                            variant="secondary"
-                            disabled={saving !== null}
-                            onclick={() => approvePlugin(id)}
-                          >
-                            {saving === `${id}:approval` ? 'Saving...' : 'Approve'}
-                          </Button>
-                        {:else}
-                          <Button
-                            variant="secondary"
-                            disabled={saving !== null}
-                            onclick={() => revokeApproval(id)}
-                          >
-                            {saving === `${id}:approval` ? 'Saving...' : 'Revoke'}
-                          </Button>
+                        {#if canOperate}
+                          {#if review.approvalStatus !== 'approved'}
+                            <Button
+                              variant="secondary"
+                              disabled={saving !== null}
+                              onclick={() => approvePlugin(id)}
+                            >
+                              {saving === `${id}:approval` ? 'Saving...' : 'Approve'}
+                            </Button>
+                          {:else}
+                            <Button
+                              variant="secondary"
+                              disabled={saving !== null}
+                              onclick={() => revokeApproval(id)}
+                            >
+                              {saving === `${id}:approval` ? 'Saving...' : 'Revoke'}
+                            </Button>
+                          {/if}
                         {/if}
                       </div>
                     </div>
@@ -1123,7 +1148,7 @@
                         <div class="migration-row">
                           <span>{migration.from} -> {migration.to}</span>
                           <span>{migration.notes ?? ''}</span>
-                          {#if migration.commandId}
+                          {#if canOperate && migration.commandId}
                             <Button
                               variant="secondary"
                               disabled={runningCommand !== null}
@@ -1150,6 +1175,7 @@
                               <input
                                 type="checkbox"
                                 checked={Boolean(fieldValue(id, field))}
+                                disabled={!canOperate}
                                 onchange={(event) =>
                                   setDraftValue(id, field.key, checkedValue(event))}
                               />
@@ -1157,6 +1183,7 @@
                               <Select
                                 ariaLabel={field.label}
                                 value={String(fieldValue(id, field))}
+                                disabled={!canOperate}
                                 options={(field.options ?? []).map((option) => ({
                                   value: option.value,
                                   label: option.label,
@@ -1167,6 +1194,7 @@
                               <input
                                 type={field.type === 'number' ? 'number' : 'text'}
                                 value={String(fieldValue(id, field))}
+                                disabled={!canOperate}
                                 oninput={(event) =>
                                   setDraftValue(
                                     id,
@@ -1182,18 +1210,25 @@
                             {/if}
                           </label>
                         {/each}
-                        <div class="detail-actions">
-                          <Button
-                            variant="secondary"
-                            disabled={saving !== null}
-                            onclick={() => saveConfig(id)}
-                          >
-                            {saving === id ? 'Saving...' : 'Save'}
-                          </Button>
-                        </div>
+                        {#if canOperate}
+                          <div class="detail-actions">
+                            <Button
+                              variant="secondary"
+                              disabled={saving !== null}
+                              onclick={() => saveConfig(id)}
+                            >
+                              {saving === id ? 'Saving...' : 'Save'}
+                            </Button>
+                          </div>
+                        {/if}
                       {/if}
                       {#each pluginSettings as extension (extension.pluginId + extension.id)}
-                        <PluginExtension {extension} context={{}} onAction={runExtensionAction} />
+                        <PluginExtension
+                          {extension}
+                          context={{}}
+                          {role}
+                          onAction={runExtensionAction}
+                        />
                       {/each}
                     </div>
                   {/if}
@@ -1204,21 +1239,24 @@
                       {#each secretSnapshot.secrets as secret}
                         <label class="field">
                           <span class="field-label">{secret.label}</span>
-                          <div class="secret-row">
-                            <input
-                              type="password"
-                              placeholder={secret.configured ? 'Configured' : 'Not configured'}
-                              value={secretDrafts[id]?.[secret.key] ?? ''}
-                              oninput={(event) => setSecretDraft(id, secret.key, inputValue(event))}
-                            />
-                            <Button
-                              variant="secondary"
-                              disabled={!secretDrafts[id]?.[secret.key] || saving !== null}
-                              onclick={() => saveSecret(id, secret.key)}
-                            >
-                              {saving === `${id}:${secret.key}` ? 'Saving...' : 'Save'}
-                            </Button>
-                          </div>
+                          {#if canOperate}
+                            <div class="secret-row">
+                              <input
+                                type="password"
+                                placeholder={secret.configured ? 'Configured' : 'Not configured'}
+                                value={secretDrafts[id]?.[secret.key] ?? ''}
+                                oninput={(event) =>
+                                  setSecretDraft(id, secret.key, inputValue(event))}
+                              />
+                              <Button
+                                variant="secondary"
+                                disabled={!secretDrafts[id]?.[secret.key] || saving !== null}
+                                onclick={() => saveSecret(id, secret.key)}
+                              >
+                                {saving === `${id}:${secret.key}` ? 'Saving...' : 'Save'}
+                              </Button>
+                            </div>
+                          {/if}
                           <span class="field-desc">
                             {secret.configured ? 'Configured' : 'Missing'}
                             {#if secret.required}
@@ -1246,7 +1284,7 @@
                             {#if command.description}
                               <div class="item-desc">{command.description}</div>
                             {/if}
-                            {#if command.input?.fields.length}
+                            {#if canOperate && command.input?.fields.length}
                               <div class="command-inputs">
                                 {#each command.input.fields as field}
                                   <label class="field command-field">
@@ -1295,13 +1333,15 @@
                               </div>
                             {/if}
                           </div>
-                          <Button
-                            variant="secondary"
-                            disabled={runningCommand !== null}
-                            onclick={() => runCommand(command)}
-                          >
-                            {runningCommand === commandKey(command) ? 'Running...' : 'Run'}
-                          </Button>
+                          {#if canOperate}
+                            <Button
+                              variant="secondary"
+                              disabled={runningCommand !== null}
+                              onclick={() => runCommand(command)}
+                            >
+                              {runningCommand === commandKey(command) ? 'Running...' : 'Run'}
+                            </Button>
+                          {/if}
                         </div>
                       {/each}
                     </div>
@@ -1448,13 +1488,15 @@
           <div class="catalog-manager">
             <div class="catalog-manager-head">
               <span>Catalogs</span>
-              <Button
-                size="sm"
-                disabled={catalogBusy}
-                onclick={() => (showAddCatalog ? resetAddCatalog() : (showAddCatalog = true))}
-              >
-                {showAddCatalog ? 'Cancel' : '+ Add catalog'}
-              </Button>
+              {#if canOperate}
+                <Button
+                  size="sm"
+                  disabled={catalogBusy}
+                  onclick={() => (showAddCatalog ? resetAddCatalog() : (showAddCatalog = true))}
+                >
+                  {showAddCatalog ? 'Cancel' : '+ Add catalog'}
+                </Button>
+              {/if}
             </div>
 
             {#each marketplace.catalogs ?? [] as catalog (catalog.source)}
@@ -1475,7 +1517,7 @@
                 <span class="catalog-row-meta" class:is-error={Boolean(catalog.error)}>
                   {catalog.error ?? pluralize(catalog.entryCount, 'entry', 'entries')}
                 </span>
-                {#if catalog.userAdded}
+                {#if canOperate && catalog.userAdded}
                   <Button
                     variant="ghost"
                     tone="danger"
@@ -1492,7 +1534,7 @@
               </div>
             {/each}
 
-            {#if showAddCatalog}
+            {#if canOperate && showAddCatalog}
               <div class="catalog-add">
                 <div class="catalog-add-row">
                   <TextInput
@@ -1539,13 +1581,15 @@
                         pinned, so a later change will make this catalog fail instead of loading
                         silently.
                       </div>
-                      <Button
-                        variant="primary"
-                        disabled={catalogBusy}
-                        onclick={() => void trustCatalog()}
-                      >
-                        Trust and add
-                      </Button>
+                      {#if canOperate}
+                        <Button
+                          variant="primary"
+                          disabled={catalogBusy}
+                          onclick={() => void trustCatalog()}
+                        >
+                          Trust and add
+                        </Button>
+                      {/if}
                     </div>
                   {:else}
                     <div class="catalog-preview catalog-preview-bad">
@@ -1633,12 +1677,14 @@
                 </div>
                 <Button
                   variant="secondary"
-                  disabled={marketplaceActionDisabled(entry)}
+                  disabled={canOperate && marketplaceActionDisabled(entry)}
                   onclick={() => requestMarketplaceAction(entry)}
                 >
                   {marketplaceAction === marketplaceActionKey(entry)
                     ? 'Working...'
-                    : marketplaceActionLabel(entry)}
+                    : canOperate
+                      ? marketplaceActionLabel(entry)
+                      : 'Review'}
                 </Button>
               </div>
             {/each}
@@ -1745,15 +1791,17 @@
 
           <div class="confirm-actions">
             <Button variant="secondary" onclick={() => (marketplaceReview = null)}>Cancel</Button>
-            <Button
-              variant="primary"
-              disabled={marketplaceActionDisabled(marketplaceReview.entry)}
-              onclick={() => void confirmMarketplaceReview()}
-            >
-              {marketplaceAction === marketplaceActionKey(marketplaceReview.entry)
-                ? 'Working...'
-                : marketplaceActionLabel(marketplaceReview.entry)}
-            </Button>
+            {#if canOperate}
+              <Button
+                variant="primary"
+                disabled={marketplaceActionDisabled(marketplaceReview.entry)}
+                onclick={() => void confirmMarketplaceReview()}
+              >
+                {marketplaceAction === marketplaceActionKey(marketplaceReview.entry)
+                  ? 'Working...'
+                  : marketplaceActionLabel(marketplaceReview.entry)}
+              </Button>
+            {/if}
           </div>
         </div>
       </div>
@@ -1802,6 +1850,15 @@
     display: flex;
     align-self: flex-start;
     margin-top: 4px;
+  }
+
+  .read-only-badge {
+    margin-left: auto;
+    color: var(--accent-amber);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
   }
 
   .content {

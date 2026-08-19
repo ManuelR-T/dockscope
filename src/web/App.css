@@ -314,6 +314,18 @@ body {
   padding: 4px 6px;
 }
 
+.read-only-badge {
+  padding: 3px 7px;
+  border: 1px solid color-mix(in srgb, var(--accent-amber) 45%, transparent);
+  border-radius: 999px;
+  color: var(--accent-amber);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
 .nav-rail-label {
   min-width: 0;
   overflow: hidden;

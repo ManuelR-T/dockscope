@@ -12,12 +12,15 @@
     PluginConfigField,
     PluginConfigValue,
   } from '../../core/plugin-contract/config';
+  import { allowsUiIntent, type AccessRole } from '../../core/access';
 
   interface Props {
     onClose: () => void;
+    role: AccessRole | null;
   }
 
-  let { onClose }: Props = $props();
+  let { onClose, role }: Props = $props();
+  let canOperate = $derived(allowsUiIntent(role, 'mutation'));
 
   // --- State ---
   let view = $state<'connections' | 'compare'>('connections');
@@ -109,7 +112,7 @@
   }
 
   async function addConnection() {
-    if (!selectedProvider || requiredInputMissing() || adding) {
+    if (!canOperate || !selectedProvider || requiredInputMissing() || adding) {
       return;
     }
     adding = true;
@@ -141,6 +144,9 @@
   }
 
   async function removeConnection(connection: PluginConnection) {
+    if (!canOperate) {
+      return;
+    }
     try {
       const res = await fetch(
         `/api/connections/${encodeURIComponent(connection.pluginId)}/${encodeURIComponent(connection.providerId)}/${encodeURIComponent(connection.id)}`,
@@ -291,7 +297,7 @@
                   <span class="host-meta off-text">{connection.status}</span>
                 {/if}
               </div>
-              {#if connection.removable}
+              {#if canOperate && connection.removable}
                 <IconButton
                   variant="bare"
                   size={22}
@@ -307,63 +313,67 @@
           {/each}
         </div>
 
-        <div class="add-form">
-          {#if providers.length > 1}
-            <Select
-              bind:value={selectedProviderKey}
-              size="lg"
-              ariaLabel="Connection provider"
-              options={providers.map((provider) => ({
-                value: providerKey(provider),
-                label: provider.label,
-              }))}
-            />
-          {/if}
-          {#each selectedProvider?.input.fields ?? [] as field (field.key)}
-            {#if field.type === 'boolean'}
-              <label class="connection-check">
-                <input
-                  type="checkbox"
-                  checked={draft[field.key] === true}
-                  onchange={(event) =>
-                    setDraft(field.key, (event.currentTarget as HTMLInputElement).checked)}
-                />
-                <span>{field.label}</span>
-              </label>
-            {:else if field.type === 'select'}
+        {#if canOperate}
+          <div class="add-form">
+            {#if providers.length > 1}
               <Select
+                bind:value={selectedProviderKey}
                 size="lg"
-                ariaLabel={field.label}
-                value={String(draft[field.key] ?? '')}
-                options={(field.options ?? []).map((option) => ({
-                  value: option.value,
-                  label: option.label,
+                ariaLabel="Connection provider"
+                options={providers.map((provider) => ({
+                  value: providerKey(provider),
+                  label: provider.label,
                 }))}
-                onchange={(value) => setDraft(field.key, value)}
-              />
-            {:else}
-              <TextInput
-                size="lg"
-                mono={field.key.toLowerCase().includes('url')}
-                type={field.type === 'number' ? 'number' : 'text'}
-                placeholder={field.label}
-                ariaLabel={field.label}
-                value={String(draft[field.key] ?? '')}
-                oninput={(value) =>
-                  setDraft(field.key, field.type === 'number' ? Number(value) : value)}
-                onkeydown={(event) => event.key === 'Enter' && addConnection()}
               />
             {/if}
-          {/each}
-          <Button
-            size="lg"
-            block
-            onclick={addConnection}
-            disabled={adding || !selectedProvider || requiredInputMissing()}
-          >
-            {adding ? 'Connecting...' : 'Add Connection'}
-          </Button>
-        </div>
+            {#each selectedProvider?.input.fields ?? [] as field (field.key)}
+              {#if field.type === 'boolean'}
+                <label class="connection-check">
+                  <input
+                    type="checkbox"
+                    checked={draft[field.key] === true}
+                    onchange={(event) =>
+                      setDraft(field.key, (event.currentTarget as HTMLInputElement).checked)}
+                  />
+                  <span>{field.label}</span>
+                </label>
+              {:else if field.type === 'select'}
+                <Select
+                  size="lg"
+                  ariaLabel={field.label}
+                  value={String(draft[field.key] ?? '')}
+                  options={(field.options ?? []).map((option) => ({
+                    value: option.value,
+                    label: option.label,
+                  }))}
+                  onchange={(value) => setDraft(field.key, value)}
+                />
+              {:else}
+                <TextInput
+                  size="lg"
+                  mono={field.key.toLowerCase().includes('url')}
+                  type={field.type === 'number' ? 'number' : 'text'}
+                  placeholder={field.label}
+                  ariaLabel={field.label}
+                  value={String(draft[field.key] ?? '')}
+                  oninput={(value) =>
+                    setDraft(field.key, field.type === 'number' ? Number(value) : value)}
+                  onkeydown={(event) => event.key === 'Enter' && addConnection()}
+                />
+              {/if}
+            {/each}
+            <Button
+              size="lg"
+              block
+              onclick={addConnection}
+              disabled={adding || !selectedProvider || requiredInputMissing()}
+            >
+              {adding ? 'Connecting...' : 'Add Connection'}
+            </Button>
+          </div>
+        {:else}
+          <div class="read-only-note">Read-only access · connection changes are unavailable</div>
+        {/if}
       </div>
 
       <!-- Compare view -->
@@ -585,6 +595,15 @@
     gap: 8px;
     padding-top: 14px;
     border-top: 1px solid rgba(255, 255, 255, 0.04);
+  }
+
+  .read-only-note {
+    padding: 12px;
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    text-align: center;
+    border-top: 1px solid var(--border-subtle);
   }
 
   .connection-check {

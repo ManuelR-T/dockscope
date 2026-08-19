@@ -94,7 +94,8 @@ Each of these overrides one file. See [Plugin file locations](#plugin-file-locat
 | Variable                      | Default                 | Purpose                                                      |
 | ----------------------------- | ----------------------- | ------------------------------------------------------------ |
 | `DOCKSCOPE_STATE_DIR`         | `~/.dockscope`          | Where all persistent state lives                             |
-| `DOCKSCOPE_TOKEN`             | -                       | Access token. Overrides the dashboard's and hides its setup  |
+| `DOCKSCOPE_TOKEN`             | -                       | Full-access token. Overrides the dashboard's and hides setup |
+| `DOCKSCOPE_READ_ONLY_TOKEN`   | -                       | Additional environment-only token for observational access   |
 | `DOCKSCOPE_AUTH_FILE`         | `<state dir>/auth.json` | Move only the token file, leaving the rest in place          |
 | `DOCKSCOPE_BIND`              | `127.0.0.1`             | Listen address                                               |
 | `DOCKSCOPE_ALLOWED_ORIGINS`   | -                       | Extra browser origins allowed to reach the API and WebSocket |
@@ -125,7 +126,7 @@ Everything persistent sits under one directory, `~/.dockscope` by default:
 
 ```text
 ~/.dockscope/
-  auth.json              access token hash and setup state
+  auth.json              dashboard-set full-access token hash and setup state
   plugin-config.json     plugin configuration values
   plugin-state.json      which plugins are enabled
   plugin-secrets.json    plugin secrets
@@ -142,7 +143,9 @@ container: the published image sets it to `/data` and declares that a volume, so
 -v dockscope-data:/data
 ```
 
-is what keeps your token and installed plugins across restarts.
+is what keeps a dashboard-set full-access token and installed plugins across
+restarts. `DOCKSCOPE_READ_ONLY_TOKEN` is environment-only and is never written
+to this volume.
 
 Without that volume the state sits in the container's writable layer, which goes
 away whenever the container is recreated rather than merely restarted: an image
@@ -163,9 +166,20 @@ or a custom domain, list the browser-facing origins:
 DOCKSCOPE_ALLOWED_ORIGINS=https://dock.example.com
 ```
 
-**An access token** is what stops everything that is not a browser: curl, a
-script, another host on the network. It is optional and off by default, since
-the default bind is loopback.
+**Access tokens** stop everything that is not a browser: curl, a script, or
+another host on the network. Authentication is optional and off by default,
+since the default bind is loopback. Authenticated requests have one of two
+roles:
+
+| Role       | Access                                                                                                                        |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `operator` | Every observation workflow plus workload actions, exec, connection and plugin administration, configuration and secret writes |
+| `reader`   | Graph, stats, logs, inspect, history, diagnostics, systems, health and other observation workflows                            |
+
+Readers receive `403` from mutation and exec operations. Plugin commands are
+operator-only until the plugin contract can declare their effects. Catalog
+preview is also operator-only because it makes an outbound request to a
+user-supplied location.
 
 Set it from the dashboard, which offers on first load and keeps a **Security**
 button in the status bar to change or remove it later. Or pin it in the
@@ -175,11 +189,38 @@ environment, which overrides the stored one and hides the setup screen:
 -e DOCKSCOPE_TOKEN="$(openssl rand -hex 32)"
 ```
 
+Add a distinct, environment-only reader token when you want to share a view:
+
+```bash
+-e DOCKSCOPE_TOKEN="$(openssl rand -hex 32)" \
+-e DOCKSCOPE_READ_ONLY_TOKEN="$(openssl rand -hex 32)"
+```
+
+For Compose, require both secrets from the deployment environment rather than
+committing them:
+
+```yaml
+environment:
+  DOCKSCOPE_TOKEN: '${DOCKSCOPE_TOKEN:?set a full-access token}'
+  DOCKSCOPE_READ_ONLY_TOKEN: '${DOCKSCOPE_READ_ONLY_TOKEN:?set a distinct read-only token}'
+```
+
+`DOCKSCOPE_READ_ONLY_TOKEN` is additive and requires either
+`DOCKSCOPE_TOKEN` or a dashboard-stored full-access token. DockScope refuses to
+start when the reader token is configured alone. `DOCKSCOPE_TOKEN` wins over a
+stored operator token. If both environment values are identical, that value is
+an operator token. Remove the reader variable before removing a dashboard-set
+operator token. Trusted reverse-proxy users are operators; mapping proxy groups
+to roles is not supported yet.
+
 Browsers get a session cookie once unlocked. Scripts send a header:
 
 ```bash
 curl -H "Authorization: Bearer $DOCKSCOPE_TOKEN" localhost:4681/api/graph
 ```
+
+Use `$DOCKSCOPE_READ_ONLY_TOKEN` for scripts that only observe. A mutation with
+that credential returns `403 {"error":"Operator access required"}`.
 
 **Reverse proxy authentication** hands the job to an identity provider you
 already run:

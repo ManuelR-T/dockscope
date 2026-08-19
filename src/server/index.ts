@@ -11,7 +11,8 @@ import { setupRoutes } from './routes.js';
 import type { ServerOptions, ServerHandle, WSMessage } from '../types.js';
 import { setupWebSocketHandlers } from './websocket.js';
 import { isAllowedCorsOrigin, isAllowedWsOrigin, parseAllowedOrigins } from './origin.js';
-import { isAuthorized, readProxyAuthConfig } from './auth.js';
+import { authenticateRequest, readProxyAuthConfig, redactAccessSecrets } from './auth.js';
+import type { AccessRole } from '../core/access.js';
 import { createAuthRuntime, setupAuth } from './authRoutes.js';
 import { AuthStore, authStorePath, resolveAuthConfig } from './authStore.js';
 import { createServerMonitor } from './monitor.js';
@@ -84,6 +85,14 @@ function pluginEnvironment(opts: ServerOptions): NodeJS.ProcessEnv {
 }
 
 export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
+  // Resolve access control before starting providers. Invalid combinations
+  // must fail before DockScope opens a daemon connection or plugin process.
+  const authStore = new AuthStore(authStorePath(process.env));
+  const auth = createAuthRuntime(
+    resolveAuthConfig(process.env, await authStore.read()),
+    readProxyAuthConfig(process.env),
+  );
+
   if (opts.host) {
     initDockerClient(opts.host);
   }
@@ -97,23 +106,31 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
   // or WebSocket (exec, lifecycle actions) against a user's Docker daemon.
   const allowedOrigins = parseAllowedOrigins(process.env);
 
-  // Optional shared secret in front of the API and WebSocket, for instances
-  // reachable by anything other than this machine. Set through the environment
-  // or, when it isn't, through the first-run setup screen.
-  const authStore = new AuthStore(authStorePath(process.env));
-  const auth = createAuthRuntime(
-    resolveAuthConfig(process.env, await authStore.read()),
-    readProxyAuthConfig(process.env),
-  );
-
   const app = express();
   app.use(
     cors({ origin: (origin, cb) => cb(null, isAllowedCorsOrigin({ origin, allowedOrigins })) }),
   );
   app.use(express.json());
-  setupAuth(app, auth, authStore);
+  setupAuth(app, auth, authStore, {
+    resolvePluginUiAction: (pluginId, extensionId) =>
+      plugins
+        .listUiExtensions()
+        .find((extension) => extension.pluginId === pluginId && extension.id === extensionId)
+        ?.action,
+  });
 
   const server = createServer(app);
+  const websocketAccessRole = (req: IncomingMessage) =>
+    authenticateRequest({
+      config: auth.current(),
+      sessions: auth.sessions,
+      cookieHeader: req.headers.cookie,
+      authorization: req.headers.authorization,
+      verified: auth.verified,
+      proxy: auth.proxy,
+      headers: req.headers,
+      remoteAddress: req.socket.remoteAddress ?? undefined,
+    });
   const wss = new WebSocketServer({
     server,
     path: '/ws',
@@ -122,27 +139,28 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
       // The socket carries exec and lifecycle actions, so it is gated exactly
       // like the API. Browsers cannot set headers on a WebSocket, which is why
       // the session lives in a cookie: the handshake carries it automatically.
-      isAuthorized({
-        config: auth.current(),
-        sessions: auth.sessions,
-        cookieHeader: info.req.headers.cookie,
-        authorization: info.req.headers.authorization,
-        verified: auth.verified,
-        proxy: auth.proxy,
-        headers: info.req.headers,
-        remoteAddress: info.req.socket.remoteAddress ?? undefined,
-      }),
+      websocketAccessRole(info.req) !== undefined,
   });
+  const websocketRoles = new WeakMap<WebSocket, AccessRole>();
+  const redactForRole = (role: AccessRole, value: unknown) =>
+    role === 'reader' ? redactAccessSecrets(value, auth.current()) : value;
 
   // Metric history storage (shared with routes)
   const metricHistory = new Map<string, { cpu: number; memory: number; time: number }[]>();
 
   const broadcast = (msg: WSMessage) => {
-    const data = JSON.stringify(msg);
+    let operatorData: string | undefined;
+    let readerData: string | undefined;
     wss.clients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(data);
+      const role = websocketRoles.get(client);
+      if (client.readyState !== WebSocket.OPEN || !role) {
+        return;
       }
+      const data =
+        role === 'reader'
+          ? (readerData ??= JSON.stringify(redactForRole(role, msg)))
+          : (operatorData ??= JSON.stringify(msg));
+      client.send(data);
     });
   };
 
@@ -173,7 +191,13 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
   // --- WebSocket ---
 
   await monitor.start();
-  setupWebSocketHandlers(wss, { getGraph: monitor.getGraph, plugins });
+  setupWebSocketHandlers(wss, {
+    getGraph: monitor.getGraph,
+    plugins,
+    accessRole: websocketAccessRole,
+    registerRole: (client, role) => websocketRoles.set(client, role),
+    redact: redactForRole,
+  });
 
   const close = async (exit = false) => {
     monitor.stop();

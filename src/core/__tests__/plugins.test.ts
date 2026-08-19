@@ -548,6 +548,43 @@ describe('PluginRegistry', () => {
     ).rejects.toThrow('does not match the current context');
   });
 
+  it('rechecks a dynamic UI action at execution so a reader cannot run a command', async () => {
+    const runCommand = vi.fn().mockResolvedValue({ ok: true, message: 'restarted' });
+    let lookup = 0;
+    const registry = new PluginRegistry();
+    registry.register(
+      plugin({
+        manifest: {
+          id: 'test.dynamic-ui',
+          name: 'Dynamic UI',
+          version: '1.0.0',
+          ...TEST_API_VERSIONS,
+          capabilities: ['source.graph', 'ui.command', 'ui.toolbarAction'],
+          permissions: [],
+          commands: [{ id: 'restart', title: 'Restart' }],
+        },
+        getUiExtensions: () => [
+          {
+            id: 'dynamic-action',
+            slot: 'toolbar',
+            title: 'Dynamic action',
+            action:
+              lookup++ === 0
+                ? { type: 'open_url', url: 'https://example.test/docs' }
+                : { type: 'run_command', commandId: 'restart' },
+          },
+        ],
+        runCommand,
+      }),
+    );
+
+    expect(registry.listUiExtensions()[0]?.action?.type).toBe('open_url');
+    await expect(
+      registry.runPluginUiAction('test.dynamic-ui', 'dynamic-action', {}, { accessRole: 'reader' }),
+    ).rejects.toMatchObject({ status: 403, message: 'Operator access required' });
+    expect(runCommand).not.toHaveBeenCalled();
+  });
+
   it('lists and runs plugin commands with event history', async () => {
     const runCommand = vi.fn().mockResolvedValue({ ok: true, message: 'synced' });
     const registry = new PluginRegistry();
