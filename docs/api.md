@@ -1,7 +1,9 @@
 # DockScope HTTP API
 
 DockScope's UI is a client of this API, so everything the dashboard does is
-available over HTTP. The server listens on `127.0.0.1:4681` by default.
+available through it. The server listens over HTTP on `127.0.0.1:4681` by
+default, or over HTTPS on the same address and port when
+[direct TLS](configuration.md#tls) is configured.
 
 Endpoints are grouped below. Paths marked `:id` take an entity id, which for the
 Docker source is the container id.
@@ -20,7 +22,8 @@ curl -X POST localhost:4681/api/entities/<id>/actions/core.docker/restart
 ```
 
 The WebSocket at `/ws` pushes graph, stats, event, log, exec, anomaly and
-diagnostic messages. It is the same data the dashboard renders.
+diagnostic messages. It uses `ws://` with HTTP or `wss://` with HTTPS and is the
+same data the dashboard renders.
 
 > Cross-origin browser requests are rejected. If you serve DockScope behind a
 > proxy or a custom domain, see

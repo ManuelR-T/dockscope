@@ -1,6 +1,7 @@
 import express from 'express';
-import { createServer } from 'http';
+import { createServer as createHttpServer } from 'http';
 import type { IncomingMessage } from 'http';
+import { createServer as createHttpsServer } from 'https';
 import { WebSocketServer, WebSocket } from 'ws';
 import cors from 'cors';
 import path from 'path';
@@ -84,6 +85,35 @@ function pluginEnvironment(opts: ServerOptions): NodeJS.ProcessEnv {
   return env;
 }
 
+function closeWebSocketClients(wss: WebSocketServer): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const terminateRemaining = () => {
+      for (const client of wss.clients) {
+        if (client.readyState !== WebSocket.CLOSED) {
+          client.terminate();
+        }
+      }
+    };
+    const forceClose = setTimeout(terminateRemaining, 1000);
+
+    wss.close((error) => {
+      clearTimeout(forceClose);
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+    for (const client of wss.clients) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.close(1001, 'Server shutting down');
+      } else if (client.readyState !== WebSocket.CLOSED) {
+        client.terminate();
+      }
+    }
+  });
+}
+
 export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
   // Resolve access control before starting providers. Invalid combinations
   // must fail before DockScope opens a daemon connection or plugin process.
@@ -92,6 +122,22 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
     resolveAuthConfig(process.env, await authStore.read()),
     readProxyAuthConfig(process.env),
   );
+
+  const app = express();
+  let server;
+  if (opts.tls) {
+    try {
+      if (!opts.tls.certificate.trim() || !opts.tls.privateKey.trim()) {
+        throw new Error('certificate and private key files must not be empty');
+      }
+      server = createHttpsServer({ cert: opts.tls.certificate, key: opts.tls.privateKey }, app);
+    } catch (cause) {
+      const detail = cause instanceof Error ? `: ${cause.message}` : '';
+      throw new Error(`Invalid TLS certificate or private key${detail}`, { cause });
+    }
+  } else {
+    server = createHttpServer(app);
+  }
 
   if (opts.host) {
     initDockerClient(opts.host);
@@ -105,8 +151,8 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
   // Reject cross-origin browser access so a random website can't drive the API
   // or WebSocket (exec, lifecycle actions) against a user's Docker daemon.
   const allowedOrigins = parseAllowedOrigins(process.env);
+  const developmentMode = process.env.DOCKSCOPE_DEV === '1';
 
-  const app = express();
   app.use(
     cors({ origin: (origin, cb) => cb(null, isAllowedCorsOrigin({ origin, allowedOrigins })) }),
   );
@@ -119,7 +165,6 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
         ?.action,
   });
 
-  const server = createServer(app);
   const websocketAccessRole = (req: IncomingMessage) =>
     authenticateRequest({
       config: auth.current(),
@@ -132,8 +177,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
       remoteAddress: req.socket.remoteAddress ?? undefined,
     });
   const wss = new WebSocketServer({
-    server,
-    path: '/ws',
+    noServer: true,
     verifyClient: (info: { origin: string; req: IncomingMessage }) =>
       isAllowedWsOrigin({ origin: info.origin, host: info.req.headers.host, allowedOrigins }) &&
       // The socket carries exec and lifecycle actions, so it is gated exactly
@@ -141,6 +185,32 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
       // the session lives in a cookie: the handshake carries it automatically.
       websocketAccessRole(info.req) !== undefined,
   });
+  const handleWebSocketUpgrade: Parameters<typeof server.on>[1] = (request, socket, head) => {
+    let pathname: string;
+    try {
+      pathname = new URL(request.url ?? '/', 'http://dockscope.local').pathname;
+    } catch {
+      socket.destroy();
+      return;
+    }
+    if (pathname !== '/ws') {
+      const protocol = request.headers['sec-websocket-protocol'];
+      const isViteUpgrade =
+        developmentMode &&
+        pathname === '/' &&
+        (protocol === 'vite-hmr' || protocol === 'vite-ping');
+      // Vite owns only its two development protocols. Reject every other
+      // upgrade so an unclaimed socket cannot remain open indefinitely.
+      if (!isViteUpgrade) {
+        socket.destroy();
+      }
+      return;
+    }
+    wss.handleUpgrade(request, socket, head, (client) => {
+      wss.emit('connection', client, request);
+    });
+  };
+  server.on('upgrade', handleWebSocketUpgrade);
   const websocketRoles = new WeakMap<WebSocket, AccessRole>();
   const redactForRole = (role: AccessRole, value: unknown) =>
     role === 'reader' ? redactAccessSecrets(value, auth.current()) : value;
@@ -168,13 +238,15 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
   setupRoutes(app, opts, metricHistory, monitor.getGraph, plugins, marketplace);
 
   // Frontend: Vite dev server (HMR) or static files (production)
-  if (process.env.DOCKSCOPE_DEV === '1') {
+  let closeDevelopmentServer: (() => Promise<void>) | undefined;
+  if (developmentMode) {
     try {
       const { createServer: createVite } = await import('vite');
       const vite = await createVite({
         server: { middlewareMode: true, hmr: { server } },
         appType: 'spa',
       });
+      closeDevelopmentServer = () => vite.close();
       app.use(vite.middlewares);
     } catch {
       console.error('Vite not found — install devDependencies for dev mode');
@@ -201,22 +273,23 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
 
   const close = async (exit = false) => {
     monitor.stop();
-    await plugins.stopAll();
     process.off('SIGINT', shutdown);
     process.off('SIGTERM', shutdown);
-
-    await new Promise<void>((resolve) => {
-      wss.close(() => resolve());
-    });
-    await new Promise<void>((resolve, reject) => {
-      server.close((err) => {
-        if (err) {
-          reject(err);
-          return;
-        }
-        resolve();
+    server.off('upgrade', handleWebSocketUpgrade);
+    await closeWebSocketClients(wss);
+    await plugins.stopAll();
+    await closeDevelopmentServer?.();
+    if (server.listening) {
+      await new Promise<void>((resolve, reject) => {
+        server.close((err) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          resolve();
+        });
       });
-    });
+    }
 
     if (exit) {
       process.exit(0);
@@ -234,15 +307,36 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
   process.on('SIGTERM', shutdown);
 
   return new Promise((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(opts.port, opts.bind ?? '127.0.0.1', () => {
-      server.off('error', reject);
-      const address = server.address();
-      const port = typeof address === 'object' && address ? address.port : opts.port;
-      resolve({
-        port,
-        close: () => close(false),
+    let listenSettled = false;
+    const failListen = (error: Error) => {
+      if (listenSettled) {
+        return;
+      }
+      listenSettled = true;
+      server.off('error', failListen);
+      close(false)
+        .catch((cleanupError) => {
+          console.error('Startup cleanup failed:', cleanupError);
+        })
+        .finally(() => reject(error));
+    };
+    server.once('error', failListen);
+    try {
+      server.listen(opts.port, opts.bind ?? '127.0.0.1', () => {
+        if (listenSettled) {
+          return;
+        }
+        listenSettled = true;
+        server.off('error', failListen);
+        const address = server.address();
+        const port = typeof address === 'object' && address ? address.port : opts.port;
+        resolve({
+          port,
+          close: () => close(false),
+        });
       });
-    });
+    } catch (cause) {
+      failListen(cause instanceof Error ? cause : new Error(String(cause)));
+    }
   });
 }

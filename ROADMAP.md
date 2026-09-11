@@ -60,14 +60,13 @@ the only one.
 
 ## Be safe to reach from somewhere other than your laptop
 
-Access tokens and reverse proxy auth landed in v0.10, and a second read-only
-token now supports wall displays and shared observational access without exec
-or mutation permissions. Readers still see sensitive operational data, so an
-exposed instance belongs on a trusted network behind a proxy you run.
+Access tokens and reverse proxy auth landed in v0.10. A second read-only token
+now supports wall displays and shared observational access without exec or
+mutation permissions, while direct TLS protects credentials on a LAN without
+requiring a separate proxy. Readers still see sensitive operational data, so a
+reachable instance belongs on a trusted network and needs direct or
+proxy-terminated TLS.
 
-- [#47 Serve HTTPS directly][47]
-  The server is plain HTTP, so the token crosses your LAN in the clear unless
-  something else terminates TLS.
 - [#48 Audit log for container actions][48]
   Nothing records who exec'd into what. Exec is the highest-privilege thing
   DockScope offers and the least accountable.
@@ -122,6 +121,5 @@ because the data exists.
 [41]: https://github.com/ManuelR-T/dockscope/issues/41
 [42]: https://github.com/ManuelR-T/dockscope/issues/42
 [44]: https://github.com/ManuelR-T/dockscope/issues/44
-[47]: https://github.com/ManuelR-T/dockscope/issues/47
 [48]: https://github.com/ManuelR-T/dockscope/issues/48
 [50]: https://github.com/ManuelR-T/dockscope/issues/50

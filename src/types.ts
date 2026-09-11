@@ -172,6 +172,10 @@ export interface CrashDiagnostic {
 export interface ServerOptions {
   port: number;
   open: boolean;
+  tls?: {
+    certificate: string;
+    privateKey: string;
+  };
   host?: string;
   bind?: string;
   pluginPaths?: string;

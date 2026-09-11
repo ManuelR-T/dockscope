@@ -6,6 +6,7 @@ variables, and where it keeps state. Nothing here is required to run it.
 - [Commands](#commands)
 - [`dockscope up` options](#dockscope-up-options)
 - [Environment variables](#environment-variables)
+- [TLS](#tls)
 - [Where state lives](#where-state-lives)
 - [Access control](#access-control)
 - [Plugin file locations](#plugin-file-locations)
@@ -48,6 +49,8 @@ The `plugin:*` commands are covered in [Writing a plugin](plugins.md) and
 | `-p, --port <port>`    | `4681`         | Server port. Auto-increments if the port is already in use            |
 | `-H, --host <url>`     | `$DOCKER_HOST` | Docker host to inspect, e.g. `ssh://user@remote` or `tcp://host:2375` |
 | `-b, --bind <address>` | `127.0.0.1`    | Listen address. `0.0.0.0` inside a container                          |
+| `--tls-cert <file>`    | -              | Certificate or full-chain PEM file                                    |
+| `--tls-key <file>`     | -              | Private-key PEM file                                                   |
 | `--no-open`            | -              | Do not open a browser on startup                                      |
 | `--no-port-check`      | -              | Use the requested port as-is, without conflict detection              |
 
@@ -98,6 +101,8 @@ Each of these overrides one file. See [Plugin file locations](#plugin-file-locat
 | `DOCKSCOPE_READ_ONLY_TOKEN`   | -                       | Additional environment-only token for observational access   |
 | `DOCKSCOPE_AUTH_FILE`         | `<state dir>/auth.json` | Move only the token file, leaving the rest in place          |
 | `DOCKSCOPE_BIND`              | `127.0.0.1`             | Listen address                                               |
+| `DOCKSCOPE_TLS_CERT`          | -                       | Certificate or full-chain PEM path                            |
+| `DOCKSCOPE_TLS_KEY`           | -                       | Private-key PEM path                                         |
 | `DOCKSCOPE_ALLOWED_ORIGINS`   | -                       | Extra browser origins allowed to reach the API and WebSocket |
 | `DOCKSCOPE_AUTH_PROXY_HEADER` | -                       | Header carrying the user your identity proxy authenticated   |
 | `DOCKSCOPE_TRUSTED_PROXIES`   | -                       | Addresses or CIDRs that header is believed from              |
@@ -119,6 +124,56 @@ pass arguments:
 | `DOCKSCOPE_PLUGIN_ALLOW_UNSIGNED`           | `--allow-unsigned-plugins`     |
 | `DOCKSCOPE_DISABLE_EXTERNAL_PLUGINS`        | `--no-external-plugins`        |
 | `DOCKSCOPE_DISABLE_OFFICIAL_PLUGIN_CATALOG` | `--no-official-plugin-catalog` |
+
+## TLS
+
+DockScope serves plain HTTP by default. For direct TLS, configure both a
+certificate and its unencrypted private key:
+
+```bash
+dockscope up \
+  --tls-cert /etc/dockscope/fullchain.pem \
+  --tls-key /etc/dockscope/private-key.pem
+```
+
+The dashboard and API then use `https://` and the WebSocket uses `wss://` on
+the same port. DockScope does not open a second HTTP listener or redirect HTTP
+requests.
+
+`DOCKSCOPE_TLS_CERT` and `DOCKSCOPE_TLS_KEY` provide the same file paths for
+managed deployments. Each command option overrides its matching environment
+variable independently, so a command-line certificate can be paired with an
+environment-provided key. After resolution, both paths or neither must be
+present. A missing, unreadable, empty, malformed or mismatched file stops
+startup; DockScope never falls back to HTTP.
+
+Mount certificate files read-only into the published image:
+
+```bash
+export DOCKSCOPE_TOKEN="$(openssl rand -hex 32)"
+
+docker run --name dockscope --restart unless-stopped -p 4681:4681 \
+  --env DOCKSCOPE_TOKEN \
+  --env DOCKSCOPE_TLS_CERT=/run/dockscope-tls/fullchain.pem \
+  --env DOCKSCOPE_TLS_KEY=/run/dockscope-tls/private-key.pem \
+  -v /srv/dockscope/tls:/run/dockscope-tls:ro \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v dockscope-data:/data \
+  ghcr.io/manuelr-t/dockscope
+```
+
+Keep the private key readable only by the account that manages the deployment.
+The files are read at startup, so restart DockScope after certificate renewal.
+The certificate must cover the hostname people actually open; if it does not
+cover `localhost`, use `--no-open` and browse to its DNS name instead.
+
+A self-signed or internal-CA certificate works once clients trust that issuer.
+Blindly clicking through certificate warnings does not establish that trust and
+leaves interception possible.
+Terminating TLS in a trusted reverse proxy remains fully supported instead:
+leave DockScope's TLS settings unset, keep its HTTP port private to the proxy,
+and expose only the proxy's HTTPS listener. See
+[SECURITY.md](../.github/SECURITY.md) for the network threat model.
 
 ## Where state lives
 

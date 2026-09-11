@@ -7,6 +7,7 @@ import { generateKeyPairSync } from 'crypto';
 import { createConnection } from 'net';
 import path from 'path';
 import { startServer } from './server/index.js';
+import { resolveServerTransport, serverUrls } from './server/tls.js';
 import { buildGraph, checkConnection, initDockerClient } from './docker/client.js';
 import {
   MIN_TOKEN_LENGTH,
@@ -366,6 +367,8 @@ program
     '-b, --bind <address>',
     'Address to listen on (default: 127.0.0.1, or 0.0.0.0 inside a container)',
   )
+  .option('--tls-cert <file>', 'TLS certificate or full-chain PEM file')
+  .option('--tls-key <file>', 'TLS private-key PEM file')
   .option('--no-open', "Don't open browser automatically")
   .option('--no-port-check', 'Skip port conflict detection')
   .option(
@@ -396,6 +399,10 @@ program
   .option('--allow-unsigned-plugins', 'Allow marketplace installs from unsigned catalog entries')
   .option('--no-external-plugins', 'Disable external plugin loading')
   .action(async (opts) => {
+    const transport = await resolveServerTransport({
+      certificatePath: opts.tlsCert,
+      privateKeyPath: opts.tlsKey,
+    });
     const requestedPort = parseInt(opts.port, 10);
     const port = opts.portCheck === false ? requestedPort : await findAvailablePort(requestedPort);
     const host: string | undefined = opts.host || process.env.DOCKER_HOST || undefined;
@@ -410,9 +417,10 @@ program
                                        |_|  v${VERSION}
 `);
 
-    await startServer({
+    const server = await startServer({
       port,
       open: opts.open !== false,
+      tls: 'tls' in transport ? transport.tls : undefined,
       host,
       bind,
       pluginPaths: opts.plugins,
@@ -432,16 +440,16 @@ program
       disableExternalPlugins: opts.externalPlugins === false,
     });
 
-    const url = `http://localhost:${port}`;
+    const urls = serverUrls(server.port, transport);
     if (host) {
       console.log(`  Docker host: ${host}`);
     }
     if (bind !== '127.0.0.1') {
-      console.log(`  Listening on: ${bind}:${port}`);
+      console.log(`  Listening on: ${bind}:${server.port}`);
     }
-    console.log(`  Dashboard: ${url}`);
-    console.log(`  API:       ${url}/api/graph`);
-    console.log(`  WebSocket: ws://localhost:${port}/ws\n`);
+    console.log(`  Dashboard: ${urls.dashboard}`);
+    console.log(`  API:       ${urls.api}`);
+    console.log(`  WebSocket: ${urls.websocket}\n`);
 
     const authConfig = resolveAuthConfig(
       process.env,
@@ -495,7 +503,7 @@ program
 
     if (opts.open !== false) {
       const open = (await import('open')).default;
-      await open(url);
+      await open(urls.dashboard);
     }
   });
 
@@ -967,4 +975,10 @@ program
     console.log(JSON.stringify(graph, null, 2));
   });
 
-program.parse();
+try {
+  await program.parseAsync();
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`  ${message}`);
+  process.exitCode = 1;
+}

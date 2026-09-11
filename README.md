@@ -177,7 +177,7 @@ Install it from the Plugins panel, or write your own.
 On your own machine, yes, and that is the default: DockScope listens on
 localhost only, and websites you visit cannot reach it.
 
-Two things to know before you expose it anywhere:
+A few things to know before you expose it anywhere:
 
 - Operator access controls your Docker daemon, including shell access to
   containers. Treat an operator token as access to the host.
@@ -187,6 +187,9 @@ Two things to know before you expose it anywhere:
 - The first time you open a reachable instance, it offers to set an access
   token. Take it. If you already run Authelia, Authentik, oauth2-proxy or
   Cloudflare Access, DockScope can use that instead.
+- Tokens and session cookies are bearer credentials. Across a LAN, use
+  [direct TLS](docs/configuration.md#tls) or terminate TLS in a trusted reverse
+  proxy; plain HTTP sends them in cleartext.
 
 [**SECURITY.md**](.github/SECURITY.md) has the full picture.
 

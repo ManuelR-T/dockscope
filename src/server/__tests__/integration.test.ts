@@ -1,10 +1,12 @@
-import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { generateKeyPairSync, randomUUID } from 'node:crypto';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { request as httpsRequest } from 'node:https';
+import { createServer as createNetServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
-import type { GraphData, ServerHandle } from '../../types';
+import type { GraphData, ServerHandle, ServerOptions } from '../../types';
 import type { SourceEvent } from '../../core/sources/model';
 
 const mockGraph: GraphData = {
@@ -95,9 +97,53 @@ vi.mock('../../docker/hosts.js', () => ({
   removeHost: vi.fn(),
 }));
 
-async function startTestServer(): Promise<ServerHandle> {
+async function startTestServer(overrides: Partial<ServerOptions> = {}): Promise<ServerHandle> {
   const { startServer } = await import('../index');
-  return startServer({ port: 0, open: false, disableExternalPlugins: true });
+  return startServer({
+    port: 0,
+    open: false,
+    disableExternalPlugins: true,
+    ...overrides,
+  });
+}
+
+function requestOverHttps(
+  port: number,
+  pathname: string,
+  options: { ca: string; method?: string; body?: string; headers?: Record<string, string> },
+): Promise<{
+  statusCode: number | undefined;
+  body: string;
+  setCookie: string[] | undefined;
+}> {
+  return new Promise((resolve, reject) => {
+    const request = httpsRequest(
+      {
+        hostname: '127.0.0.1',
+        port,
+        path: pathname,
+        ca: options.ca,
+        method: options.method,
+        headers: options.headers,
+      },
+      (response) => {
+        const chunks: Buffer[] = [];
+        response.on('data', (chunk: Buffer) => chunks.push(chunk));
+        response.on('end', () => {
+          resolve({
+            statusCode: response.statusCode,
+            body: Buffer.concat(chunks).toString('utf8'),
+            setCookie: response.headers['set-cookie'],
+          });
+        });
+      },
+    );
+    request.once('error', reject);
+    if (options.body !== undefined) {
+      request.write(options.body);
+    }
+    request.end();
+  });
 }
 
 function readWsMessage(ws: WebSocket): Promise<unknown> {
@@ -123,14 +169,43 @@ function closeWs(ws: WebSocket): Promise<void> {
   });
 }
 
-function waitFor(predicate: () => boolean): Promise<void> {
+function expectWsRejected(ws: WebSocket): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      cleanup();
+      ws.once('error', () => undefined);
+      ws.terminate();
+      reject(new Error('Timed out waiting for the WebSocket upgrade to be rejected'));
+    }, 1000);
+    const cleanup = () => {
+      clearTimeout(timeout);
+      ws.off('open', onOpen);
+      ws.off('error', onRejected);
+      ws.off('close', onRejected);
+    };
+    const onOpen = () => {
+      cleanup();
+      ws.close();
+      reject(new Error('Unexpectedly accepted the WebSocket upgrade'));
+    };
+    const onRejected = () => {
+      cleanup();
+      resolve();
+    };
+    ws.once('open', onOpen);
+    ws.once('error', onRejected);
+    ws.once('close', onRejected);
+  });
+}
+
+function waitFor(predicate: () => boolean, timeoutMs = 1000): Promise<void> {
   return new Promise((resolve, reject) => {
     const startedAt = Date.now();
     const timer = setInterval(() => {
       if (predicate()) {
         clearInterval(timer);
         resolve();
-      } else if (Date.now() - startedAt > 1000) {
+      } else if (Date.now() - startedAt > timeoutMs) {
         clearInterval(timer);
         reject(new Error('Timed out waiting for condition'));
       }
@@ -161,6 +236,7 @@ function requiredSourceEventCallback(
  * machine while passing in CI. Individual describes override these afterwards.
  */
 let sharedAuthDir = '';
+const originalDevelopmentMode = process.env.DOCKSCOPE_DEV;
 
 beforeAll(async () => {
   sharedAuthDir = await mkdtemp(path.join(tmpdir(), 'dockscope-it-shared-'));
@@ -171,6 +247,7 @@ afterAll(async () => {
 });
 
 beforeEach(() => {
+  delete process.env.DOCKSCOPE_DEV;
   delete process.env.DOCKSCOPE_TOKEN;
   delete process.env.DOCKSCOPE_READ_ONLY_TOKEN;
   delete process.env.DOCKSCOPE_AUTH_PROXY_HEADER;
@@ -179,6 +256,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  if (originalDevelopmentMode === undefined) {
+    delete process.env.DOCKSCOPE_DEV;
+  } else {
+    process.env.DOCKSCOPE_DEV = originalDevelopmentMode;
+  }
   delete process.env.DOCKSCOPE_TOKEN;
   delete process.env.DOCKSCOPE_READ_ONLY_TOKEN;
   delete process.env.DOCKSCOPE_AUTH_PROXY_HEADER;
@@ -275,6 +357,229 @@ describe('server integration', () => {
   afterEach(async () => {
     await server?.close();
     server = null;
+  });
+
+  it('serves the API over HTTPS when TLS credentials are configured', async () => {
+    const [certificate, privateKey] = await Promise.all([
+      readFile(new URL('./fixtures/localhost-cert.pem', import.meta.url), 'utf8'),
+      readFile(new URL('./fixtures/localhost-key.pem', import.meta.url), 'utf8'),
+    ]);
+    server = await startTestServer({ tls: { certificate, privateKey } });
+
+    const response = await requestOverHttps(server.port, '/api/health', { ca: certificate });
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body)).toMatchObject({ status: 'ok' });
+  });
+
+  it('accepts WebSocket connections over WSS on the HTTPS port', async () => {
+    const [certificate, privateKey] = await Promise.all([
+      readFile(new URL('./fixtures/localhost-cert.pem', import.meta.url), 'utf8'),
+      readFile(new URL('./fixtures/localhost-key.pem', import.meta.url), 'utf8'),
+    ]);
+    server = await startTestServer({ tls: { certificate, privateKey } });
+    const ws = new WebSocket(`wss://127.0.0.1:${server.port}/ws`, {
+      ca: certificate,
+      origin: `https://127.0.0.1:${server.port}`,
+    });
+
+    expect(await readWsMessage(ws)).toEqual({ type: 'graph', data: mockGraph });
+
+    await closeWs(ws);
+  });
+
+  it('closes active WSS clients during server shutdown', async () => {
+    const [certificate, privateKey] = await Promise.all([
+      readFile(new URL('./fixtures/localhost-cert.pem', import.meta.url), 'utf8'),
+      readFile(new URL('./fixtures/localhost-key.pem', import.meta.url), 'utf8'),
+    ]);
+    server = await startTestServer({ tls: { certificate, privateKey } });
+    const ws = new WebSocket(`wss://127.0.0.1:${server.port}/ws`, {
+      ca: certificate,
+      origin: `https://127.0.0.1:${server.port}`,
+    });
+    await readWsMessage(ws);
+
+    let stopped = false;
+    const closing = server.close().then(() => {
+      stopped = true;
+    });
+    try {
+      await waitFor(() => stopped);
+      await waitFor(() => ws.readyState === WebSocket.CLOSED);
+    } finally {
+      if (ws.readyState !== WebSocket.CLOSED) {
+        ws.terminate();
+      }
+      await closing;
+      server = null;
+    }
+  });
+
+  it('force-closes an unresponsive WSS client during server shutdown', async () => {
+    const [certificate, privateKey] = await Promise.all([
+      readFile(new URL('./fixtures/localhost-cert.pem', import.meta.url), 'utf8'),
+      readFile(new URL('./fixtures/localhost-key.pem', import.meta.url), 'utf8'),
+    ]);
+    server = await startTestServer({ tls: { certificate, privateKey } });
+    const ws = new WebSocket(`wss://127.0.0.1:${server.port}/ws`, {
+      ca: certificate,
+      origin: `https://127.0.0.1:${server.port}`,
+    });
+    await readWsMessage(ws);
+    ws.pause();
+
+    let stopped = false;
+    const closing = server.close().then(() => {
+      stopped = true;
+    });
+    try {
+      await waitFor(() => stopped, 2500);
+    } finally {
+      ws.resume();
+      if (ws.readyState !== WebSocket.CLOSED) {
+        ws.terminate();
+      }
+      await closing;
+      server = null;
+    }
+  });
+
+  it('shares the HTTPS listener with Vite HMR in development', async () => {
+    const [certificate, privateKey] = await Promise.all([
+      readFile(new URL('./fixtures/localhost-cert.pem', import.meta.url), 'utf8'),
+      readFile(new URL('./fixtures/localhost-key.pem', import.meta.url), 'utf8'),
+    ]);
+    process.env.DOCKSCOPE_DEV = '1';
+    try {
+      server = await startTestServer({ tls: { certificate, privateKey } });
+      const hmr = new WebSocket(`wss://127.0.0.1:${server.port}/`, 'vite-hmr', {
+        ca: certificate,
+      });
+
+      await new Promise<void>((resolve, reject) => {
+        hmr.once('open', () => resolve());
+        hmr.once('error', reject);
+      });
+      expect(hmr.protocol).toBe('vite-hmr');
+
+      await closeWs(hmr);
+    } finally {
+      delete process.env.DOCKSCOPE_DEV;
+    }
+  });
+
+  it('rejects unknown WebSocket upgrades in development', async () => {
+    const [certificate, privateKey] = await Promise.all([
+      readFile(new URL('./fixtures/localhost-cert.pem', import.meta.url), 'utf8'),
+      readFile(new URL('./fixtures/localhost-key.pem', import.meta.url), 'utf8'),
+    ]);
+    process.env.DOCKSCOPE_DEV = '1';
+    try {
+      server = await startTestServer({ tls: { certificate, privateKey } });
+      const unknown = new WebSocket(`wss://127.0.0.1:${server.port}/unknown`, {
+        ca: certificate,
+      });
+
+      await expectWsRejected(unknown);
+    } finally {
+      delete process.env.DOCKSCOPE_DEV;
+    }
+  });
+
+  it('issues a Secure HTTPS session that authenticates WSS', async () => {
+    const token = 'a-test-token-that-is-long-enough';
+    const [certificate, privateKey] = await Promise.all([
+      readFile(new URL('./fixtures/localhost-cert.pem', import.meta.url), 'utf8'),
+      readFile(new URL('./fixtures/localhost-key.pem', import.meta.url), 'utf8'),
+    ]);
+    process.env.DOCKSCOPE_TOKEN = token;
+    server = await startTestServer({ tls: { certificate, privateKey } });
+
+    const response = await requestOverHttps(server.port, '/api/auth/session', {
+      ca: certificate,
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token }),
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.setCookie?.[0]).toContain('Secure');
+    const sessionCookie = response.setCookie?.[0]?.split(';')[0];
+    expect(sessionCookie).toBeTruthy();
+
+    const ws = new WebSocket(`wss://127.0.0.1:${server.port}/ws`, {
+      ca: certificate,
+      headers: { cookie: sessionCookie! },
+      origin: `https://127.0.0.1:${server.port}`,
+    });
+    expect(await readWsMessage(ws)).toEqual({ type: 'graph', data: mockGraph });
+    await closeWs(ws);
+  });
+
+  it('rejects invalid TLS credentials before providers start', async () => {
+    await expect(
+      startTestServer({
+        tls: {
+          certificate: 'not a certificate',
+          privateKey: 'not a private key',
+        },
+      }),
+    ).rejects.toThrow('Invalid TLS certificate or private key');
+
+    expect(mocks.initHosts).not.toHaveBeenCalled();
+  });
+
+  it('rejects empty TLS credentials before providers start', async () => {
+    await expect(startTestServer({ tls: { certificate: '', privateKey: '' } })).rejects.toThrow(
+      'Invalid TLS certificate or private key',
+    );
+
+    expect(mocks.initHosts).not.toHaveBeenCalled();
+  });
+
+  it('rejects a certificate and private key that do not match', async () => {
+    const certificate = await readFile(
+      new URL('./fixtures/localhost-cert.pem', import.meta.url),
+      'utf8',
+    );
+    const { privateKey } = generateKeyPairSync('rsa', {
+      modulusLength: 2048,
+      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+      publicKeyEncoding: { type: 'spki', format: 'pem' },
+    });
+
+    await expect(startTestServer({ tls: { certificate, privateKey } })).rejects.toThrow(
+      'Invalid TLS certificate or private key',
+    );
+    expect(mocks.initHosts).not.toHaveBeenCalled();
+  });
+
+  it('cleans up started resources when the listener cannot bind', async () => {
+    const occupied = createNetServer();
+    await new Promise<void>((resolve, reject) => {
+      occupied.once('error', reject);
+      occupied.listen(0, '127.0.0.1', () => resolve());
+    });
+    const address = occupied.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('Expected an occupied TCP port');
+    }
+    const sigintListeners = process.listenerCount('SIGINT');
+    const sigtermListeners = process.listenerCount('SIGTERM');
+
+    try {
+      await expect(startTestServer({ port: address.port })).rejects.toMatchObject({
+        code: 'EADDRINUSE',
+      });
+      expect(mocks.stopWatching).toHaveBeenCalledOnce();
+      expect(process.listenerCount('SIGINT')).toBe(sigintListeners);
+      expect(process.listenerCount('SIGTERM')).toBe(sigtermListeners);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        occupied.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
   });
 
   it('serves route responses through real HTTP', async () => {

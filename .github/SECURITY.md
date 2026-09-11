@@ -45,6 +45,27 @@ Failed attempts are rate limited per source address: 10 failures trigger a 5 min
   Proxy-authenticated users are operators. Mapping proxy identities or groups
   to the reader role is not supported yet.
 
+## Transport encryption
+
+Access tokens and session cookies are bearer credentials. Over plain HTTP they
+cross the network in cleartext, including on a flat home LAN. Any DockScope
+instance reached from another machine should use one of these arrangements:
+
+- **Direct TLS:** configure `--tls-cert` and `--tls-key`, or the matching
+  `DOCKSCOPE_TLS_CERT` and `DOCKSCOPE_TLS_KEY` file paths. DockScope then serves
+  its dashboard, API and WebSocket as HTTPS/WSS on the same port.
+- **Reverse-proxy TLS:** leave DockScope on HTTP behind a trusted proxy, keep
+  its port private to that proxy, and expose only the proxy's HTTPS listener.
+
+Use a certificate issued by a CA your clients trust, such as an internal
+homelab CA. A self-signed certificate is only useful after clients trust it;
+blindly clicking through a browser warning leaves interception possible.
+Protect the private key, mount it read-only in containers, and restart
+DockScope after renewal because certificate files are read once at startup.
+
+TLS protects credentials in transit. It does not reduce operator privileges,
+make reader-visible operational data public-safe, or replace access control.
+
 ### Claiming an unconfigured instance
 
 While no token is set there is no authentication, so whoever reaches the instance first could set one. To bound that:
@@ -70,4 +91,6 @@ Remaining considerations:
 - Log streaming exposes container and pod output
 - Environment variable inspection may expose secrets (masked by default in the UI; Kubernetes secret references are shown as references, never resolved)
 
-**DockScope is designed for local development use.** Do not expose it to the public internet, even with a token, without putting it behind TLS and a reverse proxy you trust.
+**DockScope is designed for local development and trusted homelab networks.**
+Do not publish it directly to the public internet, even with direct TLS and a
+token; put internet-facing access behind TLS and a reverse proxy you trust.
