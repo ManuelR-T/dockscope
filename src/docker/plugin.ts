@@ -139,118 +139,97 @@ const DOCKER_LIFECYCLE_ACTIONS = new Set<LifecycleAction>([
   'kill',
 ]);
 
+const DOCKER_ACTIONS = {
+  pause: () => ({
+    title: 'Pause',
+    icon: 'pause',
+    placement: 'primary',
+    tone: 'warning',
+  }),
+  restart: () => ({
+    title: 'Restart',
+    icon: 'restart',
+    placement: 'primary',
+  }),
+  stop: (name: string) => ({
+    title: 'Stop',
+    icon: 'stop',
+    placement: 'primary',
+    tone: 'danger',
+    confirm: {
+      title: 'Stop Container',
+      message: `Stop ${name}? The container will be gracefully terminated.`,
+      confirmLabel: 'Stop',
+      variant: 'warning',
+    },
+  }),
+  unpause: () => ({
+    title: 'Unpause',
+    icon: 'play',
+    placement: 'primary',
+    tone: 'success',
+  }),
+  start: () => ({
+    title: 'Start',
+    icon: 'play',
+    placement: 'primary',
+    tone: 'success',
+  }),
+  kill: (name: string) => ({
+    title: 'Kill',
+    icon: 'stop',
+    tone: 'danger',
+    confirm: {
+      title: 'Kill Container',
+      message: `Forcefully terminate ${name}? This does not allow graceful shutdown.`,
+      confirmLabel: 'Kill',
+      variant: 'warning',
+    },
+  }),
+  remove: (name: string) => ({
+    title: 'Remove',
+    icon: 'trash',
+    tone: 'danger',
+    effect: 'remove',
+    confirm: {
+      title: 'Remove Container',
+      message: `Permanently remove ${name}? This deletes the container.`,
+      confirmLabel: 'Remove',
+      variant: 'danger',
+      typeToConfirm: name,
+    },
+  }),
+  'remove-volumes': (name: string) => ({
+    title: 'Remove + Volumes',
+    icon: 'trash',
+    tone: 'danger',
+    effect: 'remove',
+    confirm: {
+      title: 'Remove with Volumes',
+      message: `Remove ${name} and all its volumes? This is irreversible.`,
+      confirmLabel: 'Remove + Volumes',
+      variant: 'danger',
+      typeToConfirm: name,
+    },
+  }),
+} satisfies Record<string, (name: string) => Omit<EntityActionDeclaration, 'id' | 'capability'>>;
+
+type DockerActionId = keyof typeof DOCKER_ACTIONS;
+const ACTIONS_BY_STATUS = new Map<string, readonly DockerActionId[]>([
+  ['running', ['pause', 'restart', 'stop', 'kill']],
+  ['paused', ['unpause', 'restart', 'kill']],
+]);
+const DEFAULT_ACTIONS: readonly DockerActionId[] = ['start'];
+const REMOVAL_ACTIONS: readonly DockerActionId[] = ['remove', 'remove-volumes'];
+
 function dockerActions(ref: EntityRef): EntityActionDeclaration[] {
   const name = ref.context?.name ?? ref.entityId;
-  const status = ref.context?.status;
-  const actions: EntityActionDeclaration[] = [];
-  if (status === 'running') {
-    actions.push(
-      {
-        id: 'pause',
-        title: 'Pause',
-        capability: 'action.lifecycle',
-        icon: 'pause',
-        placement: 'primary',
-        tone: 'warning',
-      },
-      {
-        id: 'restart',
-        title: 'Restart',
-        capability: 'action.lifecycle',
-        icon: 'restart',
-        placement: 'primary',
-      },
-      {
-        id: 'stop',
-        title: 'Stop',
-        capability: 'action.lifecycle',
-        icon: 'stop',
-        placement: 'primary',
-        tone: 'danger',
-        confirm: {
-          title: 'Stop Container',
-          message: `Stop ${name}? The container will be gracefully terminated.`,
-          confirmLabel: 'Stop',
-          variant: 'warning',
-        },
-      },
-    );
-  } else if (status === 'paused') {
-    actions.push(
-      {
-        id: 'unpause',
-        title: 'Unpause',
-        capability: 'action.lifecycle',
-        icon: 'play',
-        placement: 'primary',
-        tone: 'success',
-      },
-      {
-        id: 'restart',
-        title: 'Restart',
-        capability: 'action.lifecycle',
-        icon: 'restart',
-        placement: 'primary',
-      },
-    );
-  } else {
-    actions.push({
-      id: 'start',
-      title: 'Start',
-      capability: 'action.lifecycle',
-      icon: 'play',
-      placement: 'primary',
-      tone: 'success',
-    });
-  }
-  if (status === 'running' || status === 'paused') {
-    actions.push({
-      id: 'kill',
-      title: 'Kill',
-      capability: 'action.lifecycle',
-      icon: 'stop',
-      tone: 'danger',
-      confirm: {
-        title: 'Kill Container',
-        message: `Forcefully terminate ${name}? This does not allow graceful shutdown.`,
-        confirmLabel: 'Kill',
-        variant: 'warning',
-      },
-    });
-  }
-  actions.push(
-    {
-      id: 'remove',
-      title: 'Remove',
-      capability: 'action.lifecycle',
-      icon: 'trash',
-      tone: 'danger',
-      effect: 'remove',
-      confirm: {
-        title: 'Remove Container',
-        message: `Permanently remove ${name}? This deletes the container.`,
-        confirmLabel: 'Remove',
-        variant: 'danger',
-        typeToConfirm: name,
-      },
-    },
-    {
-      id: 'remove-volumes',
-      title: 'Remove + Volumes',
-      capability: 'action.lifecycle',
-      icon: 'trash',
-      tone: 'danger',
-      effect: 'remove',
-      confirm: {
-        title: 'Remove with Volumes',
-        message: `Remove ${name} and all its volumes? This is irreversible.`,
-        confirmLabel: 'Remove + Volumes',
-        variant: 'danger',
-        typeToConfirm: name,
-      },
-    },
-  );
-  return actions;
+  const lifecycle = ACTIONS_BY_STATUS.get(ref.context?.status ?? '') ?? DEFAULT_ACTIONS;
+  return [...lifecycle, ...REMOVAL_ACTIONS].map((id) => ({
+    id,
+    capability: 'action.lifecycle',
+    ...DOCKER_ACTIONS[id](name),
+  }));
 }
 
 const dockerActionProvider: EntityActionProvider = {

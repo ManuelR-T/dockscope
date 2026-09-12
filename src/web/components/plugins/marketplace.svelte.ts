@@ -10,9 +10,12 @@ import type {
 } from '../../../plugins/marketplace';
 import { marketplaceActionType } from './presentation';
 import type { PluginManagerData } from './data.svelte';
+import {
+  matchesMarketplaceFilter,
+  type MarketplaceAction,
+  type MarketplaceFilter,
+} from './marketplacePolicy';
 
-type MarketplaceAction = 'install' | 'update' | 'uninstall';
-type MarketplaceFilter = 'all' | 'available' | 'installed' | 'updates' | 'local' | 'deprecated';
 interface MarketplaceReview {
   entry: PluginMarketplaceEntry;
   action: MarketplaceAction;
@@ -124,25 +127,7 @@ export class MarketplaceModel {
       ]
         .filter((value): value is string => typeof value === 'string')
         .some((value) => value.toLowerCase().includes(query));
-    if (!matchesQuery) {
-      return false;
-    }
-    if (this.marketplaceFilter === 'available') {
-      return entry.state === 'available';
-    }
-    if (this.marketplaceFilter === 'installed') {
-      return entry.state === 'installed';
-    }
-    if (this.marketplaceFilter === 'updates') {
-      return entry.state === 'update_available';
-    }
-    if (this.marketplaceFilter === 'local') {
-      return entry.state === 'local';
-    }
-    if (this.marketplaceFilter === 'deprecated') {
-      return entry.status === 'deprecated' || entry.status === 'yanked';
-    }
-    return true;
+    return matchesQuery && matchesMarketplaceFilter(entry, this.marketplaceFilter);
   }
 
   catalogTrustText(): string {

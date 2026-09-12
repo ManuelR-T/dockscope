@@ -1,7 +1,30 @@
-import { V1Container, V1EnvVar, V1Pod, V1Volume } from '@kubernetes/client-node';
+import { V1Container, V1EnvVar, V1EnvVarSource, V1Pod, V1Volume } from '@kubernetes/client-node';
 import { ContainerInspect } from 'dockscope';
 import { KubeClient } from '../client';
 import { PodRef, readPod } from './pods';
+
+// First matching reference wins, including when its rendered value is empty.
+const ENV_REFERENCE_FORMATTERS: readonly ((from: V1EnvVarSource) => string | undefined)[] = [
+  ({ secretKeyRef: ref }) => (ref ? `<secret:${ref.name}/${ref.key}>` : undefined),
+  ({ configMapKeyRef: ref }) => (ref ? `<configMap:${ref.name}/${ref.key}>` : undefined),
+  ({ fieldRef: ref }) => (ref ? `<field:${ref.fieldPath}>` : undefined),
+  ({ resourceFieldRef: ref }) => (ref ? `<resource:${ref.resource}>` : undefined),
+];
+
+const ENV_FROM_SOURCES = [
+  { key: 'secretRef', label: 'secret' },
+  { key: 'configMapRef', label: 'configMap' },
+] as const;
+
+const VOLUME_SOURCE_FORMATTERS: readonly ((
+  volume: V1Volume,
+  fallback: string,
+) => string | undefined)[] = [
+  ({ persistentVolumeClaim: source }) => source?.claimName,
+  ({ configMap: source }, fallback) => (source ? source.name || fallback : undefined),
+  ({ secret: source }, fallback) => (source ? source.secretName || fallback : undefined),
+  ({ hostPath: source }) => source?.path,
+];
 
 /**
  * Render an env var as the `KEY=value` line the Env tab expects.
@@ -16,32 +39,17 @@ export function formatEnvVar(env: V1EnvVar): string {
     return `${env.name}=${env.value}`;
   }
 
-  const from = env.valueFrom;
-  if (from?.secretKeyRef) {
-    return `${env.name}=<secret:${from.secretKeyRef.name}/${from.secretKeyRef.key}>`;
-  }
-  if (from?.configMapKeyRef) {
-    return `${env.name}=<configMap:${from.configMapKeyRef.name}/${from.configMapKeyRef.key}>`;
-  }
-  if (from?.fieldRef) {
-    return `${env.name}=<field:${from.fieldRef.fieldPath}>`;
-  }
-  if (from?.resourceFieldRef) {
-    return `${env.name}=<resource:${from.resourceFieldRef.resource}>`;
-  }
-  return `${env.name}=`;
+  const reference = ENV_REFERENCE_FORMATTERS.map((format) => format(env.valueFrom || {})).find(
+    (value) => value !== undefined,
+  );
+  return `${env.name}=${reference ?? ''}`;
 }
 
 /** Whole-source imports, which have no individual keys to list. */
 function envFromLines(container: V1Container): string[] {
   return (container.envFrom || []).map((source) => {
-    if (source.secretRef) {
-      return `<envFrom secret:${source.secretRef.name}>`;
-    }
-    if (source.configMapRef) {
-      return `<envFrom configMap:${source.configMapRef.name}>`;
-    }
-    return '<envFrom unknown>';
+    const match = ENV_FROM_SOURCES.find(({ key }) => source[key]);
+    return match ? `<envFrom ${match.label}:${source[match.key]?.name}>` : '<envFrom unknown>';
   });
 }
 
@@ -62,19 +70,11 @@ function volumeSource(volume: V1Volume | undefined, fallback: string): string {
   if (!volume) {
     return fallback;
   }
-  if (volume.persistentVolumeClaim) {
-    return volume.persistentVolumeClaim.claimName;
-  }
-  if (volume.configMap) {
-    return volume.configMap.name || fallback;
-  }
-  if (volume.secret) {
-    return volume.secret.secretName || fallback;
-  }
-  if (volume.hostPath) {
-    return volume.hostPath.path;
-  }
-  return fallback;
+  return (
+    VOLUME_SOURCE_FORMATTERS.map((format) => format(volume, fallback)).find(
+      (value) => value !== undefined,
+    ) ?? fallback
+  );
 }
 
 export function podInspect(pod: V1Pod, id: string): ContainerInspect {

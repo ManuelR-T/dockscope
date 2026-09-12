@@ -2,7 +2,7 @@
   import Icon from '../Icon.svelte';
   import { Button, Chip, IconButton, Select, TextInput } from '../ui';
 
-  type MarketplaceFilter = 'all' | 'available' | 'installed' | 'updates' | 'local' | 'deprecated';
+  import { MARKETPLACE_FILTER_OPTIONS, type MarketplaceFilter } from './marketplacePolicy';
 
   import type { PluginManagerData } from './data.svelte';
   import type { MarketplaceModel } from './marketplace.svelte';
@@ -59,14 +59,7 @@
     <Select
       ariaLabel="Filter marketplace"
       value={model.marketplaceFilter}
-      options={[
-        { value: 'all', label: 'All' },
-        { value: 'available', label: 'Available' },
-        { value: 'installed', label: 'Installed' },
-        { value: 'updates', label: 'Updates' },
-        { value: 'local', label: 'Local' },
-        { value: 'deprecated', label: 'Deprecated' },
-      ]}
+      options={MARKETPLACE_FILTER_OPTIONS}
       onchange={(value) => (model.marketplaceFilter = value as MarketplaceFilter)}
     />
   </div>

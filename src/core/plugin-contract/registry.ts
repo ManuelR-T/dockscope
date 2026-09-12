@@ -57,6 +57,46 @@ import { type PluginSecretSnapshot } from './secrets.js';
 import { type PluginSystemSnapshot } from './system.js';
 import { type PluginUiActionResult, type PluginUiContent, type PluginUiExtension } from './ui.js';
 
+const HIGH_RISK_PERMISSIONS: readonly PluginPermission[] = [
+  'docker.socket',
+  'kubernetes.api',
+  'process.exec',
+  'filesystem.write',
+];
+const PLUGIN_RISK_RULES: readonly {
+  matches: (manifest: DockscopePlugin['manifest']) => boolean;
+  reason: string;
+}[] = [
+  ...HIGH_RISK_PERMISSIONS.map((permission) => ({
+    matches: (manifest: DockscopePlugin['manifest']) => manifest.permissions.includes(permission),
+    reason: `high:requires ${permission}`,
+  })),
+  {
+    matches: (manifest) => manifest.permissions.includes('network.http'),
+    reason: 'medium:can call remote HTTP services',
+  },
+  {
+    matches: (manifest) => manifest.permissions.includes('secrets.read'),
+    reason: 'medium:can read declared secrets',
+  },
+  {
+    matches: (manifest) => (manifest.secrets ?? []).some((secret) => secret.required),
+    reason: 'medium:requires configured secrets',
+  },
+  {
+    matches: (manifest) => (manifest.commands ?? []).some((command) => command.confirm),
+    reason: 'medium:declares confirmation-gated commands',
+  },
+  {
+    matches: (manifest) => (manifest.execution?.isolation ?? 'in-process') === 'in-process',
+    reason: 'medium:runs plugin code in the main server process',
+  },
+  {
+    matches: (manifest) => Boolean(manifest.frontend),
+    reason: 'medium:ships a sandboxed frontend bundle',
+  },
+];
+
 export class PluginRegistry {
   private readonly providers = new RegistryProviders({
     activePlugins: () => this.activePlugins(),
@@ -799,40 +839,12 @@ export class PluginRegistry {
     plugin: DockscopePlugin,
     compatibility: PluginCompatibilityReport,
   ): string[] {
-    const reasons: string[] = [];
-    const highPermissions: readonly PluginPermission[] = [
-      'docker.socket',
-      'kubernetes.api',
-      'process.exec',
-      'filesystem.write',
+    return [
+      ...PLUGIN_RISK_RULES.filter((rule) => rule.matches(plugin.manifest)).map(
+        (rule) => rule.reason,
+      ),
+      ...compatibility.warnings.map((warning) => `medium:${warning}`),
     ];
-    for (const permission of highPermissions) {
-      if (plugin.manifest.permissions.includes(permission)) {
-        reasons.push(`high:requires ${permission}`);
-      }
-    }
-    if (plugin.manifest.permissions.includes('network.http')) {
-      reasons.push('medium:can call remote HTTP services');
-    }
-    if (plugin.manifest.permissions.includes('secrets.read')) {
-      reasons.push('medium:can read declared secrets');
-    }
-    if ((plugin.manifest.secrets ?? []).some((secret) => secret.required)) {
-      reasons.push('medium:requires configured secrets');
-    }
-    if ((plugin.manifest.commands ?? []).some((command) => command.confirm)) {
-      reasons.push('medium:declares confirmation-gated commands');
-    }
-    if ((plugin.manifest.execution?.isolation ?? 'in-process') === 'in-process') {
-      reasons.push('medium:runs plugin code in the main server process');
-    }
-    if (plugin.manifest.frontend) {
-      reasons.push('medium:ships a sandboxed frontend bundle');
-    }
-    for (const warning of compatibility.warnings) {
-      reasons.push(`medium:${warning}`);
-    }
-    return reasons;
   }
 
   private pluginApprovalFingerprint(plugin: DockscopePlugin): string {

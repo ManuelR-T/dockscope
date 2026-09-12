@@ -5,6 +5,7 @@ import type { KubeClient } from '../client';
 import { mergePatchOptions } from '../client';
 import { getLogsForPod, streamPodLogs } from '../resources/pods';
 import { entityActions, runResourceAction } from '../actions';
+import { RESOURCE_KINDS } from '../utils';
 
 /**
  * The graph is pure and well covered; the provider surface (logs and actions)
@@ -37,15 +38,22 @@ function fakeClient(pods: { namespace: string; name: string; container: string }
         };
       }),
       deleteNamespacedPod: vi.fn(async () => ({})),
+      deleteNamespacedService: vi.fn(async () => ({})),
     },
     autoScalingApi: {
       patchNamespacedHorizontalPodAutoscaler: vi.fn(async () => ({})),
+      deleteNamespacedHorizontalPodAutoscaler: vi.fn(async () => ({})),
     },
     appsApi: {
       patchNamespacedDeployment: vi.fn(async () => ({})),
       patchNamespacedStatefulSet: vi.fn(async () => ({})),
       patchNamespacedDaemonSet: vi.fn(async () => ({})),
       deleteNamespacedDeployment: vi.fn(async () => ({})),
+      deleteNamespacedStatefulSet: vi.fn(async () => ({})),
+      deleteNamespacedDaemonSet: vi.fn(async () => ({})),
+    },
+    networkingApi: {
+      deleteNamespacedIngress: vi.fn(async () => ({})),
     },
     logs: {
       log: vi.fn(
@@ -190,6 +198,30 @@ function entityRef(
 }
 
 describe('entityActions', () => {
+  it.each([
+    ['deployment', ['restart', 'scale', 'delete']],
+    ['statefulset', ['restart', 'scale', 'delete']],
+    ['daemonset', ['restart', 'delete']],
+    ['hpa', ['set_hpa_constraints', 'delete']],
+    ['pod', ['delete']],
+    ['service', ['delete']],
+    ['ingress', ['delete']],
+  ])('offers the ordered actions for %s', (kind, expected) => {
+    expect(entityActions(entityRef(`k8s:${kind}:default:web`)).map(({ id }) => id)).toEqual(
+      expected,
+    );
+  });
+
+  it('creates independent declarations for each request', () => {
+    const ref = entityRef('k8s:deployment:default:web', { desiredReplicas: 0 });
+    const first = entityActions(ref);
+    const second = entityActions(ref);
+    expect(first).toEqual(second);
+    expect(first[0]?.confirm).not.toBe(second[0]?.confirm);
+    expect(first[1]?.input?.fields).not.toBe(second[1]?.input?.fields);
+    expect(first[1]?.input?.fields?.[0]?.default).toBe(0);
+  });
+
   function hpaRef(metadata: Record<string, string | number | boolean>) {
     return entityRef('k8s:hpa:default:web', metadata);
   }
@@ -221,6 +253,94 @@ describe('entityActions', () => {
 });
 
 describe('runResourceAction', () => {
+  it.each([
+    ['deployment', 'appsApi', 'deleteNamespacedDeployment'],
+    ['statefulset', 'appsApi', 'deleteNamespacedStatefulSet'],
+    ['daemonset', 'appsApi', 'deleteNamespacedDaemonSet'],
+    ['pod', 'coreApi', 'deleteNamespacedPod'],
+    ['service', 'coreApi', 'deleteNamespacedService'],
+    ['ingress', 'networkingApi', 'deleteNamespacedIngress'],
+    ['hpa', 'autoScalingApi', 'deleteNamespacedHorizontalPodAutoscaler'],
+  ] as const)('deletes a %s through its own API', async (kind, api, method) => {
+    const { client } = fakeClient([]);
+    await expect(
+      runResourceAction(client, `k8s:${kind}:test-ns:test-name`, 'delete'),
+    ).resolves.toBeUndefined();
+    const receiver = client[api];
+    const selected = Object.entries(receiver).find(([key]) => key === method)?.[1];
+    expect(selected).toHaveBeenCalledExactlyOnceWith({ namespace: 'test-ns', name: 'test-name' });
+    expect(vi.mocked(selected).mock.contexts[0]).toBe(receiver);
+    for (const candidate of [
+      client.appsApi,
+      client.coreApi,
+      client.networkingApi,
+      client.autoScalingApi,
+    ]) {
+      for (const handler of Object.values(candidate)) {
+        if (handler !== selected) {
+          expect(handler).not.toHaveBeenCalled();
+        }
+      }
+    }
+  });
+
+  it.each(['cordon', 'constructor', '__proto__', 'toString', ''])(
+    'rejects unknown action %j without IO',
+    async (action) => {
+      await expect(
+        runResourceAction({} as KubeClient, 'k8s:pod:default:web', action),
+      ).rejects.toThrow(`Unsupported Kubernetes action: ${action}`);
+    },
+  );
+
+  it('validates the resource ID before resolving the action', async () => {
+    await expect(runResourceAction({} as KubeClient, 'invalid', 'cordon')).rejects.toThrow(
+      'Invalid Kubernetes resource ID',
+    );
+  });
+
+  const restrictedActions = [
+    {
+      action: 'restart',
+      kinds: ['deployment', 'statefulset', 'daemonset'],
+      error: 'Only Deployments, StatefulSets and DaemonSets',
+    },
+    {
+      action: 'scale',
+      kinds: ['deployment', 'statefulset'],
+      error: 'Only Deployments and StatefulSets',
+    },
+    { action: 'set_hpa_constraints', kinds: ['hpa'], error: 'Only HPA resources' },
+  ];
+  it.each(
+    restrictedActions.flatMap(({ action, kinds, error }) =>
+      RESOURCE_KINDS.filter((kind) => !kinds.includes(kind)).map((kind) => ({
+        action,
+        kind,
+        error,
+      })),
+    ),
+  )('rejects $action on $kind before IO', async ({ action, kind, error }) => {
+    await expect(
+      runResourceAction({} as KubeClient, `k8s:${kind}:default:web`, action, {
+        replicas: 2,
+        minReplicas: 1,
+        maxReplicas: 3,
+      }),
+    ).rejects.toThrow(error);
+  });
+
+  it.each<Parameters<typeof runResourceAction>[3]>([
+    undefined,
+    {},
+    { minReplicas: 1 },
+    { maxReplicas: 3 },
+  ])('rejects missing HPA bounds %j before IO', async (options) => {
+    await expect(
+      runResourceAction({} as KubeClient, 'k8s:hpa:default:web', 'set_hpa_constraints', options),
+    ).rejects.toThrow('Missing options');
+  });
+
   it('patches the autoscaler with the requested bounds', async () => {
     const { client } = fakeClient([]);
 
@@ -320,14 +440,17 @@ describe('runResourceAction', () => {
     ).rejects.toThrow('Only Deployments and StatefulSets');
   });
 
-  it.each([-1, 1.5, undefined])('rejects %s as a replica count', async (replicas) => {
-    const { client } = fakeClient([]);
-    await expect(
-      runResourceAction(client, 'k8s:deployment:default:web', 'scale', {
-        replicas: replicas as number,
-      }),
-    ).rejects.toThrow('non-negative whole number');
-  });
+  it.each([-1, 1.5, undefined, NaN, Infinity, '2', null])(
+    'rejects %s as a replica count',
+    async (replicas) => {
+      const { client } = fakeClient([]);
+      await expect(
+        runResourceAction(client, 'k8s:deployment:default:web', 'scale', {
+          replicas: replicas as number,
+        }),
+      ).rejects.toThrow('non-negative whole number');
+    },
+  );
 
   it('deletes a Deployment through the apps API', async () => {
     const { client } = fakeClient([]);
@@ -351,6 +474,7 @@ describe('runResourceAction', () => {
     ['k8s:statefulset:db:pg', 'restart', undefined, 'patchNamespacedStatefulSet'],
     ['k8s:daemonset:kube-system:kp', 'restart', undefined, 'patchNamespacedDaemonSet'],
     ['k8s:deployment:default:web', 'scale', { replicas: 2 }, 'patchNamespacedDeployment'],
+    ['k8s:statefulset:db:pg', 'scale', { replicas: 0 }, 'patchNamespacedStatefulSet'],
   ])('sends %s %s as a strategic merge patch', async (id, action, options, method) => {
     const { client } = fakeClient([]);
 
@@ -360,6 +484,13 @@ describe('runResourceAction', () => {
       client.appsApi[method as keyof typeof client.appsApi] as unknown as ReturnType<typeof vi.fn>,
     ).mock.calls[0]!;
     expect(call[1]).toBe(mergePatchOptions);
+    const handler = client.appsApi[method as keyof typeof client.appsApi] as ReturnType<
+      typeof vi.fn
+    >;
+    expect(handler.mock.contexts[0]).toBe(client.appsApi);
+    if (options) {
+      expect(call[0]).toMatchObject({ body: { spec: { replicas: options.replicas } } });
+    }
   });
 
   it('sends the HPA bounds patch as a strategic merge patch', async () => {

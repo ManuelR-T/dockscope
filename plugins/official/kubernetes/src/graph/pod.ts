@@ -1,23 +1,23 @@
-import { V1Pod } from '@kubernetes/client-node';
-import { ServiceNode } from 'dockscope';
-import { Health, Node, Status } from './node';
+import type { V1Pod } from '@kubernetes/client-node';
+import type { ServiceNode } from 'dockscope';
+import { Node, type Health, type Status } from './node';
 
-function podStatus(pod: V1Pod): { status: Status; health: Health } {
+type PodStatus = { status: Status; health: Health };
+
+const PHASE_STATUS = new Map<string, (ready: string | undefined) => PodStatus>([
+  [
+    'running',
+    (ready) => ({ status: 'running', health: ready === 'True' ? 'healthy' : 'starting' }),
+  ],
+  ['pending', () => ({ status: 'pending', health: 'starting' })],
+  ['succeeded', () => ({ status: 'exited', health: 'none' })],
+  ['failed', () => ({ status: 'dead', health: 'unhealthy' })],
+]);
+
+function podStatus(pod: V1Pod): PodStatus {
   const phase = (pod.status?.phase || 'Unknown').toLowerCase();
   const ready = pod.status?.conditions?.find((condition) => condition.type === 'Ready')?.status;
-  if (phase === 'running') {
-    return { status: 'running', health: ready === 'True' ? 'healthy' : 'starting' };
-  }
-  if (phase === 'pending') {
-    return { status: 'pending', health: 'starting' };
-  }
-  if (phase === 'succeeded') {
-    return { status: 'exited', health: 'none' };
-  }
-  if (phase === 'failed') {
-    return { status: 'dead', health: 'unhealthy' };
-  }
-  return { status: 'unknown', health: 'none' };
+  return PHASE_STATUS.get(phase)?.(ready) ?? { status: 'unknown', health: 'none' };
 }
 
 export default function podNode(pod: V1Pod): ServiceNode {

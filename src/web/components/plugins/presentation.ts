@@ -1,12 +1,13 @@
 import type { PluginRuntimeInfo } from '../../../core/plugin-contract/manifest';
-
 import type { PluginUiExtension } from '../../../core/plugin-contract/ui';
-
 import type { PluginEvent } from '../../../core/plugin-contract/events';
-
 import type { PluginMarketplaceEntry } from '../../../plugins/marketplace';
 
-type MarketplaceAction = 'install' | 'update' | 'uninstall';
+import {
+  marketplaceState,
+  MARKETPLACE_ACTION_LABELS,
+  type MarketplaceAction,
+} from './marketplacePolicy';
 
 export function extensionContentPreview(extension: PluginUiExtension): string {
   const content = extension.content;
@@ -60,49 +61,20 @@ export function riskTone(level: string): 'success' | 'warn' | 'danger' {
   return level === 'high' ? 'danger' : 'warn';
 }
 
-export function marketplaceStateTone(
-  entry: PluginMarketplaceEntry,
-): 'accent' | 'success' | 'warn' | 'info' {
-  if (entry.state === 'installed') {
-    return 'success';
-  }
-  if (entry.state === 'update_available') {
-    return 'warn';
-  }
-  if (entry.state === 'local') {
-    return 'info';
-  }
-  return 'accent';
+export function marketplaceStateTone(entry: PluginMarketplaceEntry) {
+  return marketplaceState(entry).tone;
 }
 
 export function marketplaceLabel(entry: PluginMarketplaceEntry): string {
-  if (entry.state === 'update_available') {
-    return 'update';
-  }
-  if (entry.state === 'local') {
-    return 'local';
-  }
-  return entry.state;
+  return marketplaceState(entry).label;
 }
 
 export function marketplaceActionLabel(entry: PluginMarketplaceEntry): string {
-  if (entry.state === 'available') {
-    return 'Install';
-  }
-  if (entry.state === 'update_available') {
-    return 'Update';
-  }
-  return 'Uninstall';
+  return MARKETPLACE_ACTION_LABELS[marketplaceState(entry).action];
 }
 
 export function marketplaceActionType(entry: PluginMarketplaceEntry): MarketplaceAction {
-  if (entry.state === 'available') {
-    return 'install';
-  }
-  if (entry.state === 'update_available') {
-    return 'update';
-  }
-  return 'uninstall';
+  return marketplaceState(entry).action;
 }
 
 export function marketplaceActionKey(entry: PluginMarketplaceEntry): string {

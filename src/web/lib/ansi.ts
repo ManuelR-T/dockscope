@@ -76,6 +76,68 @@ for (let i = 0; i < 24; i++) {
   COLOR_256.push(`#${v}${v}${v}`);
 }
 
+interface AnsiStyle {
+  fg: string | null;
+  bg: string | null;
+  bold: boolean;
+  dim: boolean;
+  italic: boolean;
+  underline: boolean;
+}
+
+const DEFAULT_STYLE: AnsiStyle = {
+  fg: null,
+  bg: null,
+  bold: false,
+  dim: false,
+  italic: false,
+  underline: false,
+};
+
+// Each SGR code is a state patch; reset codes use the same path as ordinary styles.
+const SGR_STYLES = new Map<number, Partial<AnsiStyle>>([
+  [0, DEFAULT_STYLE],
+  [1, { bold: true }],
+  [2, { dim: true }],
+  [3, { italic: true }],
+  [4, { underline: true }],
+  [22, { bold: false, dim: false }],
+  [23, { italic: false }],
+  [24, { underline: false }],
+  [39, { fg: null }],
+  [49, { bg: null }],
+  ...Object.entries(ANSI_COLORS).map(([code, fg]): [number, Partial<AnsiStyle>] => [
+    Number(code),
+    { fg },
+  ]),
+  ...Object.entries(ANSI_BG_COLORS).map(([code, bg]): [number, Partial<AnsiStyle>] => [
+    Number(code),
+    { bg },
+  ]),
+]);
+
+const EXTENDED_COLOR_TARGETS = new Map<number, 'fg' | 'bg'>([
+  [38, 'fg'],
+  [48, 'bg'],
+]);
+const EXTENDED_COLORS = new Map<
+  number,
+  {
+    consumed: number;
+    decode: (params: number[], index: number) => string | null;
+  }
+>([
+  [5, { consumed: 2, decode: (params, index) => COLOR_256[params[index + 2]] || null }],
+  [
+    2,
+    {
+      consumed: 4,
+      decode: (params, index) =>
+        `rgb(${params[index + 2] ?? 0},${params[index + 3] ?? 0},${params[index + 4] ?? 0})`,
+    },
+  ],
+]);
+
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
@@ -99,37 +161,21 @@ export function ansiToHtml(text: string): string {
   }
 
   const result: string[] = [];
-  let fg: string | null = null;
-  let bg: string | null = null;
-  let bold = false;
-  let dim = false;
-  let italic = false;
-  let underline = false;
+  const style: AnsiStyle = { ...DEFAULT_STYLE };
   let spanOpen = false;
 
   const pushSpan = () => {
     if (spanOpen) {
       result.push('</span>');
     }
-    const styles: string[] = [];
-    if (fg) {
-      styles.push(`color:${fg}`);
-    }
-    if (bg) {
-      styles.push(`background:${bg}`);
-    }
-    if (bold) {
-      styles.push('font-weight:700');
-    }
-    if (dim) {
-      styles.push('opacity:0.6');
-    }
-    if (italic) {
-      styles.push('font-style:italic');
-    }
-    if (underline) {
-      styles.push('text-decoration:underline');
-    }
+    const styles = [
+      style.fg && `color:${style.fg}`,
+      style.bg && `background:${style.bg}`,
+      style.bold && 'font-weight:700',
+      style.dim && 'opacity:0.6',
+      style.italic && 'font-style:italic',
+      style.underline && 'text-decoration:underline',
+    ].filter(Boolean);
     if (styles.length > 0) {
       result.push(`<span style="${styles.join(';')}">`);
       spanOpen = true;
@@ -155,59 +201,13 @@ export function ansiToHtml(text: string): string {
     while (i < params.length) {
       const code = params[i];
 
-      if (code === 0) {
-        // Reset all
-        fg = null;
-        bg = null;
-        bold = false;
-        dim = false;
-        italic = false;
-        underline = false;
-      } else if (code === 1) {
-        bold = true;
-      } else if (code === 2) {
-        dim = true;
-      } else if (code === 3) {
-        italic = true;
-      } else if (code === 4) {
-        underline = true;
-      } else if (code === 22) {
-        bold = false;
-        dim = false;
-      } else if (code === 23) {
-        italic = false;
-      } else if (code === 24) {
-        underline = false;
-      } else if (code === 39) {
-        fg = null;
-      } else if (code === 49) {
-        bg = null;
-      } else if (code >= 30 && code <= 37) {
-        fg = ANSI_COLORS[code] || null;
-      } else if (code >= 90 && code <= 97) {
-        fg = ANSI_COLORS[code] || null;
-      } else if (code >= 40 && code <= 47) {
-        bg = ANSI_BG_COLORS[code] || null;
-      } else if (code >= 100 && code <= 107) {
-        bg = ANSI_BG_COLORS[code] || null;
-      } else if (code === 38 && params[i + 1] === 5) {
-        // 256-color foreground: ESC[38;5;{n}m
-        const idx = params[i + 2];
-        fg = (idx !== undefined && COLOR_256[idx]) || null;
-        i += 2;
-      } else if (code === 48 && params[i + 1] === 5) {
-        // 256-color background
-        const idx = params[i + 2];
-        bg = (idx !== undefined && COLOR_256[idx]) || null;
-        i += 2;
-      } else if (code === 38 && params[i + 1] === 2) {
-        // RGB foreground: ESC[38;2;{r};{g};{b}m
-        fg = `rgb(${params[i + 2] ?? 0},${params[i + 3] ?? 0},${params[i + 4] ?? 0})`;
-        i += 4;
-      } else if (code === 48 && params[i + 1] === 2) {
-        // RGB background
-        bg = `rgb(${params[i + 2] ?? 0},${params[i + 3] ?? 0},${params[i + 4] ?? 0})`;
-        i += 4;
+      const target = EXTENDED_COLOR_TARGETS.get(code);
+      const format = target ? EXTENDED_COLORS.get(params[i + 1]) : undefined;
+      if (target && format) {
+        style[target] = format.decode(params, i);
+        i += format.consumed;
+      } else {
+        Object.assign(style, SGR_STYLES.get(code));
       }
       i++;
     }

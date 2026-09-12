@@ -815,6 +815,45 @@ describe('PluginRegistry', () => {
     ]);
   });
 
+  it('collects every matching risk rule in a stable order', () => {
+    const registry = new PluginRegistry();
+    registry.register(
+      plugin({
+        manifest: {
+          id: 'test.risk-rules',
+          name: 'Risk rules',
+          version: '1.0.0',
+          ...TEST_API_VERSIONS,
+          capabilities: ['ui.command'],
+          permissions: [
+            'secrets.read',
+            'network.http',
+            'filesystem.write',
+            'process.exec',
+            'kubernetes.api',
+            'docker.socket',
+          ],
+          secrets: [{ key: 'token', label: 'Token', required: true }],
+          commands: [{ id: 'run', title: 'Run', confirm: true }],
+        },
+      }),
+    );
+    expect(registry.listPluginReviews('1.0.0')[0]).toMatchObject({
+      riskLevel: 'high',
+      riskReasons: [
+        'requires docker.socket',
+        'requires kubernetes.api',
+        'requires process.exec',
+        'requires filesystem.write',
+        'can call remote HTTP services',
+        'can read declared secrets',
+        'requires configured secrets',
+        'declares confirmation-gated commands',
+        'runs plugin code in the main server process',
+      ],
+    });
+  });
+
   it('approves and revokes plugin review fingerprints', async () => {
     const writer = {
       save: vi.fn().mockResolvedValue(undefined),

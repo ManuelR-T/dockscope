@@ -8,6 +8,15 @@ interface WorkloadTarget {
   name: string;
 }
 
+const WORKLOAD_METHODS = {
+  deployment: { patch: 'patchNamespacedDeployment', delete: 'deleteNamespacedDeployment' },
+  statefulset: { patch: 'patchNamespacedStatefulSet', delete: 'deleteNamespacedStatefulSet' },
+  daemonset: { patch: 'patchNamespacedDaemonSet', delete: 'deleteNamespacedDaemonSet' },
+} as const satisfies Record<
+  WorkloadKind,
+  { patch: keyof KubeClient['appsApi']; delete: keyof KubeClient['appsApi'] }
+>;
+
 /**
  * Restart a workload the way `kubectl rollout restart` does: stamp the pod
  * template with an annotation. Changing the template makes the controller roll
@@ -31,26 +40,14 @@ export async function restartWorkload(
     },
   };
 
-  if (kind === 'deployment') {
-    return client.appsApi.patchNamespacedDeployment({ name, namespace, body }, mergePatchOptions);
-  }
-  if (kind === 'statefulset') {
-    return client.appsApi.patchNamespacedStatefulSet({ name, namespace, body }, mergePatchOptions);
-  }
-  return client.appsApi.patchNamespacedDaemonSet({ name, namespace, body }, mergePatchOptions);
+  return client.appsApi[WORKLOAD_METHODS[kind].patch]({ name, namespace, body }, mergePatchOptions);
 }
 
 export async function deleteWorkload(
   client: KubeClient,
   { kind, namespace, name }: WorkloadTarget,
 ) {
-  if (kind === 'deployment') {
-    return client.appsApi.deleteNamespacedDeployment({ name, namespace });
-  }
-  if (kind === 'statefulset') {
-    return client.appsApi.deleteNamespacedStatefulSet({ name, namespace });
-  }
-  return client.appsApi.deleteNamespacedDaemonSet({ name, namespace });
+  return client.appsApi[WORKLOAD_METHODS[kind].delete]({ name, namespace });
 }
 
 /**
@@ -66,8 +63,5 @@ export async function scaleWorkload(
     throw new Error('A DaemonSet runs one pod per node and cannot be scaled');
   }
   const body = { spec: { replicas } };
-  if (kind === 'deployment') {
-    return client.appsApi.patchNamespacedDeployment({ name, namespace, body }, mergePatchOptions);
-  }
-  return client.appsApi.patchNamespacedStatefulSet({ name, namespace, body }, mergePatchOptions);
+  return client.appsApi[WORKLOAD_METHODS[kind].patch]({ name, namespace, body }, mergePatchOptions);
 }

@@ -2,6 +2,13 @@ import type { PluginConfigField, PluginConfigValue } from '../../../core/plugin-
 
 import type { PluginCommand } from '../../../core/plugin-contract/commands';
 
+const FIELD_DEFAULTS = new Map<string, PluginConfigValue>([
+  ['string', ''],
+  ['select', ''],
+  ['boolean', false],
+  ['number', 0],
+]);
+
 export function inputValue(event: Event): string {
   return (event.currentTarget as HTMLInputElement).value;
 }
@@ -14,13 +21,7 @@ export function defaultFieldValue(field: PluginConfigField): PluginConfigValue {
   if (field.default !== undefined) {
     return field.default;
   }
-  if (field.type === 'boolean') {
-    return false;
-  }
-  if (field.type === 'number') {
-    return 0;
-  }
-  return '';
+  return FIELD_DEFAULTS.get(field.type) ?? '';
 }
 
 export function commandKey(command: PluginCommand): string {

@@ -58,31 +58,22 @@ function optionalString(value: unknown, field: string): string | undefined {
   return value;
 }
 
-function validateConfigValueType(
-  value: unknown,
-  field: Pick<PluginConfigField, 'key' | 'type' | 'options'>,
-): PluginConfigValue {
-  switch (field.type) {
-    case 'string':
-      if (typeof value === 'string') {
-        return value;
-      }
-      break;
-    case 'number':
-      if (typeof value === 'number' && Number.isFinite(value)) {
-        return value;
-      }
-      break;
-    case 'boolean':
-      if (typeof value === 'boolean') {
-        return value;
-      }
-      break;
-    case 'select':
-      if (typeof value === 'string' && field.options?.some((option) => option.value === value)) {
-        return value;
-      }
-      break;
+type ValueField = Pick<PluginConfigField, 'key' | 'type' | 'options'>;
+type ValueValidator = (value: unknown, field: ValueField) => value is PluginConfigValue;
+
+const VALUE_VALIDATORS = {
+  string: (value): value is string => typeof value === 'string',
+  number: (value): value is number => typeof value === 'number' && Number.isFinite(value),
+  boolean: (value): value is boolean => typeof value === 'boolean',
+  select: (value, field): value is string =>
+    typeof value === 'string' && field.options?.some((option) => option.value === value) === true,
+} satisfies Record<PluginConfigFieldType, ValueValidator>;
+const valueValidators = new Map<string, ValueValidator>(Object.entries(VALUE_VALIDATORS));
+
+function validateConfigValueType(value: unknown, field: ValueField): PluginConfigValue {
+  const validate = valueValidators.get(field.type);
+  if (validate?.(value, field)) {
+    return value;
   }
   throw new PluginConfigError(
     `Plugin config value "${field.key}" must be ${field.type === 'select' ? 'one of its options' : `a ${field.type}`}`,

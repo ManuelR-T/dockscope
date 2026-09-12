@@ -2,6 +2,34 @@ import { describe, it, expect } from 'vitest';
 import { ansiToHtml, highlightLogSearch } from '../ansi';
 
 describe('ansiToHtml', () => {
+  it.each([
+    [
+      '1;2;3;4;31;41',
+      '22',
+      'color:#ff2b4e;background:#3b0a15;font-style:italic;text-decoration:underline',
+    ],
+    ['1;3;4;31', '23;24;39', 'font-weight:700'],
+    ['31;41', '49', 'color:#ff2b4e'],
+    ['38;5;255', '', 'color:#eeeeee'],
+    ['48;5;1', '', 'background:#ff2b4e'],
+    ['48;2;1;2;3', '', 'background:rgb(1,2,3)'],
+    ['38;2;10', '', 'color:rgb(10,0,0)'],
+    ['38;5', '', null],
+    ['31', '38;5;256', null],
+    ['1', '999', 'font-weight:700'],
+    ['1;31;41', '0', null],
+  ] as const)('applies SGR %s then %s in sequence', (initial, reset, style) => {
+    const html = ansiToHtml(`\x1b[${initial}m${reset ? `\x1b[${reset}m` : ''}sample`);
+    expect(html).toMatch(
+      style
+        ? new RegExp(`<span style="${style.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}">sample</span>$`)
+        : /sample$/,
+    );
+    if (!style) {
+      expect(html).not.toMatch(/<span[^>]*>sample/);
+    }
+  });
+
   it('returns empty string for empty input', () => {
     expect(ansiToHtml('')).toBe('');
   });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { V1Pod } from '@kubernetes/client-node';
+import type { V1Pod, V1Volume, V1EnvFromSource, V1EnvVarSource } from '@kubernetes/client-node';
 import { formatEnvVar, podInspect, volumeType } from '../resources/inspect';
 
 /**
@@ -9,6 +9,29 @@ import { formatEnvVar, podInspect, volumeType } from '../resources/inspect';
  */
 
 describe('formatEnvVar', () => {
+  const references: V1EnvVarSource = {
+    secretKeyRef: { name: 'secret', key: 'key' },
+    configMapKeyRef: { name: 'config', key: 'key' },
+    fieldRef: { fieldPath: 'metadata.name' },
+    resourceFieldRef: { resource: 'limits.cpu' },
+  };
+
+  it('preserves an empty literal even when references are also present', () => {
+    expect(formatEnvVar({ name: 'KEY', value: '', valueFrom: references })).toBe('KEY=');
+  });
+
+  it.each([
+    [references, '<secret:secret/key>'],
+    [{ ...references, secretKeyRef: undefined }, '<configMap:config/key>'],
+    [
+      { ...references, secretKeyRef: undefined, configMapKeyRef: undefined },
+      '<field:metadata.name>',
+    ],
+    [{}, ''],
+  ])('preserves reference priority for %j', (valueFrom, expected) => {
+    expect(formatEnvVar({ name: 'KEY', valueFrom })).toBe(`KEY=${expected}`);
+  });
+
   it('renders a literal value', () => {
     expect(formatEnvVar({ name: 'PORT', value: '8080' })).toBe('PORT=8080');
   });
@@ -59,6 +82,52 @@ describe('volumeType', () => {
 });
 
 describe('podInspect', () => {
+  it.each<[V1EnvFromSource, string]>([
+    [{ secretRef: { name: 'secret' } }, '<envFrom secret:secret>'],
+    [{ configMapRef: { name: 'config' } }, '<envFrom configMap:config>'],
+    [
+      { secretRef: { name: 'secret' }, configMapRef: { name: 'config' } },
+      '<envFrom secret:secret>',
+    ],
+    [{}, '<envFrom unknown>'],
+  ])('renders whole-source imports %j', (source, expected) => {
+    const result = podInspect({ spec: { containers: [{ name: 'app', envFrom: [source] }] } }, 'id');
+    expect(result.env).toEqual([expected]);
+  });
+
+  it.each<[V1Volume | undefined, string]>([
+    [
+      {
+        name: 'data',
+        persistentVolumeClaim: { claimName: 'claim' },
+        configMap: { name: 'config' },
+      },
+      'claim',
+    ],
+    [{ name: 'data', persistentVolumeClaim: { claimName: '' }, configMap: { name: 'config' } }, ''],
+    [{ name: 'data', configMap: { name: 'config' }, secret: { secretName: 'secret' } }, 'config'],
+    [{ name: 'data', configMap: {}, secret: { secretName: 'secret' } }, 'data'],
+    [{ name: 'data', configMap: { name: '' } }, 'data'],
+    [{ name: 'data', secret: { secretName: 'secret' }, hostPath: { path: '/host' } }, 'secret'],
+    [{ name: 'data', secret: {}, hostPath: { path: '/host' } }, 'data'],
+    [{ name: 'data', secret: { secretName: '' } }, 'data'],
+    [{ name: 'data', hostPath: { path: '/host' } }, '/host'],
+    [{ name: 'data', hostPath: { path: '' } }, ''],
+    [{ name: 'data', emptyDir: {} }, 'data'],
+    [undefined, 'data'],
+  ])('preserves volume source selection for %j', (volume, expected) => {
+    const result = podInspect(
+      {
+        spec: {
+          containers: [{ name: 'app', volumeMounts: [{ name: 'data', mountPath: '/data' }] }],
+          volumes: volume ? [volume] : [],
+        },
+      },
+      'id',
+    );
+    expect(result.mounts[0]?.source).toBe(expected);
+  });
+
   const pod: V1Pod = {
     metadata: {
       namespace: 'default',
