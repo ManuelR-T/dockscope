@@ -61,7 +61,7 @@ const mocks = vi.hoisted(() => ({
   stopWatching: vi.fn(),
 }));
 
-vi.mock('../../docker/client.js', () => ({
+vi.mock('../../docker/client', () => ({
   buildGraph: mocks.buildGraph,
   checkConnection: mocks.checkConnection,
   composeAction: mocks.composeAction,
@@ -81,12 +81,12 @@ vi.mock('../../docker/client.js', () => ({
   watchEvents: mocks.watchEvents,
 }));
 
-vi.mock('../../docker/projects.js', () => ({
+vi.mock('../../docker/projects', () => ({
   composeAction: mocks.composeAction,
   listComposeProjects: mocks.listComposeProjects,
 }));
 
-vi.mock('../../docker/hosts.js', () => ({
+vi.mock('../../docker/hosts', () => ({
   addHost: vi.fn(),
   getHost: mocks.getHost,
   initHosts: mocks.initHosts,
