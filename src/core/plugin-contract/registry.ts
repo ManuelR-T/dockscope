@@ -2,83 +2,29 @@
 // fan-out that the rest of the app consumes. The manifest contract it validates
 // against lives in ./manifest.js.
 import { createHash } from 'crypto';
-import { adaptEntitySource } from '../sources/entities.js';
-import { pluginUiActionAllowed, type AccessRole } from '../access.js';
-import type { DataSourceDescriptor, GraphSourceAdapter } from '../sources/model.js';
+import { type AccessRole } from '../access.js';
+import { type EntityAction, type EntityActionResult } from '../entities/actions.js';
 import type {
-  EntityDiagnosticProvider,
-  EntityExecProvider,
-  EntityFilesystemProvider,
-  EntityInspectProvider,
-  EntityLogStreamProvider,
-  EntityLifecycleProvider,
-  EntityLogsProvider,
-  EntityRef,
-  EntityStatsProvider,
   EntityOperationDescriptor,
-  EntityProvider,
+  EntityRef,
   LifecycleAction,
   LogsOptions,
   ProjectAction,
-  ProjectProvider,
   RemoveOptions,
   ResourceAction,
   ResourceActionOptions,
-  ResourceProvider,
 } from '../entities/operations.js';
-import {
-  hydrateEntityAction,
-  validateEntityActionResult,
-  validateEntityActions,
-  type EntityAction,
-  type EntityActionResult,
-} from '../entities/actions.js';
-import {
-  validateMetricAnalysisResult,
-  type MetricAnalysisFinding,
-  type MetricAnalysisSample,
-} from './analysis.js';
-import { validatePluginSystems, type PluginSystemSnapshot } from './system.js';
-import {
-  validatePluginConnectionProvider,
-  validatePluginConnections,
-  type PluginConnection,
-  type PluginConnectionProvider,
-  type PluginConnectionProviderDescriptor,
-} from './connections.js';
-import type {
-  PluginProcessHealthSnapshot,
-  PluginRuntimeCrash,
-  PluginRuntimeHealth,
-} from './runtime.js';
-import { type PluginCapability, type PluginPermission } from './capabilities.js';
-import { defaultPluginConfig, validatePluginConfigValues, type PluginConfig } from './config.js';
-import {
-  hydratePluginUiExtension,
-  pluginUiContextMatches,
-  pluginUiSlotCapability,
-  validatePluginUiContext,
-  validatePluginUiContent,
-  validatePluginUiExtensions,
-  type PluginUiActionResult,
-  type PluginUiContext,
-  type PluginUiContent,
-  type PluginUiExtension,
-} from './ui.js';
-import { type PluginSecretSnapshot } from './secrets.js';
-import {
-  hydratePluginCommand,
-  validatePluginCommandResult,
-  validatePluginCommands,
-  type PluginCommand,
-  type PluginCommandDeclaration,
-  type PluginCommandResult,
-} from './commands.js';
-import { PluginEventBus, type PluginEvent, type PluginEventFilter } from './events.js';
+import type { DataSourceDescriptor, GraphSourceAdapter } from '../sources/model.js';
+import { type MetricAnalysisFinding, type MetricAnalysisSample } from './analysis.js';
+import { type PluginPermission } from './capabilities.js';
+import { type PluginCommand, type PluginCommandResult } from './commands.js';
 import {
   createPluginCompatibilityReport,
   type PluginCompatibilityReport,
 } from './compatibility.js';
+import { defaultPluginConfig, validatePluginConfigValues, type PluginConfig } from './config.js';
+import { type PluginConnection, type PluginConnectionProviderDescriptor } from './connections.js';
+import { PluginEventBus, type PluginEvent, type PluginEventFilter } from './events.js';
 import {
   DockscopePlugin,
   PLUGIN_CRASH_QUARANTINE_THRESHOLD,
@@ -97,13 +43,31 @@ import {
   PluginSecretWriter,
   PluginStateWriter,
   cloneRuntimeInfo,
-  isRecord,
-  requireManifestCapabilities,
   validatePluginContract,
   validatePluginManifest,
 } from './manifest.js';
+import { RegistryInteractions, pluginCommands } from './registryInteractions.js';
+import { RegistryProviders } from './registryProviders.js';
+import type {
+  PluginProcessHealthSnapshot,
+  PluginRuntimeCrash,
+  PluginRuntimeHealth,
+} from './runtime.js';
+import { type PluginSecretSnapshot } from './secrets.js';
+import { type PluginSystemSnapshot } from './system.js';
+import { type PluginUiActionResult, type PluginUiContent, type PluginUiExtension } from './ui.js';
 
 export class PluginRegistry {
+  private readonly providers = new RegistryProviders({
+    activePlugins: () => this.activePlugins(),
+    requireEnabledPlugin: (id) => this.requireEnabledPlugin(id),
+  });
+  private readonly interactions = new RegistryInteractions({
+    activePlugins: () => this.activePlugins(),
+    getPlugin: (id) => this.plugins.get(id),
+    requireEnabledPlugin: (id) => this.requireEnabledPlugin(id),
+    publishEvent: (id, type, payload) => this.publishPluginEvent(id, type, payload),
+  });
   private readonly plugins = new Map<string, DockscopePlugin>();
   private readonly runtime = new Map<string, PluginRuntimeInfo>();
   private readonly configs = new Map<string, PluginConfig>();
@@ -324,35 +288,7 @@ export class PluginRegistry {
   }
 
   listUiExtensions(): PluginUiExtension[] {
-    return this.activePlugins()
-      .flatMap((plugin) => {
-        try {
-          const manifestExtensions = plugin.manifest.ui ?? [];
-          const runtimeExtensions = validatePluginUiExtensions(plugin.getUiExtensions?.() ?? []);
-          const extensions = [...manifestExtensions, ...runtimeExtensions];
-          for (const extension of extensions) {
-            requireManifestCapabilities(
-              plugin.manifest,
-              [
-                pluginUiSlotCapability(extension.slot),
-                ...(extension.query ? ['ui.query' as const] : []),
-              ],
-              `declares UI extension "${extension.id}"`,
-            );
-          }
-          return extensions.map((extension) =>
-            hydratePluginUiExtension(plugin.manifest.id, extension),
-          );
-        } catch {
-          return [];
-        }
-      })
-      .sort(
-        (a, b) =>
-          (a.order ?? 0) - (b.order ?? 0) ||
-          a.pluginId.localeCompare(b.pluginId) ||
-          a.title.localeCompare(b.title),
-      );
+    return this.interactions.listUiExtensions();
   }
 
   async queryPluginUi(
@@ -360,40 +296,11 @@ export class PluginRegistry {
     extensionId: string,
     rawContext?: unknown,
   ): Promise<PluginUiContent> {
-    const extension = this.listUiExtensions().find(
-      (item) => item.pluginId === pluginId && item.id === extensionId,
-    );
-    const plugin = this.plugins.get(pluginId);
-    if (!extension?.query || !plugin?.queryUi) {
-      throw new PluginOperationError(404, `Plugin UI query not found: ${pluginId}/${extensionId}`);
-    }
-    const context = validatePluginUiContext(rawContext);
-    if (!pluginUiContextMatches(extension, context)) {
-      throw new PluginOperationError(400, 'Plugin UI query does not match the current context');
-    }
-    const content = validatePluginUiContent(
-      await plugin.queryUi(extensionId, context),
-      extensionId,
-    );
-    if (!content) {
-      throw new PluginOperationError(502, 'Plugin UI query returned no content');
-    }
-    return content;
+    return this.interactions.queryPluginUi(pluginId, extensionId, rawContext);
   }
 
   async getPluginFrontendBundle(pluginId: string): Promise<string> {
-    const plugin = this.plugins.get(pluginId);
-    const runtime = this.runtime.get(pluginId);
-    if (!plugin || !runtime) {
-      throw new PluginOperationError(404, `Plugin not found: ${pluginId}`);
-    }
-    if (!runtime.enabled) {
-      throw new PluginOperationError(400, `Plugin is disabled: ${pluginId}`);
-    }
-    if (!plugin.manifest.frontend || !plugin.getFrontendBundle) {
-      throw new PluginOperationError(404, `Plugin frontend not found: ${pluginId}`);
-    }
-    return plugin.getFrontendBundle();
+    return this.interactions.getPluginFrontendBundle(pluginId);
   }
 
   async runPluginUiAction(
@@ -402,63 +309,11 @@ export class PluginRegistry {
     payload: { context?: unknown; input?: unknown } = {},
     options: { accessRole?: AccessRole } = {},
   ): Promise<PluginUiActionResult> {
-    const extension = this.listUiExtensions().find(
-      (candidate) => candidate.pluginId === pluginId && candidate.id === extensionId,
-    );
-    if (!extension) {
-      throw new PluginOperationError(
-        404,
-        `Plugin UI extension not found: ${pluginId}/${extensionId}`,
-      );
-    }
-    if (!extension.action) {
-      throw new PluginOperationError(
-        400,
-        `Plugin UI extension has no action: ${pluginId}/${extensionId}`,
-      );
-    }
-    if (!pluginUiActionAllowed(options.accessRole ?? 'operator', extension.action)) {
-      throw new PluginOperationError(403, 'Operator access required');
-    }
-    const context: PluginUiContext = validatePluginUiContext(payload.context);
-    if (!pluginUiContextMatches(extension, context)) {
-      throw new PluginOperationError(400, `Plugin UI extension does not match the current context`);
-    }
-    if (extension.action.type === 'open_url') {
-      return { type: 'open_url', url: extension.action.url };
-    }
-    const targetPluginId = extension.action.pluginId ?? pluginId;
-    if (targetPluginId !== pluginId) {
-      throw new PluginOperationError(400, 'Plugin UI actions cannot invoke another plugin');
-    }
-    const declaredInput = extension.action.input;
-    const requestedInput = payload.input;
-    const input =
-      isRecord(declaredInput) && isRecord(requestedInput)
-        ? { ...declaredInput, ...requestedInput }
-        : (requestedInput ?? declaredInput);
-    const commandInput = extension.action.passContext
-      ? {
-          input,
-          context,
-          ui: { extensionId: extension.id, slot: extension.slot },
-        }
-      : input;
-    return {
-      type: 'command',
-      result: await this.runPluginCommand(pluginId, extension.action.commandId, commandInput),
-    };
+    return this.interactions.runPluginUiAction(pluginId, extensionId, payload, options);
   }
 
   listPluginCommands(): PluginCommand[] {
-    return this.activePlugins()
-      .flatMap((plugin) => this.pluginCommands(plugin))
-      .sort(
-        (a, b) =>
-          a.pluginId.localeCompare(b.pluginId) ||
-          a.title.localeCompare(b.title) ||
-          a.id.localeCompare(b.id),
-      );
+    return this.interactions.listPluginCommands();
   }
 
   async runPluginCommand(
@@ -466,36 +321,7 @@ export class PluginRegistry {
     commandId: string,
     input?: unknown,
   ): Promise<PluginCommandResult> {
-    const plugin = this.plugins.get(pluginId);
-    const runtime = this.runtime.get(pluginId);
-    if (!plugin || !runtime) {
-      throw new PluginOperationError(404, `Plugin not found: ${pluginId}`);
-    }
-    if (!runtime.enabled) {
-      throw new PluginOperationError(400, `Plugin is disabled: ${pluginId}`);
-    }
-    if (!plugin.runCommand) {
-      throw new PluginOperationError(400, `Plugin does not implement commands: ${pluginId}`);
-    }
-    const command = this.pluginCommands(plugin).find((candidate) => candidate.id === commandId);
-    if (!command) {
-      throw new PluginOperationError(404, `Plugin command not found: ${pluginId}/${commandId}`);
-    }
-    try {
-      const result = validatePluginCommandResult(await plugin.runCommand(commandId, input));
-      this.publishPluginEvent(pluginId, 'command.completed', {
-        commandId,
-        ok: result.ok,
-        message: result.message,
-      });
-      return result;
-    } catch (error) {
-      this.publishPluginEvent(pluginId, 'command.failed', {
-        commandId,
-        message: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
-    }
+    return this.interactions.runPluginCommand(pluginId, commandId, input);
   }
 
   async runPluginMigration(
@@ -504,26 +330,7 @@ export class PluginRegistry {
     to: string,
     input?: unknown,
   ): Promise<PluginCommandResult> {
-    const plugin = this.plugins.get(pluginId);
-    if (!plugin) {
-      throw new PluginOperationError(404, `Plugin not found: ${pluginId}`);
-    }
-    const migration = plugin.manifest.compatibility?.migrations?.find(
-      (candidate) => candidate.from === from && candidate.to === to,
-    );
-    if (!migration) {
-      throw new PluginOperationError(404, `Plugin migration not found: ${pluginId} ${from}->${to}`);
-    }
-    if (!migration.commandId) {
-      throw new PluginOperationError(
-        400,
-        `Plugin migration does not declare a commandId: ${pluginId} ${from}->${to}`,
-      );
-    }
-    return this.runPluginCommand(pluginId, migration.commandId, {
-      migration: { from, to },
-      input,
-    });
+    return this.interactions.runPluginMigration(pluginId, from, to, input);
   }
 
   publishPluginEvent(pluginId: string, type: string, payload: unknown): PluginEvent {
@@ -571,7 +378,7 @@ export class PluginRegistry {
           capabilities: [...plugin.manifest.capabilities],
           permissions: [...plugin.manifest.permissions],
           secrets: (plugin.manifest.secrets ?? []).map((secret) => secret.key),
-          commands: this.pluginCommands(plugin).map((command) => command.id),
+          commands: pluginCommands(plugin).map((command) => command.id),
           uiSlots: (plugin.manifest.ui ?? []).map((extension) => extension.slot),
           frontendSlots: [...(plugin.manifest.frontend?.slots ?? [])],
           configFields: (plugin.manifest.config?.fields ?? []).map((field) => field.key),
@@ -816,113 +623,23 @@ export class PluginRegistry {
   }
 
   listDataSources(): DataSourceDescriptor[] {
-    return this.getGraphSources().map((source) => source.describe());
+    return this.providers.listDataSources();
   }
 
   getGraphSources(): GraphSourceAdapter[] {
-    return this.activePlugins().flatMap((plugin) => [
-      ...(plugin.getGraphSources?.() ?? []),
-      ...(plugin.getEntitySources?.() ?? []).map(adaptEntitySource),
-    ]);
+    return this.providers.getGraphSources();
   }
 
   async getStats(ref: EntityRef) {
-    return (await this.requireProvider('source.metrics', this.getStatsProviders(), ref)).getStats(
-      ref,
-    );
+    return this.providers.getStats(ref);
   }
 
   async listEntityActions(ref: EntityRef): Promise<EntityAction[]> {
-    const actions = new Map<string, EntityAction>();
-    for (const plugin of this.activePlugins()) {
-      for (const provider of plugin.getActionProviders?.() ?? []) {
-        if (!(await provider.canHandle(ref))) {
-          continue;
-        }
-        for (const declaration of validateEntityActions(await provider.listActions(ref))) {
-          requireManifestCapabilities(
-            plugin.manifest,
-            [declaration.capability],
-            `declares entity action "${declaration.id}"`,
-          );
-          const action = hydrateEntityAction(plugin.manifest.id, declaration);
-          actions.set(`${action.pluginId}:${action.id}`, action);
-        }
-      }
-    }
-    return [...actions.values()].sort(
-      (a, b) =>
-        (a.placement === 'primary' ? 0 : 1) - (b.placement === 'primary' ? 0 : 1) ||
-        a.title.localeCompare(b.title) ||
-        a.pluginId.localeCompare(b.pluginId),
-    );
+    return this.providers.listEntityActions(ref);
   }
 
   async listEntityOperations(ref: EntityRef): Promise<EntityOperationDescriptor[]> {
-    const operations = new Map<string, EntityOperationDescriptor>();
-    for (const plugin of this.activePlugins()) {
-      const actionCapability = plugin.manifest.capabilities.find((capability) =>
-        capability.startsWith('action.'),
-      );
-      const candidates: Array<{
-        id: EntityOperationDescriptor['id'];
-        capability: PluginCapability;
-        providers: readonly EntityProvider[];
-      }> = [
-        {
-          id: 'actions',
-          capability: actionCapability ?? 'action.lifecycle',
-          providers: plugin.getActionProviders?.() ?? [],
-        },
-        {
-          id: 'stats',
-          capability: 'source.metrics',
-          providers: plugin.getStatsProviders?.() ?? [],
-        },
-        { id: 'logs', capability: 'source.logs', providers: plugin.getLogsProviders?.() ?? [] },
-        {
-          id: 'logStream',
-          capability: 'source.logs',
-          providers: plugin.getLogStreamProviders?.() ?? [],
-        },
-        {
-          id: 'inspect',
-          capability: 'source.inspect',
-          providers: plugin.getInspectProviders?.() ?? [],
-        },
-        {
-          id: 'top',
-          capability: 'action.filesystem',
-          providers: plugin.getFilesystemProviders?.() ?? [],
-        },
-        {
-          id: 'diff',
-          capability: 'action.filesystem',
-          providers: plugin.getFilesystemProviders?.() ?? [],
-        },
-        {
-          id: 'diagnostic',
-          capability: 'analysis.diagnostics',
-          providers: plugin.getDiagnosticProviders?.() ?? [],
-        },
-        { id: 'exec', capability: 'action.exec', providers: plugin.getExecProviders?.() ?? [] },
-      ];
-      for (const candidate of candidates) {
-        for (const provider of candidate.providers) {
-          if (await provider.canHandle(ref)) {
-            operations.set(`${plugin.manifest.id}:${candidate.id}`, {
-              id: candidate.id,
-              pluginId: plugin.manifest.id,
-              capability: candidate.capability,
-            });
-            break;
-          }
-        }
-      }
-    }
-    return [...operations.values()].sort(
-      (a, b) => a.id.localeCompare(b.id) || a.pluginId.localeCompare(b.pluginId),
-    );
+    return this.providers.listEntityOperations(ref);
   }
 
   async runEntityAction(
@@ -931,109 +648,27 @@ export class PluginRegistry {
     actionId: string,
     input?: unknown,
   ): Promise<EntityActionResult> {
-    const plugin = this.plugins.get(pluginId);
-    const runtime = this.runtime.get(pluginId);
-    if (!plugin || !runtime) {
-      throw new PluginOperationError(404, `Plugin not found: ${pluginId}`);
-    }
-    if (!runtime.enabled) {
-      throw new PluginOperationError(400, `Plugin is disabled: ${pluginId}`);
-    }
-    for (const provider of plugin.getActionProviders?.() ?? []) {
-      if (!(await provider.canHandle(ref))) {
-        continue;
-      }
-      const action = validateEntityActions(await provider.listActions(ref)).find(
-        (candidate) => candidate.id === actionId,
-      );
-      if (!action) {
-        continue;
-      }
-      requireManifestCapabilities(
-        plugin.manifest,
-        [action.capability],
-        `declares entity action "${action.id}"`,
-      );
-      const values = validatePluginConfigValues(input, action.input);
-      return validateEntityActionResult(await provider.runAction(ref, actionId, values));
-    }
-    throw new PluginOperationError(404, `Entity action not found: ${pluginId}/${actionId}`);
+    return this.providers.runEntityAction(ref, pluginId, actionId, input);
   }
 
   async analyzeMetric(sample: MetricAnalysisSample): Promise<MetricAnalysisFinding[]> {
-    const findings: MetricAnalysisFinding[] = [];
-    for (const plugin of this.activePlugins()) {
-      for (const provider of plugin.getMetricAnalysisProviders?.() ?? []) {
-        if (!(await provider.canHandle(sample.ref))) {
-          continue;
-        }
-        const result = validateMetricAnalysisResult(await provider.analyze(sample));
-        if (result) {
-          findings.push({
-            ...result,
-            pluginId: plugin.manifest.id,
-            metric: sample.metric,
-            value: sample.value,
-          });
-        }
-      }
-    }
-    return findings;
+    return this.providers.analyzeMetric(sample);
   }
 
   async listSystems(): Promise<PluginSystemSnapshot[]> {
-    const systems = await Promise.all(
-      this.activePlugins().flatMap((plugin) =>
-        [...(plugin.getSystemProviders?.() ?? [])].map(async (provider) =>
-          validatePluginSystems(await provider.listSystems()).map((system) => ({
-            ...system,
-            pluginId: plugin.manifest.id,
-          })),
-        ),
-      ),
-    );
-    return systems
-      .flat()
-      .sort((a, b) => a.label.localeCompare(b.label) || a.pluginId.localeCompare(b.pluginId));
+    return this.providers.listSystems();
   }
 
   listConnectionProviders(): PluginConnectionProviderDescriptor[] {
-    return this.getConnectionProviderEntries()
-      .map(({ pluginId, declaration }) => ({ ...declaration, pluginId }))
-      .sort((a, b) => a.label.localeCompare(b.label) || a.pluginId.localeCompare(b.pluginId));
+    return this.providers.listConnectionProviders();
   }
 
   async listConnections(): Promise<PluginConnection[]> {
-    const connections = await Promise.all(
-      this.getConnectionProviderEntries().map(async ({ pluginId, providerId, provider }) =>
-        validatePluginConnections(await provider.listConnections()).map((connection) => ({
-          ...connection,
-          pluginId,
-          providerId,
-        })),
-      ),
-    );
-    return connections
-      .flat()
-      .sort(
-        (a, b) =>
-          a.label.localeCompare(b.label) ||
-          a.pluginId.localeCompare(b.pluginId) ||
-          a.providerId.localeCompare(b.providerId),
-      );
+    return this.providers.listConnections();
   }
 
   async addConnection(pluginId: string, providerId: string, input: unknown): Promise<void> {
-    const entry = this.getConnectionProviderEntries().find(
-      (candidate) => candidate.pluginId === pluginId && candidate.providerId === providerId,
-    );
-    if (!entry) {
-      throw new PluginOperationError(
-        404,
-        `Connection provider not found: ${pluginId}/${providerId}`,
-      );
-    }
-    await entry.provider.addConnection(validatePluginConfigValues(input, entry.declaration.input));
+    return this.providers.addConnection(pluginId, providerId, input);
   }
 
   async removeConnection(
@@ -1041,31 +676,15 @@ export class PluginRegistry {
     providerId: string,
     connectionId: string,
   ): Promise<void> {
-    const entry = this.getConnectionProviderEntries().find(
-      (candidate) => candidate.pluginId === pluginId && candidate.providerId === providerId,
-    );
-    if (!entry) {
-      throw new PluginOperationError(
-        404,
-        `Connection provider not found: ${pluginId}/${providerId}`,
-      );
-    }
-    await entry.provider.removeConnection(connectionId);
+    return this.providers.removeConnection(pluginId, providerId, connectionId);
   }
 
   async refreshConnections(): Promise<void> {
-    await Promise.all(
-      this.getConnectionProviderEntries().map(({ provider }) =>
-        provider.refreshConnections?.().catch(() => {}),
-      ),
-    );
+    return this.providers.refreshConnections();
   }
 
   async getLogs(ref: EntityRef, options?: LogsOptions) {
-    return (await this.requireProvider('source.logs', this.getLogsProviders(), ref)).getLogs(
-      ref,
-      options,
-    );
+    return this.providers.getLogs(ref, options);
   }
 
   async streamLogs(
@@ -1073,71 +692,39 @@ export class PluginRegistry {
     onData: (text: string) => void,
     onError?: (error: Error) => void,
   ) {
-    return (
-      await this.requireProvider('source.logs', this.getLogStreamProviders(), ref)
-    ).streamLogs(ref, onData, onError);
+    return this.providers.streamLogs(ref, onData, onError);
   }
 
   async runLifecycleAction(ref: EntityRef, action: LifecycleAction) {
-    return (
-      await this.requireProvider('action.lifecycle', this.getLifecycleProviders(), ref)
-    ).runLifecycleAction(ref, action);
+    return this.providers.runLifecycleAction(ref, action);
   }
 
   async removeEntity(ref: EntityRef, options?: RemoveOptions) {
-    return (
-      await this.requireProvider('action.lifecycle', this.getLifecycleProviders(), ref)
-    ).removeEntity(ref, options);
+    return this.providers.removeEntity(ref, options);
   }
 
   async inspect(ref: EntityRef) {
-    return (await this.requireProvider('source.inspect', this.getInspectProviders(), ref)).inspect(
-      ref,
-    );
+    return this.providers.inspect(ref);
   }
 
   async getTop(ref: EntityRef) {
-    return (
-      await this.requireProvider('action.filesystem', this.getFilesystemProviders(), ref)
-    ).getTop(ref);
+    return this.providers.getTop(ref);
   }
 
   async getDiff(ref: EntityRef) {
-    return (
-      await this.requireProvider('action.filesystem', this.getFilesystemProviders(), ref)
-    ).getDiff(ref);
+    return this.providers.getDiff(ref);
   }
 
   async diagnose(ref: EntityRef) {
-    return (
-      await this.requireProvider('analysis.diagnostics', this.getDiagnosticProviders(), ref)
-    ).diagnose(ref);
+    return this.providers.diagnose(ref);
   }
 
   async createExecSession(ref: EntityRef, command?: string[]) {
-    return (
-      await this.requireProvider('action.exec', this.getExecProviders(), ref)
-    ).createExecSession(ref, command);
+    return this.providers.createExecSession(ref, command);
   }
 
   async listProjects() {
-    const projects = await Promise.all(
-      this.getProjectProviderEntries().map(async ({ pluginId, providerId, provider }) =>
-        (await provider.listProjects()).map((project) => ({
-          ...project,
-          pluginId,
-          providerId,
-        })),
-      ),
-    );
-    return projects
-      .flat()
-      .sort(
-        (a, b) =>
-          a.name.localeCompare(b.name) ||
-          (a.pluginId ?? '').localeCompare(b.pluginId ?? '') ||
-          (a.providerId ?? '').localeCompare(b.providerId ?? ''),
-      );
+    return this.providers.listProjects();
   }
 
   async runProjectAction(
@@ -1145,38 +732,11 @@ export class PluginRegistry {
     action: ProjectAction,
     owner: { pluginId?: string; providerId?: string } = {},
   ) {
-    const matches = [];
-    for (const entry of this.getProjectProviderEntries()) {
-      if (owner.pluginId && entry.pluginId !== owner.pluginId) {
-        continue;
-      }
-      if (owner.providerId && entry.providerId !== owner.providerId) {
-        continue;
-      }
-      const handles = entry.provider.canHandle
-        ? await entry.provider.canHandle(project)
-        : (await entry.provider.listProjects()).some((candidate) => candidate.name === project);
-      if (handles) {
-        matches.push(entry);
-      }
-    }
-    if (matches.length === 0) {
-      throw new PluginOperationError(404, 'No plugin provider found for action.deploy');
-    }
-    if (matches.length > 1) {
-      throw new PluginOperationError(
-        409,
-        `Project provider is ambiguous for "${project}"; specify pluginId and providerId`,
-      );
-    }
-    return matches[0].provider.runProjectAction(project, action);
+    return this.providers.runProjectAction(project, action, owner);
   }
 
   async getResourceLogs(resourceId: string, options?: LogsOptions) {
-    return (await this.requireResourceProvider('source.logs', resourceId)).getResourceLogs(
-      resourceId,
-      options,
-    );
+    return this.providers.getResourceLogs(resourceId, options);
   }
 
   async runResourceAction(
@@ -1184,11 +744,7 @@ export class PluginRegistry {
     action: ResourceAction,
     options?: ResourceActionOptions,
   ) {
-    return (await this.requireResourceProvider('action.lifecycle', resourceId)).runResourceAction(
-      resourceId,
-      action,
-      options,
-    );
+    return this.providers.runResourceAction(resourceId, action, options);
   }
 
   async startAll(): Promise<void> {
@@ -1236,94 +792,6 @@ export class PluginRegistry {
         error: error instanceof Error ? error.message : String(error),
       });
       throw error;
-    }
-  }
-
-  private getStatsProviders(): EntityStatsProvider[] {
-    return this.activePlugins().flatMap((plugin) => [...(plugin.getStatsProviders?.() ?? [])]);
-  }
-
-  private getLogsProviders(): EntityLogsProvider[] {
-    return this.activePlugins().flatMap((plugin) => [...(plugin.getLogsProviders?.() ?? [])]);
-  }
-
-  private getLogStreamProviders(): EntityLogStreamProvider[] {
-    return this.activePlugins().flatMap((plugin) => [...(plugin.getLogStreamProviders?.() ?? [])]);
-  }
-
-  private getLifecycleProviders(): EntityLifecycleProvider[] {
-    return this.activePlugins().flatMap((plugin) => [...(plugin.getLifecycleProviders?.() ?? [])]);
-  }
-
-  private getInspectProviders(): EntityInspectProvider[] {
-    return this.activePlugins().flatMap((plugin) => [...(plugin.getInspectProviders?.() ?? [])]);
-  }
-
-  private getFilesystemProviders(): EntityFilesystemProvider[] {
-    return this.activePlugins().flatMap((plugin) => [...(plugin.getFilesystemProviders?.() ?? [])]);
-  }
-
-  private getDiagnosticProviders(): EntityDiagnosticProvider[] {
-    return this.activePlugins().flatMap((plugin) => [...(plugin.getDiagnosticProviders?.() ?? [])]);
-  }
-
-  private getExecProviders(): EntityExecProvider[] {
-    return this.activePlugins().flatMap((plugin) => [...(plugin.getExecProviders?.() ?? [])]);
-  }
-
-  private getProjectProviderEntries(): Array<{
-    pluginId: string;
-    providerId: string;
-    provider: ProjectProvider;
-  }> {
-    return this.activePlugins().flatMap((plugin) =>
-      [...(plugin.getProjectProviders?.() ?? [])].map((provider, index) => ({
-        pluginId: plugin.manifest.id,
-        providerId: provider.id ?? String(index),
-        provider,
-      })),
-    );
-  }
-
-  private getConnectionProviderEntries(): Array<{
-    pluginId: string;
-    providerId: string;
-    declaration: ReturnType<typeof validatePluginConnectionProvider>;
-    provider: PluginConnectionProvider;
-  }> {
-    return this.activePlugins().flatMap((plugin) =>
-      [...(plugin.getConnectionProviders?.() ?? [])].map((provider) => {
-        const declaration = validatePluginConnectionProvider(provider.describe());
-        return {
-          pluginId: plugin.manifest.id,
-          providerId: declaration.id,
-          declaration,
-          provider,
-        };
-      }),
-    );
-  }
-
-  private getResourceProviders(): ResourceProvider[] {
-    return this.activePlugins().flatMap((plugin) => [...(plugin.getResourceProviders?.() ?? [])]);
-  }
-
-  private pluginCommands(plugin: DockscopePlugin): PluginCommand[] {
-    try {
-      const commands = [
-        ...(plugin.manifest.commands ?? []),
-        ...validatePluginCommands(plugin.getCommands?.() ?? []),
-      ];
-      requireManifestCapabilities(plugin.manifest, ['ui.command'], 'declares commands');
-      const unique = new Map<string, PluginCommandDeclaration>();
-      for (const command of commands) {
-        unique.set(command.id, command);
-      }
-      return [...unique.values()].map((command) =>
-        hydratePluginCommand(plugin.manifest.id, command),
-      );
-    } catch {
-      return [];
     }
   }
 
@@ -1382,7 +850,7 @@ export class PluginRegistry {
             key: secret.key,
             required: secret.required === true,
           })),
-          commands: this.pluginCommands(plugin).map((command) => ({
+          commands: pluginCommands(plugin).map((command) => ({
             id: command.id,
             confirm: command.confirm === true,
           })),
@@ -1405,49 +873,22 @@ export class PluginRegistry {
       .digest('hex');
   }
 
+  private requireEnabledPlugin(pluginId: string): DockscopePlugin {
+    const plugin = this.plugins.get(pluginId);
+    const runtime = this.runtime.get(pluginId);
+    if (!plugin || !runtime) {
+      throw new PluginOperationError(404, `Plugin not found: ${pluginId}`);
+    }
+    if (!runtime.enabled) {
+      throw new PluginOperationError(400, `Plugin is disabled: ${pluginId}`);
+    }
+    return plugin;
+  }
+
   private activePlugins(): DockscopePlugin[] {
     return [...this.plugins.values()].filter(
       (plugin) => this.runtime.get(plugin.manifest.id)?.enabled ?? false,
     );
-  }
-
-  private async requireProvider<
-    T extends { canHandle(ref: EntityRef): boolean | Promise<boolean> },
-  >(capability: PluginCapability, providers: readonly T[], ref: EntityRef): Promise<T> {
-    let provider: T | undefined;
-    for (const candidate of providers) {
-      if (await candidate.canHandle(ref)) {
-        provider = candidate;
-        break;
-      }
-    }
-    if (!provider) {
-      throw new PluginOperationError(
-        404,
-        `No plugin provider found for ${capability} on ${ref.sourceId || 'default source'}`,
-      );
-    }
-    return provider;
-  }
-
-  private async requireResourceProvider(
-    capability: PluginCapability,
-    resourceId: string,
-  ): Promise<ResourceProvider> {
-    let provider: ResourceProvider | undefined;
-    for (const candidate of this.getResourceProviders()) {
-      if (await candidate.canHandle(resourceId)) {
-        provider = candidate;
-        break;
-      }
-    }
-    if (!provider) {
-      throw new PluginOperationError(
-        404,
-        `No plugin provider found for ${capability} on ${resourceId}`,
-      );
-    }
-    return provider;
   }
 
   private async saveRuntimeState(pluginId: string, runtime: PluginRuntimeInfo): Promise<void> {

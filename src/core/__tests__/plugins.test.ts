@@ -61,6 +61,38 @@ function pluginWithCapabilities(
 }
 
 describe('PluginRegistry', () => {
+  it('dispatches through the live plugin set after disable, enable, and replacement', async () => {
+    const registry = new PluginRegistry();
+    const create = (message: string) =>
+      pluginWithCapabilities(['source.logs', 'ui.command'], {
+        getLogsProviders: () => [{ canHandle: () => true, getLogs: async () => message }],
+        getCommands: () => [{ id: 'hello', title: 'Hello' }],
+        runCommand: async () => ({ ok: true, message }),
+      });
+    registry.register(create('original'));
+    const ref = { entityId: 'test' };
+    expect(await registry.getLogs(ref)).toBe('original');
+    expect(await registry.runPluginCommand('test.plugin', 'hello')).toMatchObject({
+      message: 'original',
+    });
+
+    await registry.disablePlugin('test.plugin');
+    await expect(registry.getLogs(ref)).rejects.toMatchObject({ status: 404 });
+    await expect(registry.runPluginCommand('test.plugin', 'hello')).rejects.toMatchObject({
+      status: 400,
+    });
+    expect(registry.listPluginCommands()).toEqual([]);
+
+    await registry.enablePlugin('test.plugin');
+    expect(await registry.getLogs(ref)).toBe('original');
+    await registry.unregisterPlugin('test.plugin');
+    registry.register(create('replacement'));
+    expect(await registry.getLogs(ref)).toBe('replacement');
+    expect(await registry.runPluginCommand('test.plugin', 'hello')).toMatchObject({
+      message: 'replacement',
+    });
+  });
+
   it('registers plugins and tracks lifecycle state', async () => {
     const start = vi.fn();
     const stop = vi.fn();
