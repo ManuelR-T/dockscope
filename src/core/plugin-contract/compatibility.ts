@@ -1,3 +1,4 @@
+import { DockscopeError } from '../errors.js';
 import type { PluginManifest } from './manifest.js';
 
 export interface PluginMigration {
@@ -25,9 +26,9 @@ export interface PluginCompatibilityReport {
   migrations: PluginMigration[];
 }
 
-export class PluginCompatibilityError extends Error {
-  constructor(message: string) {
-    super(message);
+export class PluginCompatibilityError extends DockscopeError {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, { code: 'PLUGIN_INCOMPATIBLE', category: 'validation', cause: options?.cause });
     this.name = 'PluginCompatibilityError';
   }
 }

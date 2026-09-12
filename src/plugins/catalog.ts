@@ -1,3 +1,4 @@
+import { DockscopeError } from '../core/errors.js';
 import { sign, verify } from 'crypto';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
@@ -115,9 +116,13 @@ export interface ResolvedPluginCatalog extends Omit<PluginCatalog, 'entries'> {
   entries: readonly ResolvedPluginCatalogEntry[];
 }
 
-export class PluginCatalogError extends Error {
-  constructor(message: string) {
-    super(message);
+export class PluginCatalogError extends DockscopeError {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, {
+      code: 'PLUGIN_CATALOG_INVALID',
+      category: 'validation',
+      cause: options?.cause,
+    });
     this.name = 'PluginCatalogError';
   }
 }

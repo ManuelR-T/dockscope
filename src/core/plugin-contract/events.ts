@@ -1,3 +1,4 @@
+import { DockscopeError } from '../errors.js';
 export interface PluginEvent {
   id: string;
   pluginId: string;
@@ -15,9 +16,9 @@ export interface PluginEventFilter {
 
 const EVENT_TYPE_PATTERN = /^[a-zA-Z][a-zA-Z0-9_.:-]*$/;
 
-export class PluginEventError extends Error {
-  constructor(message: string) {
-    super(message);
+export class PluginEventError extends DockscopeError {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, { code: 'PLUGIN_EVENT_INVALID', category: 'validation', cause: options?.cause });
     this.name = 'PluginEventError';
   }
 }

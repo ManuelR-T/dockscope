@@ -777,7 +777,9 @@ describe('server integration', () => {
   });
 
   it('returns container action failures as HTTP 500 errors', async () => {
-    mocks.containerAction.mockRejectedValueOnce(new Error('Docker refused stop'));
+    const failure = new Error('Docker refused stop');
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.containerAction.mockRejectedValueOnce(failure);
     server = await startTestServer();
 
     const response = await fetch(
@@ -786,7 +788,12 @@ describe('server integration', () => {
     );
 
     expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: 'Docker refused stop' });
+    expect(await response.json()).toEqual({
+      error: 'Internal server error',
+      code: 'INTERNAL_ERROR',
+    });
+    expect(log).toHaveBeenCalledWith('DockScope request failed', failure);
+    log.mockRestore();
   });
 
   it('sends initial graph data and streams subscribed logs over WebSocket', async () => {

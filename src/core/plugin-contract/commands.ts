@@ -1,3 +1,4 @@
+import { DockscopeError } from '../errors.js';
 import { validatePluginConfigSchema, type PluginConfigSchema } from './config.js';
 
 export interface PluginCommandDeclaration {
@@ -25,9 +26,13 @@ export interface PluginCommandResult {
 
 const COMMAND_ID_PATTERN = /^[a-zA-Z][a-zA-Z0-9_.-]*$/;
 
-export class PluginCommandError extends Error {
-  constructor(message: string) {
-    super(message);
+export class PluginCommandError extends DockscopeError {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, {
+      code: 'PLUGIN_COMMAND_INVALID',
+      category: 'validation',
+      cause: options?.cause,
+    });
     this.name = 'PluginCommandError';
   }
 }

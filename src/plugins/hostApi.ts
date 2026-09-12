@@ -8,27 +8,38 @@ import type { PluginEvent } from '../core/plugin-contract/events.js';
 import type { PluginSecretDeclaration } from '../core/plugin-contract/secrets.js';
 import type { PluginSecretStore } from './secretStore.js';
 import { createPluginStorage } from './storage.js';
+import { DockscopeError } from '../core/errors.js';
 
 const execFileAsync = promisify(execFileCallback);
 
 export type { PluginHostApi, PluginHostExecResult } from '../core/plugin-contract/api.js';
 
-export class PluginPermissionError extends Error {
+export class PluginPermissionError extends DockscopeError {
   constructor(
     readonly permission: PluginPermission,
     pluginId: string,
+    options?: ErrorOptions,
   ) {
-    super(`Plugin "${pluginId}" requires permission "${permission}"`);
+    super(`Plugin "${pluginId}" requires permission "${permission}"`, {
+      code: 'PLUGIN_PERMISSION_DENIED',
+      category: 'permission',
+      cause: options?.cause,
+    });
     this.name = 'PluginPermissionError';
   }
 }
 
-export class PluginCapabilityError extends Error {
+export class PluginCapabilityError extends DockscopeError {
   constructor(
     readonly capability: PluginCapability,
     pluginId: string,
+    options?: ErrorOptions,
   ) {
-    super(`Plugin "${pluginId}" requires capability "${capability}"`);
+    super(`Plugin "${pluginId}" requires capability "${capability}"`, {
+      code: 'PLUGIN_CAPABILITY_DENIED',
+      category: 'permission',
+      cause: options?.cause,
+    });
     this.name = 'PluginCapabilityError';
   }
 }

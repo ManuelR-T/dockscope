@@ -1,3 +1,4 @@
+import { DockscopeError } from '../errors.js';
 export type PluginSystemStatus = 'connected' | 'disconnected' | 'unknown';
 
 export interface PluginSystemSnapshot {
@@ -22,9 +23,13 @@ export interface PluginSystemProvider {
   listSystems(): readonly PluginSystemDeclaration[] | Promise<readonly PluginSystemDeclaration[]>;
 }
 
-export class PluginSystemError extends Error {
-  constructor(message: string) {
-    super(message);
+export class PluginSystemError extends DockscopeError {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, {
+      code: 'PLUGIN_SYSTEM_INVALID',
+      category: 'validation',
+      cause: options?.cause,
+    });
     this.name = 'PluginSystemError';
   }
 }

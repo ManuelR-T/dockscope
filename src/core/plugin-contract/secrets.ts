@@ -1,3 +1,4 @@
+import { DockscopeError } from '../errors.js';
 export interface PluginSecretDeclaration {
   key: string;
   label: string;
@@ -16,9 +17,13 @@ export interface PluginSecretSnapshot {
 
 const SECRET_KEY_PATTERN = /^[a-zA-Z][a-zA-Z0-9_.-]*$/;
 
-export class PluginSecretError extends Error {
-  constructor(message: string) {
-    super(message);
+export class PluginSecretError extends DockscopeError {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, {
+      code: 'PLUGIN_SECRET_INVALID',
+      category: 'validation',
+      cause: options?.cause,
+    });
     this.name = 'PluginSecretError';
   }
 }

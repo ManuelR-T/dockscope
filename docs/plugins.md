@@ -551,6 +551,38 @@ export default definePluginFactory(({ manifest }) => ({ manifest }));
 
 `dockscope/plugin-sdk` points to the latest stable contract, while `dockscope/plugin-sdk/v1` remains pinned to v1. `plugin:init` creates a `// @ts-check` JavaScript module and `jsconfig.json`, providing the same factory, host, manifest, and provider typing without requiring a compilation step.
 
+## Errors
+
+Use `DockscopeError` from `dockscope/plugin-sdk/v1` for expected failures that the
+host can explain to users. Existing error classes such as `PluginConfigError`
+extend this base and keep their existing constructors (with an optional `cause`).
+
+```ts
+throw new DockscopeError('This endpoint is already configured', {
+  code: 'ENDPOINT_ALREADY_CONFIGURED',
+  category: 'conflict',
+});
+```
+
+Codes are stable uppercase identifiers (letters, digits and underscores, up to 64
+characters). Categories are `validation`, `unauthenticated`, `permission`,
+`not_found`, `conflict`, `internal`, `upstream`, `unavailable`, and `timeout`.
+Messages on non-internal errors must be display-safe; keep private diagnostic
+details in `cause`. Ordinary JavaScript errors remain unexpected internal errors.
+
+Async HTTP routes share one error handler and return `{ error, code }`. Categories
+determine the status; unexpected/internal errors produce a generic 500 response
+and are logged on the server. Existing clients can continue reading `error`.
+The browser's `ApiError` also extends `DockscopeError`, retains `status` and `body`,
+and preserves valid server codes. Legacy responses without a code still work.
+
+Worker requests, host-helper calls, and streams preserve validated codes and
+categories across process isolation. Bundled copies of the SDK are recognized.
+The private IPC envelope carries bounded diagnostic messages, but never causes,
+stacks, or arbitrary error properties. Invalid/legacy envelopes fall back to
+internal errors. Error classifications do not grant permissions or replace the
+host's authorization checks.
+
 ## Permissions
 
 External plugin code is imported only after manifest permissions pass policy checks. A permission passes when it is either in the global `--plugin-permissions` / `DOCKSCOPE_PLUGIN_PERMISSIONS` policy or was granted when the plugin was installed.

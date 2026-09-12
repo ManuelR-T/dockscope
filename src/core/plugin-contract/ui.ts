@@ -1,3 +1,4 @@
+import { DockscopeError } from '../errors.js';
 import type { PluginCapability } from './capabilities.js';
 import type { PluginCommandResult } from './commands.js';
 import type { PluginConfigValue } from './config.js';
@@ -170,9 +171,9 @@ const UI_CAPABILITY_BY_SLOT: Record<PluginUiSlot, PluginCapability> = {
   settings: 'ui.settings',
 };
 
-export class PluginUiError extends Error {
-  constructor(message: string) {
-    super(message);
+export class PluginUiError extends DockscopeError {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, { code: 'PLUGIN_UI_INVALID', category: 'validation', cause: options?.cause });
     this.name = 'PluginUiError';
   }
 }

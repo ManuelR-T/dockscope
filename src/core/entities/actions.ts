@@ -1,3 +1,4 @@
+import { DockscopeError } from '../errors.js';
 import {
   validatePluginConfigSchema,
   type PluginConfig,
@@ -45,9 +46,13 @@ const ACTION_PLACEMENTS = new Set<EntityActionPlacement>(['primary', 'menu']);
 const ACTION_TONES = new Set<EntityActionTone>(['neutral', 'success', 'warning', 'danger']);
 const ACTION_EFFECTS = new Set<EntityActionEffect>(['none', 'refresh', 'remove']);
 
-export class EntityActionError extends Error {
-  constructor(message: string) {
-    super(message);
+export class EntityActionError extends DockscopeError {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, {
+      code: 'ENTITY_ACTION_INVALID',
+      category: 'validation',
+      cause: options?.cause,
+    });
     this.name = 'EntityActionError';
   }
 }

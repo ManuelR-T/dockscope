@@ -3,6 +3,8 @@
 // into a PluginManifest. Kept apart from the registry so the declarative
 // contract can be read without the ~1350-line lifecycle machinery around it.
 import type { GraphSourceAdapter } from '../sources/model.js';
+import { DockscopeError } from '../errors.js';
+import { errorCategoryFromStatus } from '../errorStatus.js';
 import type { EntitySourceAdapter } from '../sources/entities.js';
 import type {
   EntityActionProvider,
@@ -257,19 +259,28 @@ export type PluginReloadHandler = (pluginId: string) => Promise<PluginReloadResu
 
 const PLUGIN_ID_PATTERN = /^[a-z0-9][a-z0-9.-]*$/;
 
-export class PluginOperationError extends Error {
+export class PluginOperationError extends DockscopeError {
   constructor(
     readonly status: number,
     message: string,
+    options?: ErrorOptions,
   ) {
-    super(message);
+    super(message, {
+      code: 'PLUGIN_OPERATION_FAILED',
+      category: errorCategoryFromStatus(status),
+      cause: options?.cause,
+    });
     this.name = 'PluginOperationError';
   }
 }
 
-export class PluginManifestError extends Error {
-  constructor(message: string) {
-    super(message);
+export class PluginManifestError extends DockscopeError {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, {
+      code: 'PLUGIN_MANIFEST_INVALID',
+      category: 'validation',
+      cause: options?.cause,
+    });
     this.name = 'PluginManifestError';
   }
 }

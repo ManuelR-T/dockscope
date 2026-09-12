@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, apiErrorMessage, getJson, isAbortError, postJson } from '../api';
+import { DockscopeError } from '../../../core/errors';
 
 const originalFetch = globalThis.fetch;
 
@@ -43,7 +44,28 @@ describe('api helpers', () => {
       name: 'ApiError',
       status: 404,
       message: 'container not found',
+      code: 'API_REQUEST_FAILED',
+      category: 'not_found',
     });
+  });
+
+  it('preserves server error codes and derives classification from the HTTP status', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      jsonResponse(
+        { error: 'Name is required', code: 'PLUGIN_CONFIG_INVALID', category: 'permission' },
+        { status: 400 },
+      ),
+    ) as typeof fetch;
+    await expect(getJson('/api/example')).rejects.toMatchObject({
+      code: 'PLUGIN_CONFIG_INVALID',
+      category: 'validation',
+      message: 'Name is required',
+    });
+    expect(new ApiError('Fallback', 500, { code: '<invalid>' })).toMatchObject({
+      code: 'API_REQUEST_FAILED',
+      category: 'internal',
+    });
+    expect(new ApiError('Fallback', 500, null)).toBeInstanceOf(DockscopeError);
   });
 
   it('extracts user-facing error messages', () => {

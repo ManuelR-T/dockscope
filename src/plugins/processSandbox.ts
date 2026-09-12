@@ -1,4 +1,5 @@
 import { fork, type ChildProcess } from 'child_process';
+import { serializeError, deserializeError } from '../core/errors.js';
 import { Duplex } from 'stream';
 import { fileURLToPath } from 'url';
 import type { PluginConfig } from '../core/plugin-contract/config.js';
@@ -439,7 +440,7 @@ export class PluginProcessSandbox {
       clearTimeout(pending.timeout);
       this.pending.delete(raw.requestId);
       if (raw.type === 'error') {
-        pending.reject(new Error(raw.message));
+        pending.reject(deserializeError(raw.failure, raw.message));
       } else {
         this.lastOperationAt = Date.now();
         pending.resolve(raw.result);
@@ -461,7 +462,7 @@ export class PluginProcessSandbox {
       }
       this.streams.delete(raw.streamId);
       if (raw.event === 'error') {
-        handlers.onError(new Error(raw.message ?? 'Plugin stream failed'));
+        handlers.onError(deserializeError(raw.failure, raw.message ?? 'Plugin stream failed'));
       } else {
         handlers.onEnd();
       }
@@ -490,6 +491,7 @@ export class PluginProcessSandbox {
         type: 'hostResult',
         callId: message.callId,
         error: errorFromUnknown(error).message,
+        failure: serializeError(error),
       };
     }
     if (this.child === child && child.connected) {

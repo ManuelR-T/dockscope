@@ -1,4 +1,5 @@
 import { pathToFileURL } from 'url';
+import { serializeError, deserializeError } from '../core/errors.js';
 import { adaptEntitySource } from '../core/sources/entities.js';
 import type { PluginCommandResult } from '../core/plugin-contract/commands.js';
 import { validatePluginCommandResult } from '../core/plugin-contract/commands.js';
@@ -543,6 +544,7 @@ async function handleOperation(operation: SandboxRequestOperation): Promise<unkn
             streamId: operation.streamId,
             event: 'error',
             message: error.message,
+            failure: serializeError(error),
           }),
         () => send({ type: 'stream', streamId: operation.streamId, event: 'end' }),
       );
@@ -560,6 +562,7 @@ async function handleOperation(operation: SandboxRequestOperation): Promise<unkn
             streamId: operation.streamId,
             event: 'error',
             message: error.message,
+            failure: serializeError(error),
           }),
       );
       streamStops.set(operation.streamId, stop);
@@ -591,6 +594,7 @@ async function handleOperation(operation: SandboxRequestOperation): Promise<unkn
           streamId: operation.streamId,
           event: 'error',
           message: error.message,
+          failure: serializeError(error),
         });
       });
       return true;
@@ -627,8 +631,8 @@ function handleHostResult(message: SandboxHostResultMessage): void {
     return;
   }
   pendingHostCalls.delete(message.callId);
-  if (message.error) {
-    pending.reject(new Error(message.error));
+  if (message.failure !== undefined || message.error !== undefined) {
+    pending.reject(deserializeError(message.failure, message.error));
   } else {
     pending.resolve(message.result);
   }
@@ -639,7 +643,12 @@ async function handleRequest(message: SandboxRequestMessage): Promise<void> {
     const result = await handleOperation(message.operation);
     send({ type: 'result', requestId: message.requestId, result });
   } catch (error) {
-    send({ type: 'error', requestId: message.requestId, message: errorMessage(error) });
+    send({
+      type: 'error',
+      requestId: message.requestId,
+      message: errorMessage(error),
+      failure: serializeError(error),
+    });
   }
 }
 

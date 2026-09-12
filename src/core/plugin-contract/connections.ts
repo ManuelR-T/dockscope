@@ -1,3 +1,4 @@
+import { DockscopeError } from '../errors.js';
 import {
   validatePluginConfigSchema,
   type PluginConfig,
@@ -43,9 +44,13 @@ export interface PluginConnectionProvider {
 
 const CONNECTION_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_.:-]*$/;
 
-export class PluginConnectionError extends Error {
-  constructor(message: string) {
-    super(message);
+export class PluginConnectionError extends DockscopeError {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, {
+      code: 'PLUGIN_CONNECTION_INVALID',
+      category: 'validation',
+      cause: options?.cause,
+    });
     this.name = 'PluginConnectionError';
   }
 }

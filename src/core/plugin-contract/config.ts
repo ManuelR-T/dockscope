@@ -1,3 +1,4 @@
+import { DockscopeError } from '../errors.js';
 export type PluginConfigFieldType = 'string' | 'number' | 'boolean' | 'select';
 export type PluginConfigValue = string | number | boolean;
 export type PluginConfig = Record<string, PluginConfigValue>;
@@ -28,9 +29,13 @@ export interface PluginConfigValidationOptions {
 const CONFIG_FIELD_TYPES = new Set<string>(['string', 'number', 'boolean', 'select']);
 const CONFIG_KEY_PATTERN = /^[a-zA-Z][a-zA-Z0-9_.-]*$/;
 
-export class PluginConfigError extends Error {
-  constructor(message: string) {
-    super(message);
+export class PluginConfigError extends DockscopeError {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, {
+      code: 'PLUGIN_CONFIG_INVALID',
+      category: 'validation',
+      cause: options?.cause,
+    });
     this.name = 'PluginConfigError';
   }
 }

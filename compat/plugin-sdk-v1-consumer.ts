@@ -1,6 +1,8 @@
 import {
   definePluginFactory,
   definePluginManifest,
+  DockscopeError,
+  isDockscopeError,
   type EntityActionProvider,
   type GraphSourceAdapter,
 } from 'dockscope/plugin-sdk/v1';
@@ -36,7 +38,14 @@ const graphProvider: GraphSourceAdapter = {
 const actionProvider: EntityActionProvider = {
   canHandle: () => true,
   listActions: async () => [],
-  runAction: async () => ({ ok: true }),
+  runAction: async () => {
+    const error = new DockscopeError('Action unavailable', {
+      code: 'ACTION_UNAVAILABLE',
+      category: 'unavailable',
+      cause: new Error('diagnostic'),
+    });
+    return { ok: isDockscopeError(error) };
+  },
 };
 
 export default definePluginFactory(({ manifest: validatedManifest }) => ({

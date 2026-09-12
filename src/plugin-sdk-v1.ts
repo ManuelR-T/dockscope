@@ -1,3 +1,5 @@
+export { DockscopeError, isDockscopeError } from './core/errors.js';
+export type { ErrorCategory, DockscopeErrorOptions } from './core/errors.js';
 export type { EntityMetric, GraphEntity, EntitySourceAdapter } from './core/sources/entities.js';
 export type {
   DataSourceDescriptor,

@@ -1,3 +1,4 @@
+import { DockscopeError } from '../errors.js';
 import type { EntityRef } from '../entities/operations.js';
 
 export type MetricAnalysisId = 'cpu' | 'memory';
@@ -29,9 +30,13 @@ export interface MetricAnalysisProvider {
   ): MetricAnalysisResult | null | Promise<MetricAnalysisResult | null>;
 }
 
-export class MetricAnalysisError extends Error {
-  constructor(message: string) {
-    super(message);
+export class MetricAnalysisError extends DockscopeError {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, {
+      code: 'METRIC_ANALYSIS_INVALID',
+      category: 'validation',
+      cause: options?.cause,
+    });
     this.name = 'MetricAnalysisError';
   }
 }

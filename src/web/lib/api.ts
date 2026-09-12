@@ -1,10 +1,18 @@
-export class ApiError extends Error {
+import { DockscopeError, isErrorCode } from '../../core/errors';
+import { errorCategoryFromStatus } from '../../core/errorStatus';
+
+export class ApiError extends DockscopeError {
   constructor(
     message: string,
     readonly status: number,
     readonly body: unknown,
   ) {
-    super(message);
+    const code =
+      typeof body === 'object' && body !== null && 'code' in body ? body.code : undefined;
+    super(message, {
+      code: isErrorCode(code) ? code : 'API_REQUEST_FAILED',
+      category: errorCategoryFromStatus(status),
+    });
     this.name = 'ApiError';
   }
 }

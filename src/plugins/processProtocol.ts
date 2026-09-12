@@ -1,3 +1,4 @@
+import type { SerializedDockscopeError } from '../core/errors.js';
 import type { PluginCommandDeclaration } from '../core/plugin-contract/commands.js';
 import type { PluginConfig } from '../core/plugin-contract/config.js';
 import type { PluginManifest } from '../core/plugin-contract/manifest.js';
@@ -181,6 +182,7 @@ export interface SandboxErrorMessage {
   type: 'error';
   requestId: string;
   message: string;
+  failure?: SerializedDockscopeError;
 }
 
 export interface SandboxEventMessage {
@@ -195,6 +197,7 @@ export interface SandboxStreamMessage {
   event: 'data' | 'error' | 'end';
   data?: unknown;
   message?: string;
+  failure?: SerializedDockscopeError;
 }
 
 export interface SandboxLogMessage {
@@ -225,6 +228,7 @@ export interface SandboxHostResultMessage {
   callId: string;
   result?: unknown;
   error?: string;
+  failure?: SerializedDockscopeError;
 }
 
 export type SandboxWorkerMessage =

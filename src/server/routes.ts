@@ -1,22 +1,16 @@
-import type { Express, Request, Response } from 'express';
+import type { Express, Request } from 'express';
 import { compareEnvironments } from './compare.js';
-import { PluginOperationError } from '../core/plugin-contract/manifest.js';
+import { DockscopeError } from '../core/errors.js';
+import { asyncRoute } from './errors.js';
 import { type PluginRegistry } from '../core/plugin-contract/registry.js';
-import { PluginConfigError } from '../core/plugin-contract/config.js';
-import { PluginCommandError } from '../core/plugin-contract/commands.js';
-import { PluginUiError, pluginUiContextFromNode } from '../core/plugin-contract/ui.js';
-import { PluginEventError } from '../core/plugin-contract/events.js';
-import { EntityActionError } from '../core/entities/actions.js';
-import { PluginConnectionError } from '../core/plugin-contract/connections.js';
-import { PluginCompatibilityError } from '../core/plugin-contract/compatibility.js';
-import { PluginCatalogError } from '../plugins/catalog.js';
+import { pluginUiContextFromNode } from '../core/plugin-contract/ui.js';
 import { loadAggregatedPluginCatalogs } from '../plugins/catalogAggregate.js';
 import { previewPluginCatalog } from '../plugins/catalogPreview.js';
 import type { PluginMarketplaceService } from '../plugins/marketplace.js';
 import type { EntityRef } from '../core/entities/operations.js';
 import type { AccessRole } from '../core/access.js';
 import type { GraphData, ServerOptions, ServiceNode } from '../types.js';
-import { errorMessage, shortId } from '../utils.js';
+import { shortId } from '../utils.js';
 import { PKG_VERSION, fetchLatestVersion } from '../version.js';
 
 const VALID_ID = /^[a-f0-9]{12,64}$/i;
@@ -24,40 +18,6 @@ const VALID_NODE_ID = /^([^\s:]+:)?[a-f0-9]{12,64}$/i;
 const VALID_ENTITY_ID = /^[^\s/?#]{1,512}$/;
 const COMPOSE_ACTIONS = ['up', 'down', 'destroy', 'stop', 'start', 'restart'] as const;
 type ComposeAction = (typeof COMPOSE_ACTIONS)[number];
-
-class RouteError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-  ) {
-    super(message);
-    this.name = 'RouteError';
-  }
-}
-
-/** Wrap async route handler with automatic error response */
-function asyncRoute(handler: (req: Request, res: Response) => Promise<void>) {
-  return async (req: Request, res: Response) => {
-    try {
-      await handler(req, res);
-    } catch (err) {
-      const status =
-        err instanceof RouteError || err instanceof PluginOperationError
-          ? err.status
-          : err instanceof PluginConfigError ||
-              err instanceof PluginCommandError ||
-              err instanceof PluginUiError ||
-              err instanceof PluginEventError ||
-              err instanceof EntityActionError ||
-              err instanceof PluginConnectionError ||
-              err instanceof PluginCompatibilityError ||
-              err instanceof PluginCatalogError
-            ? 400
-            : 500;
-      res.status(status).json({ error: errorMessage(err) });
-    }
-  };
-}
 
 /** Get container ID param as string */
 function getId(req: Request): string {
@@ -347,7 +307,10 @@ export function setupRoutes(
         systems.find((candidate) => candidate.status === 'connected') ??
         systems[0];
       if (!system) {
-        throw new RouteError(404, 'No plugin system provider is available');
+        throw new DockscopeError('No plugin system provider is available', {
+          code: 'PROVIDER_NOT_FOUND',
+          category: 'not_found',
+        });
       }
       res.json({
         dockerVersion: system.version ?? 'unknown',
@@ -497,7 +460,10 @@ export function setupRoutes(
         ? getGraph().nodes.find((candidate) => candidate.id === nodeId)
         : undefined;
       if (nodeId && !node) {
-        throw new RouteError(404, 'Entity not found');
+        throw new DockscopeError('Entity not found', {
+          code: 'ENTITY_NOT_FOUND',
+          category: 'not_found',
+        });
       }
       // Resolve context server-side; clients cannot fabricate another source or entity.
       const context = pluginUiContextFromNode(node);
@@ -636,7 +602,10 @@ export function setupRoutes(
     asyncRoute(async (req, res) => {
       const source = (req.body as { source?: unknown } | undefined)?.source;
       if (typeof source !== 'string' || !source.trim()) {
-        throw new RouteError(400, 'A catalog "source" string is required');
+        throw new DockscopeError('A catalog "source" string is required', {
+          code: 'INVALID_REQUEST',
+          category: 'validation',
+        });
       }
       res.json(await previewPluginCatalog(source));
     }),
@@ -647,7 +616,10 @@ export function setupRoutes(
     asyncRoute(async (req, res) => {
       const source = (req.body as { source?: unknown } | undefined)?.source;
       if (typeof source !== 'string' || !source.trim()) {
-        throw new RouteError(400, 'A catalog "source" string is required');
+        throw new DockscopeError('A catalog "source" string is required', {
+          code: 'INVALID_REQUEST',
+          category: 'validation',
+        });
       }
       res.json(await marketplace.addCatalog(source));
     }),
@@ -658,7 +630,10 @@ export function setupRoutes(
     asyncRoute(async (req, res) => {
       const source = (req.query.source as string | undefined) ?? '';
       if (!source.trim()) {
-        throw new RouteError(400, 'A catalog "source" query parameter is required');
+        throw new DockscopeError('A catalog "source" query parameter is required', {
+          code: 'INVALID_REQUEST',
+          category: 'validation',
+        });
       }
       res.json(await marketplace.removeCatalog(source));
     }),
