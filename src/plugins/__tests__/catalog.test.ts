@@ -13,6 +13,8 @@ import {
   PLUGIN_CATALOG_TRUST_STORE_FORMAT,
   signPluginCatalogFile,
   type PluginCatalogTrustStore,
+  catalogEntryCompatibilityWarnings,
+  validatePluginCatalog,
 } from '../catalog';
 
 async function createPluginDir(permissions: readonly PluginPermission[] = []): Promise<string> {
@@ -42,6 +44,80 @@ async function createPluginDir(permissions: readonly PluginPermission[] = []): P
 }
 
 describe('plugin catalog', () => {
+  it('verifies signed catalogs containing future requirements, blocks only incompatible installs, and detects tampering', async () => {
+    const outputDir = await mkdtemp(path.join(tmpdir(), 'dockscope-catalog-future-'));
+    const catalogPath = path.join(outputDir, 'catalog.json');
+    const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+    const publicKeyPem = publicKey.export({ type: 'spki', format: 'pem' }).toString();
+    await writeFile(
+      catalogPath,
+      JSON.stringify({
+        format: PLUGIN_CATALOG_FORMAT,
+        name: 'Future catalog',
+        entries: [
+          {
+            id: 'current',
+            name: 'Current',
+            version: '1.0.0',
+            capabilities: ['ui.command'],
+            permissions: [],
+            packageUrl: './current.dockscope-plugin',
+          },
+          {
+            id: 'future',
+            name: 'Future',
+            version: '2.0.0',
+            capabilities: ['ui.future'],
+            permissions: ['future.permission'],
+            packageUrl: './missing.dockscope-plugin',
+          },
+        ],
+      }),
+    );
+    await signPluginCatalogFile({
+      catalogPath,
+      privateKey: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
+    });
+    const loaded = await loadPluginCatalog(catalogPath, { publicKey: publicKeyPem });
+    expect(loaded.signatureVerified).toBe(true);
+    expect(loaded.entries).toHaveLength(2);
+    expect(catalogEntryCompatibilityWarnings(loaded.entries[0])).toEqual([]);
+    expect(catalogEntryCompatibilityWarnings(loaded.entries[1])).toEqual([
+      'Update DockScope: unsupported plugin capability "ui.future"',
+      'Update DockScope: unsupported plugin permission "future.permission"',
+    ]);
+    await expect(
+      installPluginFromCatalog({
+        catalogSource: catalogPath,
+        pluginId: 'future',
+        catalogPublicKey: publicKeyPem,
+        allowUnsigned: true,
+        registryDir: path.join(outputDir, 'registry'),
+      }),
+    ).rejects.toThrow('unsupported plugin capability');
+    const tampered = JSON.parse(await readFile(catalogPath, 'utf8'));
+    tampered.entries[1].capabilities = [];
+    await writeFile(catalogPath, JSON.stringify(tampered));
+    await expect(loadPluginCatalog(catalogPath, { publicKey: publicKeyPem })).rejects.toThrow(
+      'signature mismatch',
+    );
+  });
+
+  it.each([null, 42, [''], [42], [{}]])(
+    'still rejects malformed catalog requirements: %j',
+    (capabilities) => {
+      expect(() =>
+        validatePluginCatalog({
+          format: PLUGIN_CATALOG_FORMAT,
+          name: 'Malformed',
+          entries: [
+            { id: 'bad', name: 'Bad', version: '1.0.0', capabilities, packageUrl: './bad' },
+          ],
+        }),
+      ).toThrow();
+    },
+  );
+
   it('loads catalog entries and installs signed packages', async () => {
     const pluginDir = await createPluginDir();
     const outputDir = await mkdtemp(path.join(tmpdir(), 'dockscope-catalog-out-'));

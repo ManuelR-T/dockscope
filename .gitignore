@@ -6,3 +6,5 @@ dist/
 .vscode
 demo/kubernetes-rollout.yaml
 .direnv
+plugins/**/.data/
+plugins/**/.dockscope-storage/

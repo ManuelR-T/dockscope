@@ -7,15 +7,13 @@ import {
   type PluginRuntimeInfo,
 } from '../core/plugin-contract/manifest.js';
 import { type PluginRegistry } from '../core/plugin-contract/registry.js';
-import type { PluginCapability, PluginPermission } from '../core/plugin-contract/capabilities.js';
 import {
   compareVersions,
-  pluginCompatibilityWarnings,
   type PluginCompatibility,
 } from '../core/plugin-contract/compatibility.js';
 import { PKG_VERSION } from '../version.js';
 import type { PluginCatalogEntrySignature, ResolvedPluginCatalogEntry } from './catalog.js';
-import { installPluginFromCatalog } from './catalog.js';
+import { catalogEntryCompatibilityWarnings, installPluginFromCatalog } from './catalog.js';
 import { previewPluginCatalog } from './catalogPreview.js';
 import {
   pluginCatalogConfigFromEnv,
@@ -70,8 +68,8 @@ export interface PluginMarketplaceEntry {
   compatibilityWarnings: readonly string[];
   screenshots: readonly string[];
   tags: readonly string[];
-  capabilities: readonly PluginCapability[];
-  permissions: readonly PluginPermission[];
+  capabilities: readonly string[];
+  permissions: readonly string[];
   packageSha256?: string;
   signature?: PluginCatalogEntrySignature;
   catalogSignatureVerified?: boolean;
@@ -157,10 +155,7 @@ function catalogMarketplaceEntry(options: {
     publishedAt: options.catalogEntry.publishedAt,
     releaseNotes: options.catalogEntry.releaseNotes,
     compatibility: options.catalogEntry.compatibility,
-    compatibilityWarnings: pluginCompatibilityWarnings(
-      options.catalogEntry.compatibility,
-      PKG_VERSION,
-    ),
+    compatibilityWarnings: catalogEntryCompatibilityWarnings(options.catalogEntry),
     screenshots: [...options.catalogEntry.screenshots],
     tags: [...options.catalogEntry.tags],
     capabilities: [...options.catalogEntry.capabilities],
@@ -241,6 +236,9 @@ export class PluginMarketplaceService {
     const alreadyInstalled = await this.installedPlugin(pluginId);
     const snapshot = await this.snapshotInstalledPlugin(pluginId);
     try {
+      if (runtime) {
+        await this.registry.unregisterPlugin(pluginId);
+      }
       const installed = await installPluginFromCatalog({
         catalogSource: source,
         pluginId,
@@ -275,6 +273,9 @@ export class PluginMarketplaceService {
     const source = found.source;
     const catalogVerification = resolvePluginCatalogLoadOptions(source, await this.catalogConfig());
     try {
+      if (this.runtimePlugin(pluginId)) {
+        await this.registry.unregisterPlugin(pluginId);
+      }
       const updated = await installPluginFromCatalog({
         catalogSource: source,
         pluginId,
@@ -443,7 +444,7 @@ export class PluginMarketplaceService {
     if (entry.status === 'yanked') {
       throw new PluginOperationError(400, `Plugin is yanked: ${entry.id}`);
     }
-    const warnings = pluginCompatibilityWarnings(entry.compatibility, PKG_VERSION);
+    const warnings = catalogEntryCompatibilityWarnings(entry);
     if (warnings.length > 0) {
       throw new PluginOperationError(
         400,

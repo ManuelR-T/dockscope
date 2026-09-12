@@ -1,6 +1,5 @@
 import { execFile as execFileCallback } from 'child_process';
-import { mkdir, readFile, rm, writeFile } from 'fs/promises';
-import { isNativeError } from 'util/types';
+import { mkdir, readFile, writeFile } from 'fs/promises';
 import path from 'path';
 import { promisify } from 'util';
 import type { PluginCapability, PluginPermission } from '../core/plugin-contract/capabilities.js';
@@ -8,6 +7,7 @@ import type { PluginHostApi } from '../core/plugin-contract/api.js';
 import type { PluginEvent } from '../core/plugin-contract/events.js';
 import type { PluginSecretDeclaration } from '../core/plugin-contract/secrets.js';
 import type { PluginSecretStore } from './secretStore.js';
+import { createPluginStorage } from './storage.js';
 
 const execFileAsync = promisify(execFileCallback);
 
@@ -62,13 +62,6 @@ function resolveInsidePluginDir(pluginDir: string, relativePath: string): string
   return resolved;
 }
 
-function storagePath(pluginDir: string, key: string): string {
-  if (!/^[a-zA-Z0-9_.-]+$/.test(key)) {
-    throw new Error(`Invalid plugin storage key: ${key}`);
-  }
-  return resolveInsidePluginDir(pluginDir, path.join('.dockscope-storage', `${key}.json`));
-}
-
 function isLocalHost(hostname: string): boolean {
   return (
     hostname === 'localhost' ||
@@ -99,6 +92,7 @@ export function createPluginHostApi(options: {
   const capabilities = new Set(options.capabilities);
   const allowedSecrets = new Set((options.secrets ?? []).map((secret) => secret.key));
   return {
+    ...createPluginStorage(options.pluginDir),
     permissions: [...permissions],
     async readTextFile(relativePath) {
       requirePermission(options.pluginId, permissions, 'filesystem.read');
@@ -135,29 +129,6 @@ export function createPluginHostApi(options: {
         throw new Error(`Plugin secret is not declared: ${key}`);
       }
       return options.secretStore?.get(options.pluginId, key);
-    },
-    async readStorage(key) {
-      const targetPath = storagePath(options.pluginDir, key);
-      try {
-        return JSON.parse(await readFile(targetPath, 'utf-8')) as unknown;
-      } catch (error) {
-        if (isNativeError(error) && 'code' in error && error.code === 'ENOENT') {
-          return undefined;
-        }
-        throw error;
-      }
-    },
-    async writeStorage(key, value) {
-      if (value === undefined) {
-        await rm(storagePath(options.pluginDir, key), { force: true });
-        return undefined;
-      }
-      const targetPath = storagePath(options.pluginDir, key);
-      await mkdir(path.dirname(targetPath), { recursive: true });
-      await writeFile(targetPath, JSON.stringify(value, null, 2), 'utf-8');
-    },
-    async deleteStorage(key) {
-      await rm(storagePath(options.pluginDir, key), { force: true });
     },
     async publishEvent(type, payload) {
       requireCapability(options.pluginId, capabilities, 'source.events');

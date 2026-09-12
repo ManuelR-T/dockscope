@@ -564,8 +564,23 @@ Plugin factories receive a restricted `host` API. Host helpers check the plugin'
 - `host.fetchJson()` requires `network.local` for local URLs or `network.http` for remote URLs.
 - `host.execFile()` requires `process.exec` and does not invoke a shell.
 - `host.readSecret()` requires `secrets.read` and only reads declared secrets.
-- `host.readStorage()`, `host.writeStorage()`, and `host.deleteStorage()` persist plugin-private JSON values under the plugin directory and do not require filesystem permissions.
+- `host.readStorage()`, `host.writeStorage()`, and `host.deleteStorage()` persist plugin-private JSON values outside the replaceable plugin directory and do not require filesystem permissions.
 - `host.publishEvent()` requires `source.events` and writes to the plugin event bus.
+
+Storage is scoped to the installation directory. For an installed plugin it lives
+at `<plugin-registry>/.data/<plugin-id>/`; a directly loaded development plugin
+uses `<parent>/.data/<plugin-directory-name>/`. Keep that directory when backing up
+or moving an installation. The default registry is inside `DOCKSCOPE_STATE_DIR`,
+so the existing container state volume also persists plugin data.
+
+The host migrates legacy `<plugin-directory>/.dockscope-storage/*.json` on first
+storage access and before an upgrade or uninstall. Migration preserves existing
+destination values, is retryable, and blocks replacement if legacy JSON is invalid.
+Writes atomically replace individual JSON files; there is no multi-key transaction.
+Upgrades and uninstalls retain persistent data, so reinstalling restores it.
+The running marketplace stops the plugin before replacing its code; when using
+the standalone CLI installer, stop any DockScope process using that registry first.
+Plugin storage is not a secret vault: use declared secrets for credentials.
 
 Current permissions are:
 

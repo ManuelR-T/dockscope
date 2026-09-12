@@ -3,6 +3,10 @@ import { tmpdir } from 'os';
 import path from 'path';
 import { describe, expect, it } from 'vitest';
 import { installPluginFromPath, listInstalledPlugins, uninstallPlugin } from '../install';
+import { createPluginHostApi } from '../hostApi';
+import { pluginStorageDir } from '../storage';
+import { createPluginPackageFromPath } from '../package';
+import { generateKeyPairSync } from 'crypto';
 
 async function createPluginDir(
   version: string,
@@ -35,6 +39,63 @@ async function createPluginDir(
 }
 
 describe('plugin installation', () => {
+  it('preserves legacy and current endpoint data across signed package upgrades and reinstall', async () => {
+    const registryDir = await mkdtemp(path.join(tmpdir(), 'dockscope-install-storage-'));
+    const pluginDir = path.join(registryDir, 'install.demo');
+    await installPluginFromPath({ sourcePath: await createPluginDir('1.0.0'), registryDir });
+    // Reproduce an installation written by an older host, before persistent storage existed.
+    await rm(pluginStorageDir(pluginDir), { recursive: true });
+    const legacy = path.join(pluginDir, '.dockscope-storage');
+    await mkdir(legacy);
+    const endpoints = [{ id: 'home', url: 'http://home.local' }];
+    await writeFile(path.join(legacy, 'endpoints.json'), JSON.stringify(endpoints));
+    const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+    const outFile = path.join(registryDir, 'upgrade.dockscope-plugin');
+    await createPluginPackageFromPath({
+      sourcePath: await createPluginDir('2.0.0'),
+      outFile,
+      privateKey: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
+    });
+    const upgrade = () =>
+      installPluginFromPath({
+        sourcePath: outFile,
+        registryDir,
+        publicKey: publicKey.export({ type: 'spki', format: 'pem' }).toString(),
+      });
+    await upgrade();
+    const host = () =>
+      createPluginHostApi({
+        pluginId: 'install.demo',
+        pluginDir,
+        capabilities: [],
+        permissions: [],
+      });
+    await expect(host().readStorage('endpoints')).resolves.toEqual(endpoints);
+    await host().writeStorage('endpoints', [...endpoints, { id: 'other' }]);
+    await upgrade();
+    await expect(host().readStorage('endpoints')).resolves.toHaveLength(2);
+    await uninstallPlugin('install.demo', registryDir);
+    await upgrade();
+    await expect(host().readStorage('endpoints')).resolves.toHaveLength(2);
+  });
+
+  it('does not replace legacy code or data when migration fails', async () => {
+    const registryDir = await mkdtemp(path.join(tmpdir(), 'dockscope-install-migration-'));
+    const installed = await installPluginFromPath({
+      sourcePath: await createPluginDir('1.0.0'),
+      registryDir,
+    });
+    await rm(pluginStorageDir(installed.path), { recursive: true });
+    const legacy = path.join(installed.path, '.dockscope-storage');
+    await mkdir(legacy);
+    await writeFile(path.join(legacy, 'endpoints.json'), '{invalid');
+    await expect(
+      installPluginFromPath({ sourcePath: await createPluginDir('2.0.0'), registryDir }),
+    ).rejects.toThrow();
+    await expect(listInstalledPlugins(registryDir)).resolves.toMatchObject([{ version: '1.0.0' }]);
+    await expect(readFile(path.join(legacy, 'endpoints.json'), 'utf8')).resolves.toBe('{invalid');
+  });
+
   it('atomically replaces installed plugin contents and index records', async () => {
     const registryDir = await mkdtemp(path.join(tmpdir(), 'dockscope-install-registry-'));
     await installPluginFromPath({

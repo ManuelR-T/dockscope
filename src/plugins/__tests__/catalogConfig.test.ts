@@ -4,6 +4,7 @@ import { PLUGIN_CATALOG_TRUST_STORE_FORMAT } from '../catalog';
 import {
   OFFICIAL_PLUGIN_CATALOG_TRUST_STORE,
   OFFICIAL_PLUGIN_CATALOG_URL,
+  LEGACY_OFFICIAL_PLUGIN_CATALOG_URL,
   parsePluginCatalogSources,
   pluginCatalogLoadOptionsFromEnv,
   pluginCatalogSourceFromEnv,
@@ -14,6 +15,15 @@ import {
 } from '../catalogConfig';
 
 describe('official plugin catalog configuration', () => {
+  it('selects the current channel and retains the signing pin for explicit legacy URLs', () => {
+    expect(resolvePluginCatalogSource({})).toBe(
+      'https://manuelr-t.github.io/dockscope/plugins/v2/catalog.json',
+    );
+    expect(resolvePluginCatalogLoadOptions(LEGACY_OFFICIAL_PLUGIN_CATALOG_URL, {})).toEqual({
+      trustStore: OFFICIAL_PLUGIN_CATALOG_TRUST_STORE,
+    });
+  });
+
   it('uses the official catalog and pinned signing key by default', () => {
     const source = resolvePluginCatalogSource({});
 

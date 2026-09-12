@@ -1,5 +1,5 @@
 import { generateKeyPairSync } from 'crypto';
-import { mkdir, mkdtemp, writeFile } from 'fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import path from 'path';
 import { describe, expect, it, vi } from 'vitest';
@@ -12,6 +12,7 @@ import { createPluginRegistry, installedPermissionGrants } from '../internal';
 import { createPluginMarketplaceService } from '../marketplace';
 import { createPluginPackageFromPath } from '../package';
 import { OFFICIAL_PLUGIN_CATALOG_NAME } from '../catalogConfig';
+import { createPluginHostApi } from '../hostApi';
 
 async function createPluginDir(
   options: {
@@ -98,6 +99,61 @@ async function writeSignedCatalog(options: {
 }
 
 describe('plugin marketplace', () => {
+  it('keeps supported entries visible when another plugin requires a future host', async () => {
+    const outputDir = await mkdtemp(path.join(tmpdir(), 'dockscope-marketplace-future-'));
+    const catalogPath = path.join(outputDir, 'catalog.json');
+    const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+    await writeFile(
+      catalogPath,
+      JSON.stringify({
+        format: PLUGIN_CATALOG_FORMAT,
+        name: 'Future',
+        entries: [
+          {
+            id: 'supported',
+            name: 'Supported',
+            version: '1.0.0',
+            capabilities: ['ui.command'],
+            permissions: [],
+            packageUrl: './supported',
+          },
+          {
+            id: 'future',
+            name: 'Future',
+            version: '1.0.0',
+            capabilities: ['ui.future'],
+            permissions: [],
+            packageUrl: './future',
+          },
+        ],
+      }),
+    );
+    await signPluginCatalogFile({
+      catalogPath,
+      privateKey: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
+    });
+    const service = createPluginMarketplaceService(
+      {
+        DOCKSCOPE_PLUGIN_CATALOG: catalogPath,
+        DOCKSCOPE_DISABLE_OFFICIAL_PLUGIN_CATALOG: '1',
+        DOCKSCOPE_PLUGIN_CATALOG_PUBLIC_KEY: publicKey
+          .export({ type: 'spki', format: 'pem' })
+          .toString(),
+        DOCKSCOPE_PLUGIN_REGISTRY: path.join(outputDir, 'registry'),
+      },
+      new PluginRegistry(),
+    );
+    const snapshot = await service.list();
+    expect(snapshot.catalogError).toBeUndefined();
+    expect(
+      snapshot.entries.find((entry) => entry.id === 'supported')?.compatibilityWarnings,
+    ).toEqual([]);
+    expect(snapshot.entries.find((entry) => entry.id === 'future')?.compatibilityWarnings).toEqual([
+      'Update DockScope: unsupported plugin capability "ui.future"',
+    ]);
+    await expect(service.install('future')).rejects.toThrow('unsupported plugin capability');
+  });
+
   it('installs catalog plugins into the running registry and uninstalls them', async () => {
     const pluginDir = await createPluginDir();
     const outputDir = await mkdtemp(path.join(tmpdir(), 'dockscope-marketplace-out-'));
@@ -378,6 +434,13 @@ describe('plugin marketplace', () => {
     await service.install('marketplace.demo');
 
     const brokenPackagePath = path.join(outputDir, 'marketplace-demo-1.1.0.dockscope-plugin');
+    const host = createPluginHostApi({
+      pluginId: 'marketplace.demo',
+      pluginDir: path.join(registryDir, 'marketplace.demo'),
+      capabilities: [],
+      permissions: [],
+    });
+    await host.writeStorage('endpoints', [{ id: 'home' }]);
     const brokenBundle = await createPluginPackageFromPath({
       sourcePath: await createPluginDir({
         version: '1.1.0',
@@ -413,6 +476,68 @@ describe('plugin marketplace', () => {
     await expect(listInstalledPlugins(registryDir)).resolves.toMatchObject([
       { id: 'marketplace.demo', version: '1.0.0' },
     ]);
+    await expect(host.readStorage('endpoints')).resolves.toEqual([{ id: 'home' }]);
+  });
+
+  it('finishes plugin shutdown against the old code before replacement and retains its final writes', async () => {
+    const outputDir = await mkdtemp(path.join(tmpdir(), 'dockscope-marketplace-storage-'));
+    const registryDir = path.join(outputDir, 'registry');
+    const catalogPath = path.join(outputDir, 'catalog.json');
+    const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+    const privateKeyPem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+    const publicKeyPem = publicKey.export({ type: 'spki', format: 'pem' }).toString();
+    const moduleSource = `import { readFile } from 'node:fs/promises';
+      import path from 'node:path';
+      export default function ({ manifest, pluginDir, host }) {
+        return { manifest,
+          async stop() {
+            const diskManifest = JSON.parse(await readFile(path.join(pluginDir, 'plugin.json'), 'utf8'));
+            await host.writeStorage('stoppedVersion', diskManifest.version);
+          },
+          async runCommand() { return { ok: true, data: await host.readStorage('stoppedVersion') }; }
+        };
+      }`;
+    const registry = new PluginRegistry();
+    const service = createPluginMarketplaceService(
+      {
+        DOCKSCOPE_PLUGIN_CATALOG: catalogPath,
+        DOCKSCOPE_DISABLE_OFFICIAL_PLUGIN_CATALOG: '1',
+        DOCKSCOPE_PLUGIN_CATALOG_PUBLIC_KEY: publicKeyPem,
+        DOCKSCOPE_PLUGIN_REGISTRY: registryDir,
+        DOCKSCOPE_PLUGIN_STATE: path.join(outputDir, 'state.json'),
+      },
+      registry,
+    );
+    for (const version of ['1.0.0', '2.0.0']) {
+      const packagePath = path.join(outputDir, `${version}.dockscope-plugin`);
+      const bundle = await createPluginPackageFromPath({
+        sourcePath: await createPluginDir({ version, moduleSource }),
+        outFile: packagePath,
+        privateKey: privateKeyPem,
+        keyId: 'test-key',
+      });
+      await writeSignedCatalog({
+        catalogPath,
+        packagePath,
+        packageSha256: bundle.sha256,
+        version,
+        publicKey: publicKeyPem,
+        privateKey: privateKeyPem,
+      });
+      if (version === '1.0.0') {
+        await service.install('marketplace.demo');
+      } else {
+        await service.update('marketplace.demo');
+      }
+    }
+    await expect(registry.runPluginCommand('marketplace.demo', 'hello')).resolves.toMatchObject({
+      ok: true,
+      data: '1.0.0',
+    });
+    await expect(
+      readFile(path.join(registryDir, 'marketplace.demo', 'plugin.json'), 'utf8'),
+    ).resolves.toContain('2.0.0');
+    await registry.stopAll();
   });
 
   it('keeps the marketplace available when the default catalog is offline', async () => {

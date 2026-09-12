@@ -35,7 +35,7 @@ export interface VerifiedPluginPackage {
   signatureVerified: boolean;
 }
 
-const EXCLUDED_DIRS = new Set(['.git', 'node_modules']);
+const EXCLUDED_DIRS = new Set(['.git', 'node_modules', '.dockscope-storage', '.data']);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);

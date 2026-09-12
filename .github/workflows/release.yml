@@ -117,6 +117,11 @@ jobs:
           --catalog-key-id official-catalog-v1
           --require-signatures
 
+      - name: Verify both official catalog channels
+        run: |
+          node dist/cli.js plugin:catalog --catalog dist/plugin-pages/plugins/catalog.json --trust dist/plugin-pages/plugins/catalog-trust.json
+          node dist/cli.js plugin:catalog --catalog dist/plugin-pages/plugins/v2/catalog.json --trust dist/plugin-pages/plugins/catalog-trust.json
+
       - name: Upload plugin catalog Pages artifact
         uses: actions/upload-pages-artifact@v5
         with:
@@ -239,7 +244,7 @@ jobs:
       id-token: write
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}plugins/catalog.json
+      url: ${{ steps.deployment.outputs.page_url }}plugins/v2/catalog.json
     steps:
       - name: Deploy catalog to GitHub Pages
         id: deployment

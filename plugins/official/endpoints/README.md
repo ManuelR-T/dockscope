@@ -10,7 +10,7 @@ Install Endpoint Monitoring from a catalog containing this plugin, approve its
 network permissions, and enable it. Under **Connections**, select **HTTP / HTTPS
 endpoints** and enter a name and URL. Select the resulting graph node to see its
 health, response time, HTTP status, last check, and HTTPS certificate expiry.
-Connections survive plugin restarts. Removing a connection removes its graph node
+Connections survive plugin restarts and upgrades. Removing a connection removes its graph node
 on the next graph refresh.
 
 For local development from this repository, after `npm run build`:
@@ -44,8 +44,9 @@ and [peer-certificate interface](https://nodejs.org/api/tls.html#tlssocketgetpee
 
 ## Access and limitations
 
-Operators configure targets; Readers only see cached observations. Opening or
-refreshing a panel never initiates a probe. URLs with embedded credentials, query
+Operators configure targets; Readers only see cached observations. Panel queries
+read the cache; plugin startup and worker-crash recovery also restart monitoring.
+URLs with embedded credentials, query
 parameters, or fragments are rejected. URL paths and labels are visible to
 Readers, so do not put secrets in them. Authentication headers and per-endpoint
 trust roots are not supported in this first version.

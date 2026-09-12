@@ -69,8 +69,9 @@ describe('official endpoint monitoring', () => {
     );
     const temp = await mkdtemp(path.join(tmpdir(), 'dockscope-endpoints-'));
     cleanups.push(() => rm(temp, { recursive: true, force: true }));
-    await cp(sourceDir, temp, { recursive: true });
-    const loaded = await loadExternalPlugins({ paths: [temp], permissions: 'all' });
+    const pluginDir = path.join(temp, 'plugin');
+    await cp(sourceDir, pluginDir, { recursive: true });
+    const loaded = await loadExternalPlugins({ paths: [pluginDir], permissions: 'all' });
     expect(loaded.errors).toEqual([]);
     const plugin = loaded.plugins[0];
     cleanups.push(() => plugin.stop?.());

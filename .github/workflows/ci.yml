@@ -284,11 +284,10 @@ jobs:
           --out dist/plugin-catalog
           --dev-keys
           --require-signatures
-      - name: Verify catalog signature
-        run: >-
-          node dist/cli.js plugin:catalog
-          --catalog dist/plugin-catalog/catalog.json
-          --trust dist/plugin-catalog/catalog-trust.json
+      - name: Verify legacy and current catalog signatures
+        run: |
+          node dist/cli.js plugin:catalog --catalog dist/plugin-catalog/catalog.json --trust dist/plugin-catalog/catalog-trust.json
+          node dist/cli.js plugin:catalog --catalog dist/plugin-catalog/v2/catalog.json --trust dist/plugin-catalog/catalog-trust.json
       - name: Install and load official Kubernetes plugin
         run: |
           node dist/cli.js plugin:catalog:install official.kubernetes \
@@ -297,6 +296,15 @@ jobs:
             --registry-dir /tmp/dockscope-plugin-registry
           node dist/cli.js plugin:test \
             --plugins /tmp/dockscope-plugin-registry/official.kubernetes \
+            --plugin-permissions all
+      - name: Install and load endpoint monitoring from the current catalog
+        run: |
+          node dist/cli.js plugin:catalog:install official.endpoints \
+            --catalog dist/plugin-catalog/v2/catalog.json \
+            --catalog-trust dist/plugin-catalog/catalog-trust.json \
+            --registry-dir /tmp/dockscope-plugin-registry
+          node dist/cli.js plugin:test \
+            --plugins /tmp/dockscope-plugin-registry/official.endpoints \
             --plugin-permissions all
       - name: Verify reproducible catalog artifacts
         run: |

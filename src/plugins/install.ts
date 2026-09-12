@@ -4,6 +4,7 @@ import path from 'path';
 import { validateExternalPluginManifests } from './loader.js';
 import { extractPluginPackage, isPluginPackageFile, verifyPluginPackage } from './package.js';
 import { assertReservedPluginNamespace } from './namespace.js';
+import { migratePluginStorage } from './storage.js';
 import type { PluginManifest } from '../core/plugin-contract/manifest.js';
 import { isPluginPermission, type PluginPermission } from '../core/plugin-contract/capabilities.js';
 
@@ -282,6 +283,7 @@ async function installPluginFromPathUnlocked(
       path: targetDir,
     };
 
+    await migratePluginStorage(targetDir);
     try {
       await rename(targetDir, backupDir);
       previousMoved = true;
@@ -356,6 +358,7 @@ export async function uninstallPlugin(
     const backupDir = path.join(stagingRoot, 'plugin');
     let pluginMoved = false;
     try {
+      await migratePluginStorage(installed.path);
       try {
         await rename(installed.path, backupDir);
         pluginMoved = true;

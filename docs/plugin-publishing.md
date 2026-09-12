@@ -167,7 +167,14 @@ npm run plugins:catalog -- \
   --catalog-key-id official-catalog
 ```
 
-The script packages every directory under `plugins/official`, writes package artifacts under `dist/plugin-catalog/packages`, writes `catalog.json` and `catalog-trust.json`, and signs the catalog when a catalog private key is provided. Pass `--package-trust-policy <file>` to carry previous package keys and package revocations, and `--catalog-trust-store <file>` to carry overlapping catalog signer keys. The equivalent CI variables are `DOCKSCOPE_PLUGIN_PACKAGE_TRUST_POLICY` and `DOCKSCOPE_PLUGIN_CATALOG_TRUST_STORE`.
+The script packages every directory under `plugins/official` and writes shared package artifacts under `dist/plugin-catalog/packages`. It generates two independently signed catalog documents from that same metadata:
+
+- `catalog.json`: the legacy channel, containing only entries whose capabilities and permissions are understood by DockScope 0.11 and earlier. Do not publish new capability names at this URL.
+- `v2/catalog.json`: the current channel, containing all entries, including Endpoint Monitoring. New hosts use this URL by default. The catalog document format remains `dockscope-plugin-catalog/v1`; the URL separates reader generations, not plugin versions.
+
+Both channels publish `catalog.public.pem` and `catalog-trust.json` alongside their document. Pass `--package-trust-policy <file>` to carry previous package keys and package revocations, and `--catalog-trust-store <file>` to carry overlapping catalog signer keys. The equivalent CI variables are `DOCKSCOPE_PLUGIN_PACKAGE_TRUST_POLICY` and `DOCKSCOPE_PLUGIN_CATALOG_TRUST_STORE`.
+
+Current hosts preserve unknown capability and permission names while verifying catalog signatures, show the affected plugin as incompatible, and refuse its installation. Other entries remain browsable. Malformed catalogs, invalid signatures, and package/metadata mismatches still fail closed. Older hosts cannot gain this behavior through plugin version metadata alone; keep their channel available. If an existing legacy plugin adopts a new capability later, retain its last compatible release in the legacy publishing inputs rather than replacing that entry with an incompatible release.
 
 Set `SOURCE_DATE_EPOCH` to a Unix timestamp to make `updatedAt`, default `publishedAt`, packages, signatures, and catalog files reproducible from identical inputs:
 
@@ -321,5 +328,4 @@ Configure these GitHub Actions secrets before releasing:
 
 Generate each pair with `dockscope plugin:keys`. Keep private keys outside the repository and retain them between releases. The catalog builder derives and publishes `package.public.pem` and `catalog.public.pem`; it also accepts the corresponding `DOCKSCOPE_PLUGIN_*_PRIVATE_KEY` environment variables in CI. Release builds use `--require-signatures` and fail closed when either secret is absent.
 
-GitHub Pages must use **GitHub Actions** as its deployment source. Once enabled, the stable catalog URL is `https://<owner>.github.io/<repository>/plugins/catalog.json`.
-
+GitHub Pages must use **GitHub Actions** as its deployment source. Once enabled, the current catalog URL is `https://<owner>.github.io/<repository>/plugins/v2/catalog.json`. Keep `https://<owner>.github.io/<repository>/plugins/catalog.json` deployed for older installations. Release tooling publishes both in the same Pages artifact.

@@ -235,7 +235,10 @@ async function loadBuildModules() {
     const catalogModule = await import(
       pathToFileURL(path.join(projectRoot, 'dist/plugins/catalog.js')).href
     );
-    return { packageModule, catalogModule };
+    const channelsModule = await import(
+      pathToFileURL(path.join(projectRoot, 'dist/plugins/catalogChannels.js')).href
+    );
+    return { packageModule, catalogModule, channelsModule };
   } catch (error) {
     console.error('Build output is missing. Run `npm run build` before building a plugin catalog.');
     throw error;
@@ -295,7 +298,7 @@ if (options['require-signatures'] === true && (!packagePrivateKey || !catalogPri
 
 await mkdir(packageDir, { recursive: true });
 
-const { packageModule, catalogModule } = await loadBuildModules();
+const { packageModule, catalogModule, channelsModule } = await loadBuildModules();
 const pluginDirs = await discoverPluginDirs(sourceDir);
 if (pluginDirs.length === 0) {
   throw new Error(`No plugin manifests found under ${sourceDir}`);
@@ -378,15 +381,20 @@ const catalog = {
   entries,
 };
 const validatedCatalog = catalogModule.validatePluginCatalog(catalog);
-await mkdir(outDir, { recursive: true });
-await writeFile(catalogPath, JSON.stringify(validatedCatalog, null, 2), 'utf-8');
-
-if (catalogPrivateKey) {
-  await catalogModule.signPluginCatalogFile({
-    catalogPath,
-    privateKey: catalogPrivateKey,
-    keyId: catalogKeyId,
-  });
+const channels = channelsModule.pluginCatalogChannels(validatedCatalog);
+for (const [target, document] of [
+  [catalogPath, channels.legacy],
+  [path.join(outDir, 'v2', 'catalog.json'), channels.current],
+]) {
+  await mkdir(path.dirname(target), { recursive: true });
+  await writeFile(target, JSON.stringify(document, null, 2), 'utf-8');
+  if (catalogPrivateKey) {
+    await catalogModule.signPluginCatalogFile({
+      catalogPath: target,
+      privateKey: catalogPrivateKey,
+      keyId: catalogKeyId,
+    });
+  }
 }
 
 if (packagePublicKey) {
@@ -394,6 +402,7 @@ if (packagePublicKey) {
 }
 if (catalogPublicKey) {
   await writeFile(path.join(outDir, 'catalog.public.pem'), catalogPublicKey, 'utf-8');
+  await writeFile(path.join(outDir, 'v2', 'catalog.public.pem'), catalogPublicKey, 'utf-8');
   const catalogTrustStore = catalogModule.validatePluginCatalogTrustStore({
     format: catalogModule.PLUGIN_CATALOG_TRUST_STORE_FORMAT,
     keys: mergeTrustKeys(configuredCatalogTrust.keys, {
@@ -411,9 +420,15 @@ if (catalogPublicKey) {
     JSON.stringify(catalogTrustStore, null, 2),
     'utf-8',
   );
+  await writeFile(
+    path.join(outDir, 'v2', 'catalog-trust.json'),
+    JSON.stringify(catalogTrustStore, null, 2),
+    'utf-8',
+  );
 }
 
 console.log(`catalog ${catalogPath}`);
+console.log(`current catalog ${path.join(outDir, 'v2', 'catalog.json')}`);
 if (catalogPublicKey) {
   console.log(`catalog public key ${path.join(outDir, 'catalog.public.pem')}`);
 }

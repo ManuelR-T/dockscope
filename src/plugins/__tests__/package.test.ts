@@ -31,6 +31,23 @@ async function createPluginDir(): Promise<string> {
 }
 
 describe('plugin packages', () => {
+  it('never packages current or retained legacy plugin data', async () => {
+    const pluginDir = await createPluginDir();
+    for (const directory of ['.data', '.dockscope-storage']) {
+      await mkdir(path.join(pluginDir, directory));
+      await writeFile(path.join(pluginDir, directory, 'endpoints.json'), '["private-target"]');
+    }
+    const outFile = path.join(
+      await mkdtemp(path.join(tmpdir(), 'dockscope-package-data-')),
+      'plugin.dockscope-plugin',
+    );
+    const bundle = await createPluginPackageFromPath({ sourcePath: pluginDir, outFile });
+    expect(bundle.files.map((file) => file.path)).toEqual(['plugin.json', 'plugin.mjs']);
+    expect(await readFile(outFile, 'utf8')).not.toContain(
+      Buffer.from('["private-target"]').toString('base64'),
+    );
+  });
+
   it('creates, verifies, signs, and extracts plugin packages', async () => {
     const pluginDir = await createPluginDir();
     const outFile = path.join(

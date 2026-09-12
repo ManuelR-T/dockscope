@@ -7,8 +7,10 @@ import {
 import type { StoredPluginCatalog } from './catalogStore.js';
 
 export const OFFICIAL_PLUGIN_CATALOG_NAME = 'DockScope Official Plugins';
-export const OFFICIAL_PLUGIN_CATALOG_URL =
+export const LEGACY_OFFICIAL_PLUGIN_CATALOG_URL =
   'https://manuelr-t.github.io/dockscope/plugins/catalog.json';
+export const OFFICIAL_PLUGIN_CATALOG_URL =
+  'https://manuelr-t.github.io/dockscope/plugins/v2/catalog.json';
 
 const OFFICIAL_PLUGIN_CATALOG_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
 MCowBQYDK2VwAyEAYB0Ydod72LLaaXPOsGEFeRrrdlE9dSX9uy9Sz8n0RZk=
@@ -112,7 +114,10 @@ export function resolvePluginCatalogLoadOptions(
   // settings are configured for another catalog, otherwise adding a key for a
   // third-party catalog would silently unpin the official one. Configured keys
   // stay usable alongside the pin, so an official mirror still verifies.
-  if (source === OFFICIAL_PLUGIN_CATALOG_URL && !configuration.disableOfficial) {
+  if (
+    (source === OFFICIAL_PLUGIN_CATALOG_URL || source === LEGACY_OFFICIAL_PLUGIN_CATALOG_URL) &&
+    !configuration.disableOfficial
+  ) {
     return {
       publicKey,
       trustStore: mergeTrustStores(OFFICIAL_PLUGIN_CATALOG_TRUST_STORE, trustStore),

@@ -5,7 +5,6 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { installPluginFromPath, type InstalledPlugin } from './install.js';
 import { MAX_PLUGIN_PACKAGE_BYTES, verifyPluginPackage } from './package.js';
-import type { PluginCapability, PluginPermission } from '../core/plugin-contract/capabilities.js';
 import { isPluginCapability, isPluginPermission } from '../core/plugin-contract/capabilities.js';
 import type { PluginManifest } from '../core/plugin-contract/manifest.js';
 import {
@@ -90,8 +89,9 @@ export interface PluginCatalogEntry {
   publishedAt?: string;
   releaseNotes?: string;
   compatibility?: PluginCompatibility;
-  capabilities: readonly PluginCapability[];
-  permissions: readonly PluginPermission[];
+  // Preserve future requirements verbatim for signature verification and compatibility checks.
+  capabilities: readonly string[];
+  permissions: readonly string[];
   packageUrl: string;
   packageSha256?: string;
   signature?: PluginCatalogEntrySignature;
@@ -319,34 +319,19 @@ export function parsePluginCatalogTrustStore(value: string): PluginCatalogTrustS
   }
 }
 
-function capabilityList(raw: unknown): PluginCapability[] {
-  if (raw === undefined) {
-    return [];
-  }
-  if (!Array.isArray(raw)) {
-    throw new PluginCatalogError('Plugin catalog field "capabilities" must be an array');
-  }
-  return raw.map((item) => {
-    if (!isPluginCapability(item)) {
-      throw new PluginCatalogError(`Unsupported plugin catalog capability: ${String(item)}`);
-    }
-    return item;
-  });
-}
-
-function permissionList(raw: unknown): PluginPermission[] {
-  if (raw === undefined) {
-    return [];
-  }
-  if (!Array.isArray(raw)) {
-    throw new PluginCatalogError('Plugin catalog field "permissions" must be an array');
-  }
-  return raw.map((item) => {
-    if (!isPluginPermission(item)) {
-      throw new PluginCatalogError(`Unsupported plugin catalog permission: ${String(item)}`);
-    }
-    return item;
-  });
+export function catalogEntryCompatibilityWarnings(
+  entry: PluginCatalogEntry,
+  dockscopeVersion = PKG_VERSION,
+): string[] {
+  return [
+    ...pluginCompatibilityWarnings(entry.compatibility, dockscopeVersion),
+    ...entry.capabilities
+      .filter((capability) => !isPluginCapability(capability))
+      .map((capability) => `Update DockScope: unsupported plugin capability "${capability}"`),
+    ...entry.permissions
+      .filter((permission) => !isPluginPermission(permission))
+      .map((permission) => `Update DockScope: unsupported plugin permission "${permission}"`),
+  ];
 }
 
 function validateSignature(raw: unknown): PluginCatalogEntrySignature | undefined {
@@ -440,8 +425,8 @@ function validateEntry(raw: unknown): PluginCatalogEntry {
     publishedAt: optionalString(raw.publishedAt, 'publishedAt'),
     releaseNotes: optionalString(raw.releaseNotes, 'releaseNotes'),
     compatibility: validatePluginCompatibility(raw.compatibility),
-    capabilities: capabilityList(raw.capabilities),
-    permissions: permissionList(raw.permissions),
+    capabilities: stringList(raw.capabilities, 'capabilities'),
+    permissions: stringList(raw.permissions, 'permissions'),
     packageUrl: raw.packageUrl,
     packageSha256: optionalSha256(raw.packageSha256, 'packageSha256'),
     signature: validateSignature(raw.signature),
@@ -755,8 +740,8 @@ export async function installPluginFromCatalog(options: {
   if (!entry.signature && !options.allowUnsigned) {
     throw new PluginCatalogError(`Plugin catalog entry is unsigned: ${options.pluginId}`);
   }
-  const compatibilityWarnings = pluginCompatibilityWarnings(
-    entry.compatibility,
+  const compatibilityWarnings = catalogEntryCompatibilityWarnings(
+    entry,
     options.dockscopeVersion ?? PKG_VERSION,
   );
   if (compatibilityWarnings.length > 0) {
@@ -790,7 +775,7 @@ export async function installPluginFromCatalog(options: {
       source: entry.resolvedPackageUrl,
       registryDir: options.registryDir,
       publicKey: packagePublicKey,
-      grantedPermissions: entry.permissions,
+      grantedPermissions: verifiedPackage.bundle.manifest.permissions,
     });
     if (installed.id !== entry.id || installed.version !== entry.version) {
       throw new PluginCatalogError(
