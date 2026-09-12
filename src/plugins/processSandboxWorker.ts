@@ -1,4 +1,5 @@
 import { pathToFileURL } from 'url';
+import { adaptEntitySource } from '../core/sources/entities.js';
 import type { PluginCommandResult } from '../core/plugin-contract/commands.js';
 import { validatePluginCommandResult } from '../core/plugin-contract/commands.js';
 import type { GraphSourceAdapter } from '../core/sources/model.js';
@@ -207,7 +208,11 @@ function itemAt<T>(items: readonly T[], index: number, kind: string): T {
 }
 
 function graphSources(): readonly GraphSourceAdapter[] {
-  return requirePlugin().getGraphSources?.() ?? [];
+  const instance = requirePlugin();
+  return [
+    ...(instance.getGraphSources?.() ?? []),
+    ...(instance.getEntitySources?.() ?? []).map(adaptEntitySource),
+  ];
 }
 
 function statsProviders(): readonly EntityStatsProvider[] {
@@ -369,6 +374,13 @@ async function handleOperation(operation: SandboxRequestOperation): Promise<unkn
       return validatePluginCommandResult(
         await instance.runCommand(operation.commandId, operation.input),
       ) satisfies PluginCommandResult;
+    }
+    case 'queryUi': {
+      const instance = requirePlugin();
+      if (!instance.queryUi) {
+        throw new Error('Plugin does not implement UI queries');
+      }
+      return instance.queryUi(operation.extensionId, operation.context);
     }
     case 'runtimeMetrics': {
       const memory = process.memoryUsage();

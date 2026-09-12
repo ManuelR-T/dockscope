@@ -1,3 +1,4 @@
+export type { EntityMetric, GraphEntity, EntitySourceAdapter } from './core/sources/entities.js';
 export type {
   DataSourceDescriptor,
   DataSourceKind,

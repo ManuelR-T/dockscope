@@ -3,6 +3,7 @@
 // into a PluginManifest. Kept apart from the registry so the declarative
 // contract can be read without the ~1350-line lifecycle machinery around it.
 import type { GraphSourceAdapter } from '../sources/model.js';
+import type { EntitySourceAdapter } from '../sources/entities.js';
 import type {
   EntityActionProvider,
   EntityDiagnosticProvider,
@@ -37,6 +38,8 @@ import {
   validatePluginUiExtensions,
   type PluginFrontendBundleDeclaration,
   type PluginUiExtensionDeclaration,
+  type PluginUiContent,
+  type PluginUiContext,
 } from './ui.js';
 import { validatePluginSecrets, type PluginSecretDeclaration } from './secrets.js';
 import {
@@ -105,8 +108,14 @@ export interface DockscopePlugin {
     input?: unknown,
   ): Promise<PluginCommandResult> | PluginCommandResult;
   getUiExtensions?(): readonly PluginUiExtensionDeclaration[];
+  /** Observe only. Return display-safe data; do not mutate or probe caller-supplied targets. */
+  queryUi?(
+    extensionId: string,
+    context: PluginUiContext,
+  ): Promise<PluginUiContent> | PluginUiContent;
   getFrontendBundle?(): Promise<string>;
   getGraphSources?(): readonly GraphSourceAdapter[];
+  getEntitySources?(): readonly EntitySourceAdapter[];
   getActionProviders?(): readonly EntityActionProvider[];
   getMetricAnalysisProviders?(): readonly MetricAnalysisProvider[];
   getSystemProviders?(): readonly PluginSystemProvider[];
@@ -477,6 +486,9 @@ export function validatePluginManifest(raw: unknown): PluginManifest {
   }
   const ui = validatePluginUiExtensions(manifest.ui);
   for (const extension of ui) {
+    if (extension.query && !capabilities.includes('ui.query')) {
+      throw new PluginManifestError('Plugin UI queries require capability "ui.query"');
+    }
     const requiredCapability = pluginUiSlotCapability(extension.slot);
     if (!capabilities.includes(requiredCapability)) {
       throw new PluginManifestError(
@@ -581,6 +593,7 @@ export function cloneRuntimeInfo(info: PluginRuntimeInfo): PluginRuntimeInfo {
 const PLUGIN_METHOD_CAPABILITIES: readonly [keyof DockscopePlugin, readonly PluginCapability[]][] =
   [
     ['getGraphSources', ['source.graph']],
+    ['getEntitySources', ['source.graph']],
     ['getSystemProviders', ['source.system']],
     ['getConnectionProviders', ['source.connections']],
     ['getStatsProviders', ['source.metrics']],
@@ -595,6 +608,7 @@ const PLUGIN_METHOD_CAPABILITIES: readonly [keyof DockscopePlugin, readonly Plug
     ['getProjectProviders', ['source.inventory', 'action.deploy']],
     ['getCommands', ['ui.command']],
     ['runCommand', ['ui.command']],
+    ['queryUi', ['ui.query']],
     ['getFrontendBundle', ['ui.frontend']],
   ];
 

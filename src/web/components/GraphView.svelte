@@ -656,7 +656,7 @@
       height,
       nodes: [...nodesById.values()],
       links,
-      subtitle: `${nodesById.size} containers — ${new Date().toLocaleString()}`,
+      subtitle: `${nodesById.size} entities — ${new Date().toLocaleString()}`,
       legend: [...legendByLabel.entries()].map(([label, color]) => ({ label, color })),
     });
     downloadText(svg, 'image/svg+xml', snapshotFilename('svg'));

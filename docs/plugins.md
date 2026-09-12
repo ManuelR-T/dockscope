@@ -10,10 +10,10 @@ empty directory to a packaged plugin in five commands.
 
 **The other two plugin guides:**
 
-| Guide                                          | For                                                        |
-| ---------------------------------------------- | ---------------------------------------------------------- |
-| [Publishing](plugin-publishing.md)             | Packaging, signing and distributing a plugin through a catalog |
-| [Operating](plugin-operations.md)              | Loading, permissions policy, health and the plugin API      |
+| Guide                              | For                                                            |
+| ---------------------------------- | -------------------------------------------------------------- |
+| [Publishing](plugin-publishing.md) | Packaging, signing and distributing a plugin through a catalog |
+| [Operating](plugin-operations.md)  | Loading, permissions policy, health and the plugin API         |
 
 ## Your First Plugin
 
@@ -110,7 +110,13 @@ When developing a first-party plugin against an unsigned local directory, set `D
   "hostApiVersion": "1",
   "description": "Adds a static graph source",
   "entry": "./plugin.mjs",
-  "capabilities": ["source.graph", "source.events", "ui.toolbarAction", "ui.settings", "ui.command"],
+  "capabilities": [
+    "source.graph",
+    "source.events",
+    "ui.toolbarAction",
+    "ui.settings",
+    "ui.command"
+  ],
   "permissions": [],
   "execution": {
     "isolation": "process",
@@ -258,7 +264,71 @@ System providers use `source.system`; connection providers use `source.connectio
 
 `ResourceProvider` and the `/api/kubernetes/*` endpoints remain as v1 compatibility adapters. New plugins should implement `EntityLogsProvider` and `EntityActionProvider` instead.
 
+### Generic entities and named metrics
+
+Non-container integrations can implement `getEntitySources()` instead of
+`getGraphSources()`. An `EntitySourceAdapter` has `describe()` and
+`collectEntities()` methods. The latter returns `{ entities, links?, collectedAt }`:
+
+```ts
+const entity: GraphEntity = {
+  id: 'homepage',
+  name: 'Homepage',
+  kind: 'endpoint',
+  status: 'healthy',
+  metrics: [
+    {
+      name: 'response_time',
+      label: 'Response time',
+      value: 42,
+      unit: 'ms',
+      observedAt: Date.now(),
+    },
+  ],
+};
+```
+
+Import `GraphEntity`, `EntityMetric`, and `EntitySourceAdapter` from
+`dockscope/plugin-sdk/v1`. IDs are stable within a source; kinds and metric names
+are plugin-owned. Health is `healthy`, `unhealthy`, or `unknown`. Metric names
+must be unique per entity, values and timestamps must be finite, and unavailable
+measurements should be omitted. Units are display strings (use `''` for a
+dimensionless metric). Source-local links use entity IDs, not rendered node IDs.
+
+The host gives entities source-scoped graph IDs, a default graph appearance,
+source filtering, and a sidebar showing their named metrics. An internal adapter
+supplies the legacy graph fields; plugin authors do not need container IDs,
+images, ports, CPU, or memory placeholders. Existing Docker/Kubernetes graph and
+statistics providers continue to work unchanged. Named metrics currently travel
+with graph snapshots, not through the legacy CPU/memory history or anomaly
+interfaces. Cross-source relationship resolution remains separate future work.
+
+See the [official endpoint plugin](../plugins/official/endpoints/README.md) for a
+complete integration using generic entities, connections, and read-only panels.
+
 ## UI Extensions
+
+### Read-only panel queries
+
+Declare `ui.query` as well as the panel's slot capability, and set `query: true`
+on the UI extension. Implement `queryUi(extensionId, context)` to return validated
+`PluginUiContent` (`text`, `markdown`, `metrics`, or `keyValue`). Queries must only
+observe state: no commands, configuration writes, or caller-selected probe URLs.
+Return display-safe data, never credentials. The declaration is part of the
+plugin's trust contract; process isolation does not enforce purity of plugin code.
+
+Declarative panels refresh automatically every ten seconds while visible.
+Custom sandboxed views can use `await api.query()` to read their own extension's
+content, without relaxing the iframe's network policy. Queries have no arbitrary
+input payload and cannot invoke another extension or plugin.
+
+`GET /api/plugins/:pluginId/ui/:extensionId/query?nodeId=...` resolves entity
+context from the current graph and verifies the active extension's context filter.
+Both Readers and Operators may query; command authorization is unchanged. Declare
+queries in the manifest so reviewers can inspect them. Live queries pause during
+replay; recorded graph metrics remain available.
+
+### Declarative content and custom views
 
 Plugins can extend the interface with declarative descriptors or an optional sandboxed frontend bundle. Declarative content is rendered by DockScope and should be the default. A frontend bundle is appropriate only when a view needs custom interaction.
 
@@ -528,4 +598,3 @@ DockScope validates the manifest and imports plugin code only inside a persisten
 `operationTimeoutMs` applies to each request. `memoryLimitMb` sets the worker's V8 old-generation heap limit, and `maxStderrBytes` terminates a worker that emits excessive stderr. A crash rejects in-flight work without taking down DockScope; the next operation starts a fresh worker. Mutating operations are not retried automatically.
 
 Process isolation is a fault and resource boundary, not a complete operating-system sandbox. Only install signed plugins from catalogs you trust.
-

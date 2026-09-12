@@ -1,32 +1,12 @@
 import type {
   PluginUiActionResult,
+  PluginUiContent,
   PluginUiContext,
   PluginUiExtension,
 } from '../../core/plugin-contract/ui';
-import type { ServiceNode } from '../../types';
 import { requestJson } from './api';
 
 const bundleCache = new Map<string, Promise<string>>();
-
-export function pluginUiContextFromNode(node: ServiceNode | null): PluginUiContext {
-  if (!node) {
-    return {};
-  }
-  return {
-    node: {
-      id: node.id,
-      name: node.name,
-      sourceId: node.host,
-      entityId: node.containerId,
-      runtime: node.runtime ?? 'docker',
-      kind: node.kind ?? 'container',
-      namespace: node.namespace,
-      status: node.status,
-      project: node.project,
-      host: node.host,
-    },
-  };
-}
 
 export function invokePluginUiAction(
   extension: PluginUiExtension,
@@ -41,6 +21,32 @@ export function invokePluginUiAction(
       body: JSON.stringify({ context, input }),
     },
   );
+}
+
+export function queryPluginUi(
+  extension: PluginUiExtension,
+  context: PluginUiContext,
+  signal?: AbortSignal,
+): Promise<PluginUiContent> {
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  if (signal?.aborted) {
+    controller.abort();
+  } else {
+    signal?.addEventListener('abort', cancel, { once: true });
+  }
+  const timer = setTimeout(cancel, 15_000);
+  const params = new URLSearchParams();
+  if (context.node) {
+    params.set('nodeId', context.node.id);
+  }
+  return requestJson<PluginUiContent>(
+    `/api/plugins/${encodeURIComponent(extension.pluginId)}/ui/${encodeURIComponent(extension.id)}/query?${params}`,
+    { signal: controller.signal },
+  ).finally(() => {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', cancel);
+  });
 }
 
 export function loadPluginFrontendSource(pluginId: string): Promise<string> {

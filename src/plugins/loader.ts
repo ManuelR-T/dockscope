@@ -380,6 +380,10 @@ async function createProcessIsolatedPlugin(options: {
   if (descriptor.ui.length > 0) {
     plugin.getUiExtensions = () => descriptor.ui;
   }
+  if (manifest.capabilities.includes('ui.query')) {
+    plugin.queryUi = (extensionId, context) =>
+      sandbox.request({ type: 'queryUi', extensionId, context });
+  }
   if (manifest.capabilities.includes('source.graph')) {
     plugin.getGraphSources = () => graphSources;
   }

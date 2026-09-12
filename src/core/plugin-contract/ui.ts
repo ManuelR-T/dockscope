@@ -1,6 +1,7 @@
 import type { PluginCapability } from './capabilities.js';
 import type { PluginCommandResult } from './commands.js';
 import type { PluginConfigValue } from './config.js';
+import type { ServiceNode } from '../../types.js';
 
 export const PLUGIN_UI_SLOTS = [
   'toolbar',
@@ -88,6 +89,27 @@ export interface PluginUiContext {
   node?: PluginUiNodeContext;
 }
 
+/** Project a known graph node into display context; resolve untrusted IDs before calling. */
+export function pluginUiContextFromNode(node: ServiceNode | null | undefined): PluginUiContext {
+  if (!node) {
+    return {};
+  }
+  return {
+    node: {
+      id: node.id,
+      name: node.name,
+      sourceId: node.sourceId ?? node.host,
+      entityId: node.entityId ?? node.containerId,
+      runtime: node.runtime ?? 'docker',
+      kind: node.kind ?? 'container',
+      namespace: node.namespace,
+      status: node.entityStatus ?? node.status,
+      project: node.project,
+      host: node.host,
+    },
+  };
+}
+
 export interface PluginUiExtensionDeclaration {
   id: string;
   slot: PluginUiSlot;
@@ -98,6 +120,8 @@ export interface PluginUiExtensionDeclaration {
   height?: number;
   context?: PluginUiContextFilter;
   content?: PluginUiContent;
+  /** Declares a read-only, context-scoped query. Never execute commands from a query. */
+  query?: boolean;
   action?: PluginUiAction;
   frontendView?: string;
 }
@@ -122,6 +146,7 @@ export interface PluginFrontendApi {
   readonly view: string;
   readonly context: Readonly<PluginUiContext>;
   requestAction(input?: unknown): void;
+  query(): Promise<PluginUiContent>;
   resize(height: number): void;
 }
 
@@ -194,7 +219,10 @@ function validateTone(value: unknown, field: string): PluginUiTone | undefined {
   return value as PluginUiTone;
 }
 
-function validatePluginUiContent(raw: unknown, extensionId: string): PluginUiContent | undefined {
+export function validatePluginUiContent(
+  raw: unknown,
+  extensionId: string,
+): PluginUiContent | undefined {
   if (raw === undefined) {
     return undefined;
   }
@@ -341,6 +369,9 @@ function validatePluginUiExtension(raw: unknown): PluginUiExtensionDeclaration {
     throw new PluginUiError(`Plugin UI extension "${raw.id}" order must be a number`);
   }
   const height = raw.height;
+  if (raw.query !== undefined && typeof raw.query !== 'boolean') {
+    throw new PluginUiError(`Plugin UI extension "${raw.id}" query must be a boolean`);
+  }
   if (
     height !== undefined &&
     (typeof height !== 'number' || !Number.isFinite(height) || height < 48 || height > 640)
@@ -357,6 +388,7 @@ function validatePluginUiExtension(raw: unknown): PluginUiExtensionDeclaration {
     height,
     context: validateContextFilter(raw.context, raw.id),
     content: validatePluginUiContent(raw.content, raw.id),
+    query: raw.query,
     action: validatePluginUiAction(raw.action, raw.id),
     frontendView: optionalString(raw.frontendView, `${raw.id}.frontendView`),
   };

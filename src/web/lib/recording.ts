@@ -63,6 +63,21 @@ export function sanitizeNode(node: ServiceNode): ServiceNode {
   if (node.namespace !== undefined) {
     clean.namespace = node.namespace;
   }
+  if (node.entityId !== undefined) {
+    clean.entityId = node.entityId;
+  }
+  if (node.sourceId !== undefined) {
+    clean.sourceId = node.sourceId;
+  }
+  if (node.entityStatus !== undefined) {
+    clean.entityStatus = node.entityStatus;
+  }
+  if (node.metrics !== undefined) {
+    clean.metrics = node.metrics.map((metric) => ({ ...metric }));
+  }
+  if (node.metadata !== undefined) {
+    clean.metadata = { ...node.metadata };
+  }
   return clean;
 }
 

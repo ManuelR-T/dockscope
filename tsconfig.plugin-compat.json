@@ -6,7 +6,9 @@
     "strict": true,
     "skipLibCheck": false,
     "noEmit": true,
+    "allowJs": true,
+    "checkJs": true,
     "types": ["node"]
   },
-  "include": ["compat/plugin-sdk-v1-consumer.ts"]
+  "include": ["compat/plugin-sdk-v1-consumer.ts", "plugins/official/endpoints/plugin.mjs"]
 }

@@ -1,7 +1,7 @@
 import type { PluginCommandDeclaration } from '../core/plugin-contract/commands.js';
 import type { PluginConfig } from '../core/plugin-contract/config.js';
 import type { PluginManifest } from '../core/plugin-contract/manifest.js';
-import type { PluginUiExtensionDeclaration } from '../core/plugin-contract/ui.js';
+import type { PluginUiExtensionDeclaration, PluginUiContext } from '../core/plugin-contract/ui.js';
 import type { DataSourceDescriptor } from '../core/sources/model.js';
 import type { EntityActionInput } from '../core/entities/actions.js';
 import type { MetricAnalysisSample } from '../core/plugin-contract/analysis.js';
@@ -71,6 +71,7 @@ export type SandboxRequestOperation =
   | { type: 'start' }
   | { type: 'stop' }
   | { type: 'runCommand'; commandId: string; input?: unknown }
+  | { type: 'queryUi'; extensionId: string; context: PluginUiContext }
   | { type: 'runtimeMetrics' }
   | { type: 'collectGraph'; sourceId: string }
   | { type: 'listSystems'; providerIndex: number }

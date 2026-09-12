@@ -64,7 +64,9 @@
       <div class="field-row">
         <span class="field-key">Status</span>
         <span class="field-val status-text {node.status}">
-          {node.status}{node.health !== 'none' ? ` (${node.health})` : ''}
+          {node.entityStatus ?? node.status}{!node.entityStatus && node.health !== 'none'
+            ? ` (${node.health})`
+            : ''}
         </span>
       </div>
       {#if node.runtime === 'kubernetes'}
@@ -77,18 +79,27 @@
           <span class="field-val"><span class="tag">{node.namespace}</span></span>
         </div>
       {/if}
-      <div class="field-row">
-        <span class="field-key">{node.runtime === 'kubernetes' ? 'Resource' : 'Image'}</span>
-        <span class="field-val">
-          <TextButton mono onclick={() => copyToClipboard(node.image, 'image')}
-            >{node.image}</TextButton
-          >
-        </span>
-      </div>
+      {#if node.entityId}
+        <div class="field-row">
+          <span class="field-key">Kind</span><span class="field-val">{node.kind}</span>
+        </div>
+      {/if}
+      {#if node.image}
+        <div class="field-row">
+          <span class="field-key">{node.runtime === 'kubernetes' ? 'Resource' : 'Image'}</span>
+          <span class="field-val">
+            <TextButton mono onclick={() => copyToClipboard(node.image, 'image')}
+              >{node.image}</TextButton
+            >
+          </span>
+        </div>
+      {/if}
       <div class="field-row">
         <span class="field-key">{node.runtime === 'kubernetes' ? 'Resource ID' : 'ID'}</span>
         <span class="field-val">
-          <TextButton mono onclick={() => copyToClipboard(node.containerId, 'resource ID')}
+          <TextButton
+            mono
+            onclick={() => copyToClipboard(node.entityId ?? node.containerId, 'resource ID')}
             >{node.id}</TextButton
           >
         </span>
@@ -137,6 +148,26 @@
             </div>
           </div>
         {/if}
+      </div>
+    </div>
+  {/if}
+
+  {#if node.metrics?.length}
+    <div class="node-section">
+      <div class="node-section-head">Metrics</div>
+      <div class="node-section-body">
+        {#each node.metrics as metric (metric.name)}
+          <div
+            class="field-row"
+            title={`Observed ${formatDate(new Date(metric.observedAt).toISOString())}`}
+          >
+            <span class="field-key">{metric.label}</span>
+            <span class="field-val"
+              >{metric.value.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+              {metric.unit}</span
+            >
+          </div>
+        {/each}
       </div>
     </div>
   {/if}

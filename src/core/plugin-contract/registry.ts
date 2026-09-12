@@ -2,6 +2,7 @@
 // fan-out that the rest of the app consumes. The manifest contract it validates
 // against lives in ./manifest.js.
 import { createHash } from 'crypto';
+import { adaptEntitySource } from '../sources/entities.js';
 import { pluginUiActionAllowed, type AccessRole } from '../access.js';
 import type { DataSourceDescriptor, GraphSourceAdapter } from '../sources/model.js';
 import type {
@@ -57,9 +58,11 @@ import {
   pluginUiContextMatches,
   pluginUiSlotCapability,
   validatePluginUiContext,
+  validatePluginUiContent,
   validatePluginUiExtensions,
   type PluginUiActionResult,
   type PluginUiContext,
+  type PluginUiContent,
   type PluginUiExtension,
 } from './ui.js';
 import { type PluginSecretSnapshot } from './secrets.js';
@@ -330,7 +333,10 @@ export class PluginRegistry {
           for (const extension of extensions) {
             requireManifestCapabilities(
               plugin.manifest,
-              [pluginUiSlotCapability(extension.slot)],
+              [
+                pluginUiSlotCapability(extension.slot),
+                ...(extension.query ? ['ui.query' as const] : []),
+              ],
               `declares UI extension "${extension.id}"`,
             );
           }
@@ -347,6 +353,32 @@ export class PluginRegistry {
           a.pluginId.localeCompare(b.pluginId) ||
           a.title.localeCompare(b.title),
       );
+  }
+
+  async queryPluginUi(
+    pluginId: string,
+    extensionId: string,
+    rawContext?: unknown,
+  ): Promise<PluginUiContent> {
+    const extension = this.listUiExtensions().find(
+      (item) => item.pluginId === pluginId && item.id === extensionId,
+    );
+    const plugin = this.plugins.get(pluginId);
+    if (!extension?.query || !plugin?.queryUi) {
+      throw new PluginOperationError(404, `Plugin UI query not found: ${pluginId}/${extensionId}`);
+    }
+    const context = validatePluginUiContext(rawContext);
+    if (!pluginUiContextMatches(extension, context)) {
+      throw new PluginOperationError(400, 'Plugin UI query does not match the current context');
+    }
+    const content = validatePluginUiContent(
+      await plugin.queryUi(extensionId, context),
+      extensionId,
+    );
+    if (!content) {
+      throw new PluginOperationError(502, 'Plugin UI query returned no content');
+    }
+    return content;
   }
 
   async getPluginFrontendBundle(pluginId: string): Promise<string> {
@@ -788,7 +820,10 @@ export class PluginRegistry {
   }
 
   getGraphSources(): GraphSourceAdapter[] {
-    return this.activePlugins().flatMap((plugin) => [...(plugin.getGraphSources?.() ?? [])]);
+    return this.activePlugins().flatMap((plugin) => [
+      ...(plugin.getGraphSources?.() ?? []),
+      ...(plugin.getEntitySources?.() ?? []).map(adaptEntitySource),
+    ]);
   }
 
   async getStats(ref: EntityRef) {
@@ -1355,6 +1390,7 @@ export class PluginRegistry {
             id: extension.id,
             slot: extension.slot,
             action: extension.action,
+            query: extension.query,
             frontendView: extension.frontendView,
           })),
           frontend: plugin.manifest.frontend ?? null,

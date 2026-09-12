@@ -28,6 +28,7 @@ export const PLUGIN_CAPABILITIES = [
   'ui.toolbarAction',
   'ui.settings',
   'ui.command',
+  'ui.query',
   'ui.frontend',
   'integration.export',
   'integration.import',

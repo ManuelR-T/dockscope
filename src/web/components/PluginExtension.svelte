@@ -1,5 +1,11 @@
 <script lang="ts">
-  import type { PluginUiContext, PluginUiExtension } from '../../core/plugin-contract/ui';
+  import type {
+    PluginUiContext,
+    PluginUiExtension,
+    PluginUiContent,
+  } from '../../core/plugin-contract/ui';
+  import { queryPluginUi } from '../lib/pluginUi';
+  import { getDockerState } from '../stores/docker.svelte';
   import { Button } from './ui';
   import { pluginUiContextMatches } from '../../core/plugin-contract/ui';
   import Icon from './Icon.svelte';
@@ -20,6 +26,10 @@
 
   let { extension, context = {}, compact = false, role, onAction }: Props = $props();
   let pending = $state(false);
+  const docker = getDockerState();
+  let queryContent = $state<PluginUiContent | undefined>();
+  let queryError = $state('');
+  let content = $derived(queryContent ?? extension.content);
   let visible = $derived(
     pluginUiContextMatches(extension, context) && pluginUiExtensionAllowed(role, extension.action),
   );
@@ -27,6 +37,47 @@
   let frameKey = $derived(
     `${extension.pluginId}:${extension.id}:${extension.frontendView ?? ''}:${JSON.stringify(context)}`,
   );
+
+  $effect(() => {
+    const currentExtension = extension;
+    const currentContext = context;
+    queryContent = undefined;
+    queryError = '';
+    if (
+      !visible ||
+      compact ||
+      !currentExtension.query ||
+      currentExtension.frontendView ||
+      docker.replayMode
+    ) {
+      return;
+    }
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    async function refresh() {
+      try {
+        const result = await queryPluginUi(currentExtension, currentContext, controller.signal);
+        if (!controller.signal.aborted) {
+          queryContent = result;
+          queryError = '';
+        }
+      } catch (cause) {
+        if (!controller.signal.aborted) {
+          queryContent = undefined;
+          queryError = cause instanceof Error ? cause.message : 'Monitoring data unavailable';
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          timer = setTimeout(refresh, 10_000);
+        }
+      }
+    }
+    void refresh();
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
+  });
 
   async function invoke(input?: unknown) {
     if (!extension.action || !actionAllowed || pending) {
@@ -77,27 +128,31 @@
       <p class="description">{extension.description}</p>
     {/if}
 
-    {#if extension.content && !compact}
-      {#if extension.content.type === 'text'}
+    {#if queryError}<p role="status">{queryError}</p>{/if}
+    {#if extension.query && docker.replayMode}<p role="status">
+        Live panel queries are paused during replay.
+      </p>{/if}
+    {#if content && !compact}
+      {#if content.type === 'text'}
         <div class="text-content">
-          {extension.content.body}
+          {content.body}
         </div>
-      {:else if extension.content.type === 'markdown'}
+      {:else if content.type === 'markdown'}
         <div class="text-content markdown">
-          {extension.content.body}
+          {content.body}
         </div>
-      {:else if extension.content.type === 'metrics'}
+      {:else if content.type === 'metrics'}
         <div class="metric-grid">
-          {#each extension.content.items as item}
+          {#each content.items as item}
             <div class="metric" data-tone={item.tone ?? 'neutral'}>
               <span>{item.label}</span>
               <strong>{item.value}{item.unit ?? ''}</strong>
             </div>
           {/each}
         </div>
-      {:else if extension.content.type === 'keyValue'}
+      {:else if content.type === 'keyValue'}
         <dl>
-          {#each extension.content.items as item}
+          {#each content.items as item}
             <div>
               <dt>{item.label}</dt>
               <dd>{item.value}</dd>
@@ -107,7 +162,7 @@
       {/if}
     {/if}
 
-    {#if extension.frontendView && !compact}
+    {#if extension.frontendView && !compact && !(extension.query && docker.replayMode)}
       {#key frameKey}
         <PluginFrame {extension} {context} {actionAllowed} onAction={(input) => invoke(input)} />
       {/key}

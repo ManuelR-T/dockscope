@@ -4,6 +4,7 @@ import { PluginOperationError } from '../core/plugin-contract/manifest.js';
 import { type PluginRegistry } from '../core/plugin-contract/registry.js';
 import { PluginConfigError } from '../core/plugin-contract/config.js';
 import { PluginCommandError } from '../core/plugin-contract/commands.js';
+import { PluginUiError, pluginUiContextFromNode } from '../core/plugin-contract/ui.js';
 import { PluginEventError } from '../core/plugin-contract/events.js';
 import { EntityActionError } from '../core/entities/actions.js';
 import { PluginConnectionError } from '../core/plugin-contract/connections.js';
@@ -45,6 +46,7 @@ function asyncRoute(handler: (req: Request, res: Response) => Promise<void>) {
           ? err.status
           : err instanceof PluginConfigError ||
               err instanceof PluginCommandError ||
+              err instanceof PluginUiError ||
               err instanceof PluginEventError ||
               err instanceof EntityActionError ||
               err instanceof PluginConnectionError ||
@@ -486,6 +488,29 @@ export function setupRoutes(
   app.get('/api/plugins/ui', (_req, res) => {
     res.json(plugins.listUiExtensions());
   });
+
+  app.get(
+    '/api/plugins/:pluginId/ui/:extensionId/query',
+    asyncRoute(async (req, res) => {
+      const nodeId = getStringQuery(req, 'nodeId');
+      const node = nodeId
+        ? getGraph().nodes.find((candidate) => candidate.id === nodeId)
+        : undefined;
+      if (nodeId && !node) {
+        throw new RouteError(404, 'Entity not found');
+      }
+      // Resolve context server-side; clients cannot fabricate another source or entity.
+      const context = pluginUiContextFromNode(node);
+      res.setHeader('Cache-Control', 'no-store');
+      res.json(
+        await plugins.queryPluginUi(
+          req.params.pluginId as string,
+          req.params.extensionId as string,
+          context,
+        ),
+      );
+    }),
+  );
 
   app.get(
     '/api/plugins/:pluginId/frontend',

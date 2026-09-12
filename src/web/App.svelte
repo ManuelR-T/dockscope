@@ -30,12 +30,12 @@
   import { buildScopeOptions, type StatusFilter } from './lib/graphFilters';
   import { resolveSelectedNode } from './lib/graphSelection';
   import type { ServiceNode } from '../types';
-  import { pluginUiContextMatches, type PluginUiExtension } from '../core/plugin-contract/ui';
   import {
-    clearPluginFrontendCache,
-    invokePluginUiAction,
+    pluginUiContextMatches,
     pluginUiContextFromNode,
-  } from './lib/pluginUi';
+    type PluginUiExtension,
+  } from '../core/plugin-contract/ui';
+  import { clearPluginFrontendCache, invokePluginUiAction } from './lib/pluginUi';
   import { pluginUiExtensionAllowed, type AccessRole } from '../core/access';
 
   const DEFAULT_COLOR_NETWORKS = true;

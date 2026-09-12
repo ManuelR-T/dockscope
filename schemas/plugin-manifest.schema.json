@@ -62,6 +62,7 @@
           "ui.toolbarAction",
           "ui.settings",
           "ui.command",
+          "ui.query",
           "ui.frontend",
           "integration.export",
           "integration.import",
@@ -156,6 +157,7 @@
           "order": { "type": "number" },
           "height": { "type": "number", "minimum": 48, "maximum": 640 },
           "frontendView": { "type": "string", "minLength": 1 },
+          "query": { "type": "boolean" },
           "context": {
             "type": "object",
             "additionalProperties": false,

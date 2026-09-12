@@ -1,0 +1,10 @@
+{
+  "category": "Monitoring",
+  "license": "MIT",
+  "status": "active",
+  "tags": ["http", "https", "homelab", "monitoring", "certificates"],
+  "repositoryUrl": "https://github.com/ManuelR-T/dockscope",
+  "readmeUrl": "https://github.com/ManuelR-T/dockscope/blob/main/plugins/official/endpoints/README.md",
+  "releaseNotes": "Initial endpoint monitoring plugin with generic entities, named metrics and read-only health panels. Requires a DockScope host advertising ui.query.",
+  "screenshots": []
+}

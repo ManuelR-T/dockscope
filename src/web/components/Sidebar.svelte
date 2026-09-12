@@ -23,8 +23,11 @@
   import PluginExtension from './PluginExtension.svelte';
   import { getDockerState } from '../stores/docker.svelte';
   import type { ServiceNode, ContainerStats, ContainerInspect, MetricPoint } from '../../types';
-  import { pluginUiContextMatches, type PluginUiExtension } from '../../core/plugin-contract/ui';
-  import { pluginUiContextFromNode } from '../lib/pluginUi';
+  import {
+    pluginUiContextMatches,
+    pluginUiContextFromNode,
+    type PluginUiExtension,
+  } from '../../core/plugin-contract/ui';
   import { apiErrorMessage, isAbortError } from '../lib/api';
   import type { EntityAction } from '../../core/entities/actions';
   import type { EntityOperationDescriptor } from '../../core/entities/operations';

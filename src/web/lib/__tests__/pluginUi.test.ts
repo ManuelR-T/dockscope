@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { PluginUiExtension } from '../../../core/plugin-contract/ui';
+import { pluginUiContextFromNode } from '../../../core/plugin-contract/ui';
 import type { ServiceNode } from '../../../types';
 import {
   clearPluginFrontendCache,
   invokePluginUiAction,
   loadPluginFrontendSource,
-  pluginUiContextFromNode,
+  queryPluginUi,
 } from '../pluginUi';
 
 const originalFetch = globalThis.fetch;
@@ -53,24 +54,20 @@ function extension(): PluginUiExtension {
 }
 
 describe('plugin UI helpers', () => {
-  it('exposes only the stable node context fields', () => {
-    expect(pluginUiContextFromNode(node())).toEqual({
-      node: {
-        id: 'remote-a:123',
-        name: 'api',
-        sourceId: 'remote-a',
-        entityId: '1234567890',
-        runtime: 'docker',
-        kind: 'container',
-        namespace: undefined,
-        status: 'running',
-        project: 'project',
-        host: 'remote-a',
-      },
-    });
-    expect(pluginUiContextFromNode(null)).toEqual({});
+  it('queries only the owning extension with graph identity and no arbitrary context payload', async () => {
+    const content = { type: 'metrics', items: [{ label: 'Latency', value: 42, unit: 'ms' }] };
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify(content), { headers: { 'Content-Type': 'application/json' } }),
+    ) as typeof fetch;
+    await expect(
+      queryPluginUi({ ...extension(), query: true }, pluginUiContextFromNode(node())),
+    ).resolves.toEqual(content);
+    const [url, init] = vi.mocked(globalThis.fetch).mock.calls[0];
+    expect(url).toBe('/api/plugins/example.plugin/ui/restart/query?nodeId=remote-a%3A123');
+    expect(init?.body).toBeUndefined();
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
   });
-
   it('routes declared actions through the owning extension endpoint', async () => {
     globalThis.fetch = vi.fn(
       async () =>

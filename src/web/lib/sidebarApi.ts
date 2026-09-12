@@ -22,18 +22,20 @@ interface SidebarNodeDataOptions {
   signal?: AbortSignal;
 }
 
-export type EntityTarget = Pick<ServiceNode, 'id' | 'containerId' | 'host'> | string;
+export type EntityTarget =
+  | Pick<ServiceNode, 'id' | 'containerId' | 'host' | 'entityId' | 'sourceId'>
+  | string;
 
 export function entityApiUrl(
   target: EntityTarget,
   suffix = '',
   params: Record<string, string | boolean | number | undefined> = {},
 ): string {
-  const containerId = typeof target === 'string' ? target : target.containerId;
+  const containerId = typeof target === 'string' ? target : (target.entityId ?? target.containerId);
   const search = new URLSearchParams();
 
   if (typeof target !== 'string') {
-    search.set('sourceId', target.host || 'local');
+    search.set('sourceId', target.sourceId ?? (target.host || 'local'));
     search.set('nodeId', target.id);
   }
 

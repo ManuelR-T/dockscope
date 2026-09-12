@@ -1,0 +1,33 @@
+{
+  "id": "official.endpoints",
+  "name": "Endpoint Monitoring",
+  "version": "0.1.0",
+  "manifestVersion": "1",
+  "dockscopeApiVersion": "1",
+  "hostApiVersion": "1",
+  "description": "HTTP and HTTPS availability, response time, and certificate expiry without an external monitoring server.",
+  "entry": "./plugin.mjs",
+  "capabilities": [
+    "source.graph",
+    "source.metrics",
+    "source.connections",
+    "ui.nodePanel",
+    "ui.query"
+  ],
+  "permissions": ["network.http", "network.local"],
+  "execution": {
+    "isolation": "process",
+    "operationTimeoutMs": 20000,
+    "memoryLimitMb": 64,
+    "maxStderrBytes": 16000
+  },
+  "ui": [
+    {
+      "id": "health",
+      "slot": "nodePanel",
+      "title": "Endpoint health",
+      "context": { "runtimes": ["official.endpoints"], "kinds": ["endpoint"] },
+      "query": true
+    }
+  ]
+}

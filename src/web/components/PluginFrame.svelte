@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import type { PluginUiContext, PluginUiExtension } from '../../core/plugin-contract/ui';
-  import { loadPluginFrontendSource } from '../lib/pluginUi';
+  import { loadPluginFrontendSource, queryPluginUi } from '../lib/pluginUi';
 
   interface Props {
     extension: PluginUiExtension;
@@ -55,11 +55,35 @@ const pluginId = ${pluginId};
 const extensionId = ${extensionId};
 const token = ${bridgeToken};
 const emit = (type, payload = {}) => parent.postMessage({ channel: 'dockscope-plugin-ui-v1', token, pluginId, extensionId, type, ...payload }, '*');
+let sequence = 0;
+let pendingQuery;
+const query = () => {
+  if (pendingQuery) return pendingQuery.promise;
+  const requestId = ++sequence;
+  let resolve, reject;
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  const timer = setTimeout(() => {
+    if (pendingQuery?.requestId === requestId) { pendingQuery = undefined; reject(new Error('Plugin query timed out')); }
+  }, 20000);
+  pendingQuery = { requestId, promise, resolve, reject, timer };
+  emit('query', { requestId });
+  return promise;
+};
+window.addEventListener('message', (event) => {
+  const message = event.data;
+  if (event.source !== parent || !message || message.channel !== 'dockscope-plugin-ui-v1' || message.token !== token || message.pluginId !== pluginId || message.extensionId !== extensionId || message.type !== 'queryResult' || !pendingQuery || message.requestId !== pendingQuery.requestId) return;
+  const pending = pendingQuery;
+  pendingQuery = undefined;
+  clearTimeout(pending.timer);
+  if (message.error) pending.reject(new Error(message.error));
+  else pending.resolve(deepFreeze(message.content));
+});
 const api = Object.freeze({
   root: document.getElementById('plugin-root'),
   view: ${view},
   context: deepFreeze(JSON.parse(decode(${JSON.stringify(encodedContext)}))),
   requestAction: (input) => emit('action', { input }),
+  query,
   resize: (height) => emit('resize', { height }),
 });
 try {
@@ -79,6 +103,8 @@ ${scriptClose}</body></html>`;
 
   onMount(() => {
     let active = true;
+    let queryPending = false;
+    const controller = new AbortController();
     const handleMessage = (event: MessageEvent) => {
       if (event.source !== frame?.contentWindow || typeof event.data !== 'object' || !event.data) {
         return;
@@ -94,6 +120,41 @@ ${scriptClose}</body></html>`;
       }
       if (message.type === 'action' && actionAllowed) {
         void onAction(message.input);
+      } else if (message.type === 'query' && Number.isSafeInteger(message.requestId)) {
+        const requestId = message.requestId;
+        const reply = (result: Record<string, unknown>) => {
+          if (active) {
+            frame?.contentWindow?.postMessage(
+              {
+                channel: 'dockscope-plugin-ui-v1',
+                token,
+                pluginId: extension.pluginId,
+                extensionId: extension.id,
+                type: 'queryResult',
+                requestId,
+                ...result,
+              },
+              '*',
+            );
+          }
+        };
+        if (!extension.query || queryPending) {
+          reply({
+            error: !extension.query
+              ? 'This view does not declare a query'
+              : 'A query is already pending',
+          });
+          return;
+        }
+        queryPending = true;
+        void queryPluginUi(extension, context, controller.signal)
+          .then((content) => reply({ content }))
+          .catch((cause) =>
+            reply({ error: cause instanceof Error ? cause.message : 'Plugin query failed' }),
+          )
+          .finally(() => {
+            queryPending = false;
+          });
       } else if (
         message.type === 'resize' &&
         typeof message.height === 'number' &&
@@ -118,6 +179,7 @@ ${scriptClose}</body></html>`;
       });
     return () => {
       active = false;
+      controller.abort();
       window.removeEventListener('message', handleMessage);
     };
   });

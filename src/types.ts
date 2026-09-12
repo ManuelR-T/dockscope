@@ -1,19 +1,17 @@
+import type { EntityMetric, GraphEntity } from './core/sources/entities.js';
+
 export interface ServiceNode {
   id: string;
   name: string;
   fullName: string;
   project: string;
   host: string;
-  runtime?: 'docker' | 'kubernetes';
-  kind?:
-    | 'container'
-    | 'pod'
-    | 'service'
-    | 'ingress'
-    | 'hpa'
-    | 'deployment'
-    | 'statefulset'
-    | 'daemonset';
+  runtime?: string;
+  kind?: string;
+  entityId?: string;
+  sourceId?: string;
+  entityStatus?: GraphEntity['status'];
+  metrics?: EntityMetric[];
   namespace?: string;
   rolloutPhase?: 'terminating';
   rolloutUntil?: number;

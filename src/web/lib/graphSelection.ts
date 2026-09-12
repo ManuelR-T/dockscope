@@ -1,6 +1,9 @@
 import type { ServiceNode } from '../../types';
 
 export function nodeSelectionKey(node: ServiceNode): string {
+  if (node.entityId) {
+    return ['entity', node.sourceId ?? node.host, node.entityId].join(':');
+  }
   if (node.runtime === 'kubernetes') {
     return ['kubernetes', node.kind || '', node.namespace || '', node.name].join(':');
   }

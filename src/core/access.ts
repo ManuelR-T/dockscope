@@ -19,6 +19,7 @@ const READER_SAFE_READ_PATHS = [
   /^\/entities\/[^/]+\/(?:actions|operations|logs|stats|inspect|top|diff|history|diagnostic)$/,
   /^\/plugins(?:\/(?:errors|warnings|health|ui|commands|events|compatibility|review|catalog|approvals|marketplace|catalogs|config|secrets))?$/,
   /^\/plugins\/[^/]+\/(?:frontend|config)$/,
+  /^\/plugins\/[^/]+\/ui\/[^/]+\/query$/,
 ];
 
 export function pluginUiActionRef(

@@ -20,7 +20,7 @@ type LinkLike = Omit<ServiceLink, 'source' | 'target'> & {
 };
 
 function isDockerNode(node: ServiceNode): boolean {
-  return node.runtime !== 'kubernetes';
+  return !node.entityId && (node.runtime === undefined || node.runtime === 'docker');
 }
 
 function uniqueSorted(values: Iterable<string>): string[] {
@@ -70,6 +70,12 @@ export function buildScopeOptions(nodes: readonly ServiceNode[]): ScopeOption[] 
     options.push({ value: `kubernetes:${namespace}`, label: `Kubernetes / ${namespace}` });
   }
 
+  for (const sourceId of uniqueSorted(
+    nodes.filter((node) => node.entityId).map((node) => node.sourceId ?? node.host),
+  )) {
+    const node = nodes.find((node) => node.entityId && (node.sourceId ?? node.host) === sourceId)!;
+    options.push({ value: `source:${sourceId}`, label: node.project || sourceId });
+  }
   return options;
 }
 
@@ -80,6 +86,9 @@ export function isNodeInScope(node: ServiceNode, scopeFilter: string): boolean {
 
   const [type, ...rest] = scopeFilter.split(':');
   const value = rest.join(':');
+  if (type === 'source') {
+    return Boolean(node.entityId) && (node.sourceId ?? node.host) === value;
+  }
   if (type === 'kubernetes') {
     return node.runtime === 'kubernetes' && node.namespace === value;
   }
