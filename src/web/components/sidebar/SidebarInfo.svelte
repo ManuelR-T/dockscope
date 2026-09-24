@@ -4,18 +4,17 @@
   import { copyToClipboard } from '../../lib/clipboard';
   import { buildNetworkColorMap } from '../../lib/networkColors';
   import { getDockerState } from '../../stores/docker.svelte';
-  import Sparkline from '../Sparkline.svelte';
-  import type { ServiceNode, ContainerStats, ContainerInspect, MetricPoint } from '../../../types';
+  import MetricHistoryView from './MetricHistoryView.svelte';
+  import type { ServiceNode, ContainerStats, ContainerInspect } from '../../../types';
 
   interface Props {
     node: ServiceNode;
     stats: ContainerStats | null;
     inspect: ContainerInspect | null;
-    history: MetricPoint[];
     colorNetworks?: boolean;
   }
 
-  let { node, stats, inspect, history, colorNetworks = false }: Props = $props();
+  let { node, stats, inspect, colorNetworks = false }: Props = $props();
 
   const docker = getDockerState();
   let netColorMap = $derived(buildNetworkColorMap(docker.graph.links));
@@ -46,15 +45,6 @@
     const spaced = key.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ');
     return spaced.charAt(0).toUpperCase() + spaced.slice(1).toLowerCase();
   }
-
-  let cpuHistory = $derived(history.map((p) => p.cpu));
-  let memHistory = $derived(
-    stats && hasMemoryLimit
-      ? history
-          .map((p) => (p.memory / stats.memoryLimit) * 100)
-          .filter((value) => Number.isFinite(value))
-      : [],
-  );
 </script>
 
 <div class="sidebar-content">
@@ -203,9 +193,6 @@
           <div class="progress-bar">
             <div class="progress-fill cpu" style="width: {Math.min(stats.cpu, 100)}%"></div>
           </div>
-          {#if cpuHistory.length >= 2}
-            <Sparkline data={cpuHistory} color="#00e4ff" fluid />
-          {/if}
         </div>
 
         <div class="metric">
@@ -217,11 +204,11 @@
             <div class="progress-fill memory" style="width: {memoryFillWidth}%"></div>
           </div>
           <div class="metric-sub">{memoryUsageLabel}</div>
-          {#if memHistory.length >= 2}
-            <Sparkline data={memHistory} color="#a855f7" fluid />
-          {/if}
         </div>
       </div>
     </div>
+  {/if}
+  {#if !docker.replayMode}
+    <MetricHistoryView {node} />
   {/if}
 </div>

@@ -1,3 +1,4 @@
+import { MetricHistory } from '../metricHistory';
 import { generateKeyPairSync, randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { request as httpsRequest } from 'node:https';
@@ -465,6 +466,44 @@ describe('server integration', () => {
         receiver.close((error) => (error ? reject(error) : resolve())),
       );
     }
+  });
+
+  it('serves persistent metric ranges even when a source collection fails', async () => {
+    const now = Date.now();
+    const history = new MetricHistory(
+      path.join(process.env.DOCKSCOPE_STATE_DIR!, 'metric-history.jsonl'),
+    );
+    const ref = { sourceId: 'local', entityId: mockGraph.nodes[0].containerId };
+    history.record(ref, { cpu: 10, memory: 100, time: now - 2 * 60 * 60_000 });
+    history.record(ref, { cpu: 30, memory: 300, time: now });
+    history.record({ ...ref, sourceId: 'other' }, { cpu: 99, memory: 999, time: now });
+    await history.close();
+    mocks.listDockerGraphSources()[0].collectGraph = async () => {
+      throw new Error('source unavailable');
+    };
+    server = await startTestServer();
+    const base = `http://127.0.0.1:${server.port}`;
+    const endpoint = `${base}/api/entities/${ref.entityId}/history`;
+    const recent = await (await fetch(endpoint)).json();
+    expect(recent).toHaveLength(1);
+    expect(recent[0].cpu).toBe(30);
+    expect(await (await fetch(`${endpoint}?range=1h`)).json()).toHaveLength(1);
+    expect(await (await fetch(`${endpoint}?range=24h`)).json()).toHaveLength(2);
+    expect(await (await fetch(`${endpoint}?sourceId=missing&range=24h`)).json()).toEqual([]);
+    expect((await fetch(`${endpoint}?range=7d`)).status).toBe(400);
+    const legacy = await (
+      await fetch(`${base}/api/containers/${mockGraph.nodes[0].id}/history?range=24h`)
+    ).json();
+    expect(legacy).toHaveLength(2);
+    await server.close();
+    server = await startTestServer();
+    expect(
+      await (
+        await fetch(
+          `http://127.0.0.1:${server.port}/api/entities/${ref.entityId}/history?range=24h`,
+        )
+      ).json(),
+    ).toHaveLength(2);
   });
 
   it('serves the API over HTTPS when TLS credentials are configured', async () => {

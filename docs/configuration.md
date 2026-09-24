@@ -9,6 +9,7 @@ variables, and where it keeps state. Nothing here is required to run it.
 - [TLS](#tls)
 - [Where state lives](#where-state-lives)
 - [Flight recorder](#flight-recorder)
+- [Metric history](#metric-history)
 - [Webhook alerts](#webhook-alerts)
 - [Access control](#access-control)
 - [Plugin file locations](#plugin-file-locations)
@@ -414,3 +415,29 @@ cancels delivery and discards the queue; pending alerts do not survive restarts.
 Configured DockScope access-token values are redacted before delivery. Generic
 JSON diagnostics can still contain other sensitive operational data, so choose
 a trusted receiver and use HTTPS across untrusted networks.
+
+## Metric history
+
+The Info tab's **Resource history** selector offers 5-minute, 1-hour and 24-hour
+CPU and memory charts. The 5-minute view retains up to 100 raw samples; longer
+views use one-minute averages. Memory history is shown in bytes rather than
+recalculating old samples against the workload's current memory limit. The
+maximum shown on a longer-range chart is the maximum minute average, not an
+instantaneous peak. Gaps indicate missing samples; they are not interpolated.
+
+History lives in `<state dir>/metric-history.jsonl`. No additional dependency
+or configuration is needed, and the existing Docker state volume preserves it
+across container recreation. The server writes atomic snapshots every 30 seconds
+and flushes on graceful shutdown. An abrupt termination can lose samples since
+the last successful write. A persistence failure logs a warning while live
+monitoring continues and retries at the next flush.
+
+Retention is 24 hours for minute averages and 5 minutes for raw samples. The
+store retains at most 512 source/workload pairs, evicting the least recently
+sampled when that limit is exceeded. Removed or temporarily unreachable
+workloads retain history until these retention limits apply. IDs are scoped by
+source: recreating a Docker container with a different ID starts a new history,
+while restarting DockScope or temporarily losing a source does not erase it.
+
+History remains available for stopped workloads in the Info tab. Recording
+replay does not query live persistent history.

@@ -1,3 +1,4 @@
+import type { MetricHistory } from './metricHistory.js';
 import type { Express } from 'express';
 import { type PluginRegistry } from '../core/plugin-contract/registry.js';
 import type { PluginMarketplaceService } from '../plugins/marketplace.js';
@@ -14,7 +15,7 @@ import { setupSystemRoutes } from './routes/system.js';
 export function setupRoutes(
   app: Express,
   opts: ServerOptions,
-  metricHistory: Map<string, { cpu: number; memory: number; time: number }[]>,
+  metricHistory: MetricHistory,
   getGraph: () => GraphData,
   plugins: PluginRegistry,
   marketplace: PluginMarketplaceService,

@@ -1,10 +1,11 @@
+import type { MetricHistory } from '../metricHistory.js';
 import type { Express } from 'express';
 import { type PluginRegistry } from '../../core/plugin-contract/registry.js';
 import type { GraphData } from '../../types.js';
-import { shortId } from '../../utils.js';
+import { HISTORY_RANGES, type HistoryRange } from '../metricHistory.js';
 import { asyncRoute } from '../errors.js';
 
-import { getEntityRef, getId, getMetricNodeId } from './request.js';
+import { getEntityRef, getMetricNodeId } from './request.js';
 
 export function setupEntitiesRoutes(
   app: Express,
@@ -15,7 +16,7 @@ export function setupEntitiesRoutes(
   }: {
     plugins: PluginRegistry;
     getGraph: () => GraphData;
-    metricHistory: Map<string, { cpu: number; memory: number; time: number }[]>;
+    metricHistory: MetricHistory;
   },
 ): void {
   app.get(
@@ -107,7 +108,12 @@ export function setupEntitiesRoutes(
 
   app.get('/api/entities/:entityId/history', (req, res) => {
     const ref = getEntityRef(req, req.params.entityId as string, getGraph());
-    res.json(metricHistory.get(ref.nodeId ?? '') || metricHistory.get(shortId(ref.entityId)) || []);
+    const range = req.query.range ?? '5m';
+    if (typeof range !== 'string' || !Object.hasOwn(HISTORY_RANGES, range)) {
+      res.status(400).json({ error: 'History range must be 5m, 1h, or 24h' });
+      return;
+    }
+    res.json(metricHistory.query(ref, range as HistoryRange));
   });
 
   app.get(
@@ -171,8 +177,12 @@ export function setupEntitiesRoutes(
   );
 
   app.get('/api/containers/:id/history', (req, res) => {
-    const nodeId = getMetricNodeId(req);
-    res.json(metricHistory.get(nodeId) || metricHistory.get(shortId(getId(req))) || []);
+    const range = req.query.range ?? '5m';
+    if (typeof range !== 'string' || !Object.hasOwn(HISTORY_RANGES, range)) {
+      res.status(400).json({ error: 'History range must be 5m, 1h, or 24h' });
+      return;
+    }
+    res.json(metricHistory.query(getEntityRef(req), range as HistoryRange));
   });
 
   app.get(

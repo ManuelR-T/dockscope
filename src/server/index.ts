@@ -1,3 +1,5 @@
+import { MetricHistory } from './metricHistory.js';
+import { statePath } from '../paths.js';
 import express from 'express';
 import { createServer as createHttpServer } from 'http';
 import type { IncomingMessage } from 'http';
@@ -220,8 +222,9 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
   const redactForRole = (role: AccessRole, value: unknown) =>
     role === 'reader' ? redactAccessSecrets(value, auth.current()) : value;
 
-  // Metric history storage (shared with routes)
-  const metricHistory = new Map<string, { cpu: number; memory: number; time: number }[]>();
+  const metricHistory = new MetricHistory(statePath(process.env, 'metric-history.jsonl'));
+  await metricHistory.load();
+  metricHistory.start();
   const flightRecorder = new FlightRecorder(PKG_VERSION);
 
   const broadcast = (msg: WSMessage) => {
@@ -286,6 +289,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
 
   const close = async (exit = false) => {
     monitor.stop();
+    await metricHistory.close();
     await webhooks.stop();
     process.off('SIGINT', shutdown);
     process.off('SIGTERM', shutdown);
