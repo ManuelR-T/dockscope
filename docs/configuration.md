@@ -9,6 +9,7 @@ variables, and where it keeps state. Nothing here is required to run it.
 - [TLS](#tls)
 - [Where state lives](#where-state-lives)
 - [Flight recorder](#flight-recorder)
+- [Webhook alerts](#webhook-alerts)
 - [Access control](#access-control)
 - [Plugin file locations](#plugin-file-locations)
 
@@ -107,6 +108,8 @@ Each of these overrides one file. See [Plugin file locations](#plugin-file-locat
 | `DOCKSCOPE_ALLOWED_ORIGINS`   | -                       | Extra browser origins allowed to reach the API and WebSocket |
 | `DOCKSCOPE_AUTH_PROXY_HEADER` | -                       | Header carrying the user your identity proxy authenticated   |
 | `DOCKSCOPE_TRUSTED_PROXIES`   | -                       | Addresses or CIDRs that header is believed from              |
+| `DOCKSCOPE_WEBHOOK_URL`       | -                       | HTTP(S) destination for anomaly and crash alerts; unset disables delivery |
+| `DOCKSCOPE_WEBHOOK_FORMAT`    | `json`                  | Payload format: `json`, `slack`, or `discord`                 |
 | `DOCKSCOPE_NO_COMPOSE`        | -                       | Disable Compose project management. Set in the Docker image  |
 
 `DOCKER_HOST` is honoured too, as the fallback for `-H, --host`.
@@ -343,3 +346,71 @@ Subscription logs and shell output are excluded, but crash diagnostics can
 include log excerpts and graphs can include plugin metadata. Recordings remain
 sensitive operational data. Configured access-token values are redacted at
 capture time; this is not general-purpose secret scrubbing.
+
+## Webhook alerts
+
+Open **Webhook alerts** (the bell in the dashboard toolbar) to save a receiver
+URL and choose Generic JSON, Slack, or Discord. Saving applies immediately;
+**Disable webhook** stops delivery and removes the saved URL. Only operators
+can read or change these settings. Saved URLs are hidden; leave the URL field
+blank to keep it when changing the format.
+
+Settings persist in `<state dir>/webhook.json` with owner-only permissions.
+The existing Docker state volume preserves them across container recreation.
+The URL is stored in plaintext because delivery needs it; protect this state
+file as a credential. Changing or disabling a webhook cancels the old delivery
+queue so pending alerts are not sent to the replacement destination.
+
+Alternatively, set `DOCKSCOPE_WEBHOOK_URL` to configure alerts on the server.
+Environment configuration overrides saved settings and makes the dashboard
+panel read-only. `DOCKSCOPE_WEBHOOK_FORMAT` selects `json` (default), `slack`,
+or `discord`. Restart DockScope after changing environment values. Invalid configured
+URLs or formats fail startup before providers are started. Use an HTTP(S) URL
+without embedded basic-auth credentials or a fragment.
+
+For a generic receiver:
+
+```bash
+DOCKSCOPE_WEBHOOK_URL=https://alerts.example.com/dockscope dockscope up
+```
+
+For Docker, pass the variables through to the container:
+
+```yaml
+environment:
+  DOCKSCOPE_WEBHOOK_URL: '${DOCKSCOPE_WEBHOOK_URL:?set a webhook URL}'
+  DOCKSCOPE_WEBHOOK_FORMAT: slack
+```
+
+Use a [Slack incoming webhook](https://docs.slack.dev/messaging/sending-messages-using-incoming-webhooks/)
+or a [Discord webhook](https://docs.discord.com/developers/resources/webhook#execute-webhook)
+with the corresponding format. Chat messages contain a bounded summary with
+workload name, scoped ID, metric values or crash cause and exit status. They do
+not include diagnostic log excerpts. Mentions are disabled or rendered as plain
+text. Store webhook URLs as secrets; they commonly authorize posting to a channel.
+
+JSON receivers receive an envelope with `version: 1`, `app: "dockscope"`, a unique
+`id`, `type` (`anomaly` or `diagnostic`), and `data`, the corresponding WebSocket
+payload. Anomalies include metric, value, average, threshold and timestamp;
+diagnostics include cause, exit code, OOM status, details and log excerpts.
+Requests also carry `X-DockScope-Event-Id`, preserved across retries so receivers
+can deduplicate delivery. The `data.time` value is Unix milliseconds.
+
+Delivery runs independently of monitoring and browser connections. The monitor
+emits an anomaly only when it becomes active, allowing another alert after it
+clears and recurs. Crash diagnostics are sent whenever the monitor produces one;
+ordinary graph, stats and log messages are not forwarded.
+
+Delivery is best effort: one request at a time, a 5-second timeout per attempt,
+and at most three attempts for network errors, HTTP 429 or HTTP 5xx. Retry delays
+start at 1 and 2 seconds; a longer `Retry-After` is honored up to 30 seconds.
+Longer delays, other HTTP failures, or exhausted retries drop the alert and log
+a warning without the destination URL or response body. Redirects are not followed.
+A receiver can see duplicates if it accepts a request but the response is lost.
+
+The in-memory queue holds at most 100 waiting alerts, each at most 256 KiB;
+new alerts are dropped with a warning when these limits are exceeded. Shutdown
+cancels delivery and discards the queue; pending alerts do not survive restarts.
+Configured DockScope access-token values are redacted before delivery. Generic
+JSON diagnostics can still contain other sensitive operational data, so choose
+a trusted receiver and use HTTPS across untrusted networks.

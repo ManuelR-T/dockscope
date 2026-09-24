@@ -15,6 +15,7 @@
   import Toast from './components/Toast.svelte';
   import TokenGate from './components/TokenGate.svelte';
   import SecurityPanel from './components/SecurityPanel.svelte';
+  import WebhookPanel from './components/WebhookPanel.svelte';
   import Tooltip from './components/Tooltip.svelte';
   import {
     checkAuth,
@@ -49,6 +50,7 @@
   let showHelp = $state(false);
   let showProjects = $state(false);
   let showHosts = $state(false);
+  let showWebhook = $state(false);
   let showPlugins = $state(false);
   let colorNetworks = $state(DEFAULT_COLOR_NETWORKS);
   let pluginUiExtensions = $state<PluginUiExtension[]>([]);
@@ -209,6 +211,9 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
+    if (showWebhook) {
+      return;
+    }
     const tag = (e.target as HTMLElement)?.tagName;
     const isInput = tag === 'INPUT' || tag === 'TEXTAREA';
 
@@ -430,6 +435,28 @@
           {/if}
         </svg>
       </IconButton>
+      {#if auth.role === 'operator'}
+        <IconButton
+          variant="outline"
+          title="Webhook alerts"
+          ariaLabel="Webhook alerts"
+          onclick={() => (showWebhook = true)}
+        >
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" />
+            <path d="M10 21h4" />
+          </svg>
+        </IconButton>
+      {/if}
       <IconButton variant="outline" title="Plugins" onclick={() => (showPlugins = true)}>
         <svg
           width="12"
@@ -672,6 +699,9 @@
   {/if}
   {#if showPlugins}
     <PluginManager role={auth.role as AccessRole | null} onClose={closePluginManager} />
+  {/if}
+  {#if showWebhook && auth.role === 'operator'}
+    <WebhookPanel onClose={() => (showWebhook = false)} />
   {/if}
   {#if auth.panelOpen}
     <SecurityPanel onClose={closeSecurityPanel} />

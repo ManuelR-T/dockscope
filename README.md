@@ -147,6 +147,10 @@ events, metrics, anomalies and crash diagnostics. The server captures these
 continuously, even while the dashboard is closed. The buffer lives in memory
 and resets on restart; size limits can shorten the available window.
 
+Open **Webhook alerts** from the toolbar to set up anomaly and crash alerts
+while the dashboard is closed, or configure `DOCKSCOPE_WEBHOOK_URL` on the server. Generic JSON, Slack and Discord formats are supported;
+see [Webhook alerts](docs/configuration.md#webhook-alerts).
+
 For a manual recording, hit `REC` to record into a JSON file.
 Load that file on any other DockScope instance and replay it with a scrubber,
 event markers and 1-8x speed. Live updates and actions are disabled during

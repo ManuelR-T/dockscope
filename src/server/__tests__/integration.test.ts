@@ -1,6 +1,7 @@
 import { generateKeyPairSync, randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { request as httpsRequest } from 'node:https';
+import { createServer as createHttpServer } from 'node:http';
 import { createServer as createNetServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -247,6 +248,9 @@ afterAll(async () => {
 });
 
 beforeEach(() => {
+  vi.stubEnv('DOCKSCOPE_STATE_DIR', path.join(sharedAuthDir, randomUUID()));
+  vi.stubEnv('DOCKSCOPE_WEBHOOK_URL', '');
+  vi.stubEnv('DOCKSCOPE_WEBHOOK_FORMAT', 'json');
   delete process.env.DOCKSCOPE_DEV;
   delete process.env.DOCKSCOPE_TOKEN;
   delete process.env.DOCKSCOPE_READ_ONLY_TOKEN;
@@ -256,6 +260,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   if (originalDevelopmentMode === undefined) {
     delete process.env.DOCKSCOPE_DEV;
   } else {
@@ -390,6 +395,76 @@ describe('server integration', () => {
       expect.objectContaining({ msg: expect.objectContaining({ type: 'event' }) }),
     ]);
     expect((await (await fetch(url)).json()).frames).toEqual(recording.frames);
+  });
+
+  it('delivers a crash webhook without a browser connection and redacts access credentials', async () => {
+    const received: unknown[] = [];
+    const receiver = createHttpServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk: Buffer) => chunks.push(chunk));
+      req.on('end', () => {
+        received.push(JSON.parse(Buffer.concat(chunks).toString()));
+        res.writeHead(204).end();
+      });
+    });
+    await new Promise<void>((resolve) => receiver.listen(0, '127.0.0.1', resolve));
+    const address = receiver.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('Missing receiver port');
+    }
+    const receiverUrl = `http://127.0.0.1:${address.port}/hook`;
+    const token = 'webhook-integration-access-token';
+    process.env.DOCKSCOPE_TOKEN = token;
+    mocks.diagnoseCrash.mockResolvedValue({
+      containerId: '123456789abc',
+      containerName: 'web',
+      exitCode: 137,
+      oomKilled: true,
+      cause: 'Out of memory',
+      details: [],
+      logSnippet: [`token=${token}`],
+      time: 1,
+    });
+    let pushEvent: ((event: SourceEvent) => void) | null = null;
+    mocks.watchEvents.mockImplementation((callback) => {
+      pushEvent = callback;
+      return vi.fn();
+    });
+    try {
+      server = await startTestServer();
+      const saved = await fetch(`http://127.0.0.1:${server.port}/api/webhook`, {
+        method: 'PUT',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ url: receiverUrl, format: 'json' }),
+      });
+      expect(saved.status).toBe(200);
+      requiredSourceEventCallback(pushEvent)({
+        source: mocks.listDockerGraphSources()[0].describe(),
+        event: {
+          id: '123456789abc',
+          type: 'container',
+          action: 'die',
+          actor: 'web',
+          time: 1,
+          message: 'died',
+        },
+        receivedAt: 1,
+      });
+      await waitFor(() => received.length === 1);
+      expect(received[0]).toMatchObject({
+        version: 1,
+        app: 'dockscope',
+        type: 'diagnostic',
+        data: { containerId: '123456789abc', oomKilled: true, logSnippet: ['token=[REDACTED]'] },
+      });
+      expect(JSON.stringify(received)).not.toContain(token);
+    } finally {
+      await server?.close();
+      server = null;
+      await new Promise<void>((resolve, reject) =>
+        receiver.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
   });
 
   it('serves the API over HTTPS when TLS credentials are configured', async () => {
@@ -988,6 +1063,45 @@ describe('access token', () => {
       expect(body).toContain('[REDACTED]');
       expect(JSON.parse(body).frames).toHaveLength(1);
     }
+  });
+
+  it('keeps webhook setup operator-only, hides its URL, and rejects environment overrides', async () => {
+    server = await startTestServer();
+    const url = `http://127.0.0.1:${server.port}/api/webhook`;
+    expect((await fetch(url)).status).toBe(401);
+    for (const method of ['GET', 'PUT', 'DELETE']) {
+      expect(
+        (await fetch(url, { method, headers: { authorization: `Bearer ${READ_ONLY_TOKEN}` } }))
+          .status,
+      ).toBe(403);
+    }
+    const headers = { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' };
+    const response = await fetch(url, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ url: 'https://example.test/secret-token', format: 'discord' }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      enabled: true,
+      destination: 'example.test',
+      format: 'discord',
+    });
+    expect(await (await fetch(url, { headers })).text()).not.toContain('secret-token');
+    expect(
+      (
+        await fetch(url, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify({ url: 'bad', format: 'json' }),
+        })
+      ).status,
+    ).toBe(400);
+    await server.close();
+    vi.stubEnv('DOCKSCOPE_WEBHOOK_URL', 'https://env.test/secret');
+    server = await startTestServer();
+    const managedUrl = `http://127.0.0.1:${server.port}/api/webhook`;
+    expect((await fetch(managedUrl, { method: 'DELETE', headers })).status).toBe(409);
   });
 
   const base = () => `http://127.0.0.1:${server!.port}`;

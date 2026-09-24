@@ -16,11 +16,12 @@ break**. Everything below follows from that.
 ## Be useful while the tab is closed
 
 The flight recorder now retains recent graph, event and metric history even
-while the dashboard is closed. Notifications and longer-lived history are next.
+while the dashboard is closed. Webhook alerts forward anomalies and crashes;
+longer-lived history is next.
 
 - [#37 Webhook alerts for anomalies and crashes][37] [help wanted][hw]
-  The server already detects both in `monitor.ts`. This forwards them to a
-  configurable endpoint with Slack and Discord formatting.
+  Implemented: configurable JSON, Slack and Discord delivery with bounded
+  retries and an in-memory queue.
 - [#36 Flight recorder][36] [help wanted][hw]
   Implemented: an instance-wide, bounded in-memory buffer with
   a **Save recent incident** export compatible with recording replay.

@@ -20,6 +20,7 @@ import { createServerMonitor } from './monitor.js';
 import { FlightRecorder } from './flightRecorder.js';
 import { setupRecordingRoutes } from './routes/recordings.js';
 import { PKG_VERSION } from '../version.js';
+import { WebhookSettings, setupWebhookRoutes } from './webhookSettings.js';
 import { createPluginRegistry } from '../plugins/internal.js';
 import {
   createPluginMarketplaceService,
@@ -118,6 +119,7 @@ function closeWebSocketClients(wss: WebSocketServer): Promise<void> {
 }
 
 export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
+  const webhooks = await WebhookSettings.open(process.env);
   // Resolve access control before starting providers. Invalid combinations
   // must fail before DockScope opens a daemon connection or plugin process.
   const authStore = new AuthStore(authStorePath(process.env));
@@ -225,7 +227,9 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
   const broadcast = (msg: WSMessage) => {
     // Capture before fan-out: recording must work with no browser connected.
     // Remove access credentials at capture time, including ones later rotated.
-    flightRecorder.capture(redactAccessSecrets(msg, auth.current()) as WSMessage);
+    const captured = redactAccessSecrets(msg, auth.current()) as WSMessage;
+    flightRecorder.capture(captured);
+    webhooks.notify(captured);
     let operatorData: string | undefined;
     let readerData: string | undefined;
     wss.clients.forEach((client) => {
@@ -244,6 +248,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
   const monitor = createServerMonitor({ metricHistory, broadcast, plugins });
   setupRoutes(app, opts, metricHistory, monitor.getGraph, plugins, marketplace);
   setupRecordingRoutes(app, flightRecorder);
+  setupWebhookRoutes(app, webhooks);
 
   // Frontend: Vite dev server (HMR) or static files (production)
   let closeDevelopmentServer: (() => Promise<void>) | undefined;
@@ -281,6 +286,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
 
   const close = async (exit = false) => {
     monitor.stop();
+    await webhooks.stop();
     process.off('SIGINT', shutdown);
     process.off('SIGTERM', shutdown);
     server.off('upgrade', handleWebSocketUpgrade);
