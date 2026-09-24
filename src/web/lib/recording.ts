@@ -1,31 +1,8 @@
-import type { GraphData, ServiceLink, ServiceNode, WSMessage } from '../../types';
+import type { GraphData, ServiceLink, ServiceNode } from '../../types';
 import { endpointId } from './graphLinks';
 
-/** A single captured WebSocket message, timestamped relative to recording start */
-export interface RecordingFrame {
-  t: number;
-  msg: WSMessage;
-}
-
-/** Serializable session recording — graph state, events and metrics over time */
-export interface Recording {
-  version: 1;
-  app: 'dockscope';
-  appVersion: string;
-  startedAt: number;
-  duration: number;
-  initialGraph: GraphData;
-  frames: RecordingFrame[];
-}
-
-/** Message types worth capturing (log_chunk is per-subscription and too heavy) */
-export const RECORDABLE_TYPES: ReadonlySet<string> = new Set([
-  'graph',
-  'stats',
-  'event',
-  'anomaly',
-  'diagnostic',
-]);
+import { RECORDABLE_TYPES, type Recording, type RecordingFrame } from '../../core/recording';
+export { RECORDABLE_TYPES, type Recording, type RecordingFrame } from '../../core/recording';
 
 export const MAX_RECORDING_FRAMES = 50_000;
 

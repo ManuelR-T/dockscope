@@ -8,6 +8,7 @@ variables, and where it keeps state. Nothing here is required to run it.
 - [Environment variables](#environment-variables)
 - [TLS](#tls)
 - [Where state lives](#where-state-lives)
+- [Flight recorder](#flight-recorder)
 - [Access control](#access-control)
 - [Plugin file locations](#plugin-file-locations)
 
@@ -318,3 +319,27 @@ Two similar names worth keeping apart: `DOCKSCOPE_PLUGIN_CATALOGS` is the file
 above, holding catalogs you trusted from the UI. `DOCKSCOPE_PLUGIN_CATALOG`
 (singular) is the `--plugin-catalog` flag's variable, listing extra catalog
 sources to read at startup.
+
+## Flight recorder
+
+The server continuously captures graph snapshots, metrics, events, anomalies
+and crash diagnostics, even with no dashboard connected. **Save recent incident**
+in the event bar downloads the available history as a regular recording; open
+that file using the existing replay control. Manual `REC` sessions are independent.
+
+The window is at most 15 minutes, with limits of 32 MiB of serialized payloads
+and 50,000 captured messages. Older graph snapshots and their following messages
+are evicted together so every export begins with a complete graph. Large stacks
+can therefore have a shorter window. If a single segment exceeds the limits,
+capture resumes at the next graph snapshot. The download reports the actual
+duration rather than promising a full 15 minutes.
+
+History is instance-wide, held only in memory, and cleared when the server
+restarts. No volume or additional configuration is needed, including in Docker.
+Both readers and operators can export it through the authenticated
+`GET /api/recordings/recent` endpoint. Exports do not clear the buffer.
+
+Subscription logs and shell output are excluded, but crash diagnostics can
+include log excerpts and graphs can include plugin metadata. Recordings remain
+sensitive operational data. Configured access-token values are redacted at
+capture time; this is not general-purpose secret scrubbing.

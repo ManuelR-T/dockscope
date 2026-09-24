@@ -15,16 +15,15 @@ break**. Everything below follows from that.
 
 ## Be useful while the tab is closed
 
-Today DockScope only helps if you are looking at it. Anomalies pulse, crash
-diagnostics appear, and if nobody is watching, none of it is recorded.
+The flight recorder now retains recent graph, event and metric history even
+while the dashboard is closed. Notifications and longer-lived history are next.
 
 - [#37 Webhook alerts for anomalies and crashes][37] [help wanted][hw]
   The server already detects both in `monitor.ts`. This forwards them to a
   configurable endpoint with Slack and Discord formatting.
 - [#36 Flight recorder][36] [help wanted][hw]
-  A rolling buffer of the last 10 to 15 minutes, so you can save an incident
-  *after* it happens rather than needing to have pressed REC beforehand. The
-  recording tap it needs already exists.
+  Implemented: an instance-wide, bounded in-memory buffer with
+  a **Save recent incident** export compatible with recording replay.
 - [#38 Persistent metric history][38]
   History currently lives in memory, capped at about 5 minutes. Persisting it
   gives 1h and 24h ranges, which is what finding a slow leak actually requires.

@@ -13,6 +13,7 @@ export interface ApiRequestAccess {
 
 const READER_SAFE_POST_PATHS = new Set(['/compare', '/kubernetes/logs']);
 const READER_SAFE_READ_PATHS = [
+  /^\/recordings\/recent$/,
   /^\/(?:graph|health|systems|system|version|sources|hosts|features|projects)$/,
   /^\/connections(?:\/providers)?$/,
   /^\/containers\/[^/]+\/(?:logs|stats|top|diff|inspect|history|diagnostic)$/,

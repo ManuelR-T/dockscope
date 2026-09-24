@@ -17,6 +17,7 @@ describe('apiRequestAllowed', () => {
 
   it.each([
     ['GET', '/graph'],
+    ['GET', '/recordings/recent'],
     ['GET', '/sources'],
     ['GET', '/features'],
     ['GET', '/entities/abc/operations'],

@@ -136,3 +136,20 @@ per source: 10 failures, then a 5 minute lockout. See
 | POST   | `/api/plugins/:pluginId/enable`       | Enable an external plugin                                          |
 | POST   | `/api/plugins/:pluginId/disable`      | Disable an external plugin                                         |
 | WS     | `/ws`                                 | Real-time graph, stats, events, logs, exec, anomalies, diagnostics |
+
+## Recent incident recording
+
+`GET /api/recordings/recent` downloads the flight recorder's available history.
+It permits readers and operators under the same authentication rules as graph
+reads and returns `Cache-Control: no-store` and a JSON attachment filename.
+It does not clear the buffer or change a manual recording.
+
+The response uses the existing replay format: `version: 1`, `app: "dockscope"`,
+`appVersion`, `startedAt` (Unix milliseconds), `duration` (milliseconds),
+`initialGraph`, and `frames` containing `{ t, msg }`. Frame times are relative
+to `startedAt`. It includes graph, stats, event, anomaly and diagnostic messages.
+
+History covers at most 15 minutes and may be shorter after startup or under
+size limits. A `503` JSON error means no retained graph baseline is available;
+retry after the next graph collection. See [Flight recorder](configuration.md#flight-recorder)
+for retention and data-handling details.
