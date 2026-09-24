@@ -1,3 +1,4 @@
+import { MetricHistory } from '../metricHistory';
 import express from 'express';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -76,7 +77,7 @@ describe('read-only plugin panel queries', () => {
     setupRoutes(
       app,
       {} as ServerOptions,
-      new Map(),
+      new MetricHistory('/unused-metric-history.jsonl'),
       () => graph,
       registry,
       {} as PluginMarketplaceService,

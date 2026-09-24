@@ -133,9 +133,6 @@ describe('sidebar entity API helpers', () => {
       if (url.includes('/stats?')) {
         return jsonResponse({ id: node.id, cpu: 12 });
       }
-      if (url.includes('/history?')) {
-        return jsonResponse([{ cpu: 12, memory: 20, time: 100 }]);
-      }
       if (url.includes('/inspect?')) {
         return jsonResponse({ id: node.id, env: [] });
       }
@@ -147,7 +144,6 @@ describe('sidebar entity API helpers', () => {
     });
 
     expect(data.stats?.cpu).toBe(12);
-    expect(data.history).toHaveLength(1);
     expect(data.inspect?.id).toBe(node.id);
     expect(data.diagnostic).toBeNull();
   });
@@ -172,7 +168,6 @@ describe('sidebar entity API helpers', () => {
     );
 
     expect(data.stats).toBeNull();
-    expect(data.history).toEqual([]);
     expect(data.diagnostic?.containerId).toBe(node.id);
   });
 

@@ -22,7 +22,7 @@
   import SidebarAnomaly from './sidebar/SidebarAnomaly.svelte';
   import PluginExtension from './PluginExtension.svelte';
   import { getDockerState } from '../stores/docker.svelte';
-  import type { ServiceNode, ContainerStats, ContainerInspect, MetricPoint } from '../../types';
+  import type { ServiceNode, ContainerStats, ContainerInspect } from '../../types';
   import {
     pluginUiContextMatches,
     pluginUiContextFromNode,
@@ -66,7 +66,6 @@
 
   let stats = $state<ContainerStats | null>(null);
   let inspect = $state<ContainerInspect | null>(null);
-  let history = $state<MetricPoint[]>([]);
   let activeTab = $state<'info' | 'env' | 'logs' | 'top' | 'diff' | 'exec'>('info');
   let fetchedLogs = $state('');
   let actionPending = $state(false);
@@ -176,7 +175,6 @@
     if (!currentNode) {
       stats = null;
       inspect = null;
-      history = [];
       fetchedLogs = '';
       entityActions = [];
       entityOperations = [];
@@ -187,7 +185,6 @@
     if (docker.replayMode) {
       stats = null;
       inspect = null;
-      history = [];
       fetchedLogs = '';
       entityActions = [];
       entityOperations = [];
@@ -197,7 +194,6 @@
     }
     stats = null;
     inspect = null;
-    history = [];
     fetchedLogs = '';
     entityActions = [];
     entityOperations = [];
@@ -232,7 +228,6 @@
         }
         stats = data.stats;
         inspect = data.inspect;
-        history = data.history;
         if (data.diagnostic) {
           addDiagnostic(data.diagnostic);
         }
@@ -243,7 +238,6 @@
         }
         stats = null;
         inspect = null;
-        history = [];
         entityActions = [];
         entityOperations = [];
       });
@@ -394,7 +388,7 @@
     {/if}
 
     {#if activeTab === 'info'}
-      <SidebarInfo {node} {stats} {inspect} {history} {colorNetworks} />
+      <SidebarInfo {node} {stats} {inspect} {colorNetworks} />
       {#if nodePanelExtensions.length > 0}
         <div class="plugin-node-panels">
           {#each nodePanelExtensions as extension (extension.pluginId + extension.id)}

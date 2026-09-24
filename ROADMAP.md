@@ -17,17 +17,22 @@ break**. Everything below follows from that.
 
 The flight recorder now retains recent graph, event and metric history even
 while the dashboard is closed. Webhook alerts forward anomalies and crashes;
-longer-lived history is next.
+persistent metric history provides 1-hour and 24-hour views across restarts.
+Configurable alert selection is next.
 
 - [#37 Webhook alerts for anomalies and crashes][37] [help wanted][hw]
   Implemented: configurable JSON, Slack and Discord delivery with bounded
   retries and an in-memory queue.
+- [#53 Webhook event selection and additional alerts][53]
+  Choose which events and workloads trigger notifications, with filters for
+  sources, projects and individual workloads. Add health, lifecycle,
+  connectivity and recovery alerts with duplicate suppression.
 - [#36 Flight recorder][36] [help wanted][hw]
   Implemented: an instance-wide, bounded in-memory buffer with
   a **Save recent incident** export compatible with recording replay.
 - [#38 Persistent metric history][38]
-  History currently lives in memory, capped at about 5 minutes. Persisting it
-  gives 1h and 24h ranges, which is what finding a slow leak actually requires.
+  Implemented: persistent CPU and memory samples with 5m, 1h and 24h ranges
+  in the Info tab, bounded retention and history preserved through source outages.
 
 ## Show more of what Docker already knows
 
@@ -123,3 +128,4 @@ because the data exists.
 [44]: https://github.com/ManuelR-T/dockscope/issues/44
 [48]: https://github.com/ManuelR-T/dockscope/issues/48
 [50]: https://github.com/ManuelR-T/dockscope/issues/50
+[53]: https://github.com/ManuelR-T/dockscope/issues/53

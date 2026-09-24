@@ -1,10 +1,4 @@
-import type {
-  ContainerInspect,
-  ContainerStats,
-  CrashDiagnostic,
-  MetricPoint,
-  ServiceNode,
-} from '../../types';
+import type { ContainerInspect, ContainerStats, CrashDiagnostic, ServiceNode } from '../../types';
 import type { EntityAction, EntityActionResult } from '../../core/entities/actions';
 import type { EntityOperationDescriptor, EntityOperationId } from '../../core/entities/operations';
 import type { PluginConfig } from '../../core/plugin-contract/config';
@@ -13,7 +7,6 @@ import { getJson, isAbortError, postJson } from './api';
 export interface SidebarNodeData {
   stats: ContainerStats | null;
   inspect: ContainerInspect | null;
-  history: MetricPoint[];
   diagnostic: CrashDiagnostic | null;
 }
 
@@ -126,11 +119,9 @@ export function loadEntitySidebarData(
     return Promise.all([
       fallbackUnlessAborted(getJson<ContainerStats>(entityApiUrl(node, '/stats'), init), null),
       inspect,
-      fallbackUnlessAborted(getJson<MetricPoint[]>(entityApiUrl(node, '/history'), init), []),
-    ]).then(([stats, inspect, history]) => ({
+    ]).then(([stats, inspect]) => ({
       stats,
       inspect,
-      history,
       diagnostic: null,
     }));
   }
@@ -146,7 +137,6 @@ export function loadEntitySidebarData(
   return Promise.all([inspect, diagnostic]).then(([inspect, diagnostic]) => ({
     stats: null,
     inspect,
-    history: [],
     diagnostic,
   }));
 }

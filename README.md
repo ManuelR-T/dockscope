@@ -112,6 +112,10 @@ DockScope reads the exit code, checks whether the kernel OOM-killed it, and
 pulls the last log lines, then puts the likely cause in the sidebar instead of
 making you piece it together from `docker inspect` and `docker logs`.
 
+The Info tab keeps CPU and memory history across DockScope restarts. Switch
+between 5 minutes, 1 hour and 24 hours to spot slow leaks or compare recent load.
+History remains available after a workload stops.
+
 Spikes get caught the same way. CPU and memory are watched for outliers, so a
 container that starts misbehaving pulses on the graph and raises an alert rather
 than waiting for you to go looking.

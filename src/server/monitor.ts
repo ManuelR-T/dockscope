@@ -1,3 +1,4 @@
+import type { MetricHistory } from './metricHistory.js';
 import { collectSourceGraphs } from '../core/sources/collect.js';
 import type { PluginRegistry } from '../core/plugin-contract/registry.js';
 import type { GraphSourceAdapter, SourceEvent } from '../core/sources/model.js';
@@ -5,7 +6,7 @@ import type { DockerEvent, GraphData, ServiceNode, WSMessage } from '../types.js
 import { shortId } from '../utils.js';
 
 interface MonitorOptions {
-  metricHistory: Map<string, { cpu: number; memory: number; time: number }[]>;
+  metricHistory: MetricHistory;
   plugins: PluginRegistry;
   broadcast(msg: WSMessage): void;
 }
@@ -61,9 +62,8 @@ export function createServerMonitor(opts: MonitorOptions): ServerMonitor {
       cachedGraph = collection.graph;
       opts.broadcast({ type: 'graph', data: cachedGraph });
       const activeIds = new Set(cachedGraph.nodes.map((n) => n.id));
-      for (const id of opts.metricHistory.keys()) {
+      for (const id of activeAnomalies.keys()) {
         if (!activeIds.has(id)) {
-          opts.metricHistory.delete(id);
           activeAnomalies.delete(id);
         }
       }
@@ -159,14 +159,16 @@ export function createServerMonitor(opts: MonitorOptions): ServerMonitor {
           const nodeStats = { ...stats, id: node.id };
           opts.broadcast({ type: 'stats', data: nodeStats });
 
-          if (!opts.metricHistory.has(node.id)) {
-            opts.metricHistory.set(node.id, []);
-          }
-          const history = opts.metricHistory.get(node.id)!;
-          history.push({ cpu: stats.cpu, memory: stats.memory, time: Date.now() });
-          if (history.length > 100) {
-            history.splice(0, history.length - 100);
-          }
+          const historyRef = {
+            entityId: node.entityId ?? node.containerId,
+            sourceId: node.sourceId ?? node.host ?? 'local',
+          };
+          opts.metricHistory.record(historyRef, {
+            cpu: stats.cpu,
+            memory: stats.memory,
+            time: Date.now(),
+          });
+          const history = opts.metricHistory.query(historyRef);
 
           await detectAndBroadcastAnomaly(
             node,

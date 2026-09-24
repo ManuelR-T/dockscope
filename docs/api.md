@@ -1,171 +1,458 @@
-# DockScope HTTP API
+# Configuration
 
-DockScope's UI is a client of this API, so everything the dashboard does is
-available through it. The server listens over HTTP on `127.0.0.1:4681` by
-default, or over HTTPS on the same address and port when
-[direct TLS](configuration.md#tls) is configured.
+Everything DockScope reads at startup: command-line flags, environment
+variables, and where it keeps state. Nothing here is required to run it.
 
-Endpoints are grouped below. Paths marked `:id` take an entity id, which for the
-Docker source is the container id.
+- [Commands](#commands)
+- [`dockscope up` options](#dockscope-up-options)
+- [Environment variables](#environment-variables)
+- [TLS](#tls)
+- [Where state lives](#where-state-lives)
+- [Flight recorder](#flight-recorder)
+- [Metric history](#metric-history)
+- [Webhook alerts](#webhook-alerts)
+- [Access control](#access-control)
+- [Plugin file locations](#plugin-file-locations)
 
-## Quick examples
+## Commands
+
+| Command                            | Description                                                   |
+| ---------------------------------- | ------------------------------------------------------------- |
+| `dockscope up`                     | Start the server and open the dashboard                       |
+| `dockscope scan`                   | Print the graph as JSON and exit, with no UI                  |
+| `dockscope plugin:init`            | Scaffold a plugin directory                                   |
+| `dockscope plugin:dev`             | Run DockScope with local plugin development defaults          |
+| `dockscope plugin:validate`        | Validate external plugin manifests                            |
+| `dockscope plugin:watch`           | Continuously validate manifests while you edit                |
+| `dockscope plugin:test`            | Validate and import external plugins                          |
+| `dockscope plugin:doctor`          | Check plugin paths and catalog configuration                  |
+| `dockscope plugin:keys`            | Generate Ed25519 plugin package signing keys                  |
+| `dockscope plugin:pack`            | Create a hash-verified plugin package                         |
+| `dockscope plugin:verify`          | Verify a plugin package signature                             |
+| `dockscope plugin:install`         | Install a directory or package into the local plugin registry |
+| `dockscope plugin:list`            | List locally installed plugins                                |
+| `dockscope plugin:update`          | Update an installed plugin from its recorded source           |
+| `dockscope plugin:uninstall`       | Remove an installed plugin                                    |
+| `dockscope plugin:catalog`         | List plugins from a catalog                                   |
+| `dockscope plugin:catalog:entry`   | Generate a catalog entry from a signed package                |
+| `dockscope plugin:catalog:sign`    | Sign a catalog JSON file                                      |
+| `dockscope plugin:catalog:install` | Install a signed package from a catalog                       |
+
+The `plugin:*` commands are covered in [Writing a plugin](plugins.md) and
+[Publishing a plugin](plugin-publishing.md).
+
+## `dockscope up` options
+
+`dockscope up --help` is always the authoritative list.
+
+### Server
+
+| Option                 | Default        | Description                                                           |
+| ---------------------- | -------------- | --------------------------------------------------------------------- |
+| `-p, --port <port>`    | `4681`         | Server port. Auto-increments if the port is already in use            |
+| `-H, --host <url>`     | `$DOCKER_HOST` | Docker host to inspect, e.g. `ssh://user@remote` or `tcp://host:2375` |
+| `-b, --bind <address>` | `127.0.0.1`    | Listen address. `0.0.0.0` inside a container                          |
+| `--tls-cert <file>`    | -              | Certificate or full-chain PEM file                                    |
+| `--tls-key <file>`     | -              | Private-key PEM file                                                   |
+| `--no-open`            | -              | Do not open a browser on startup                                      |
+| `--no-port-check`      | -              | Use the requested port as-is, without conflict detection              |
+
+`-H` is how you point DockScope at a Docker daemon somewhere else:
 
 ```bash
-# the whole graph, nodes and links
-curl -s localhost:4681/api/graph | jq '.nodes[].name'
-
-# live stats for one container
-curl -s localhost:4681/api/entities/<id>/stats | jq
-
-# restart a container through its owning plugin
-curl -X POST localhost:4681/api/entities/<id>/actions/core.docker/restart
+dockscope up -H ssh://user@homelab
 ```
 
-The WebSocket at `/ws` pushes graph, stats, event, log, exec, anomaly and
-diagnostic messages. It uses `ws://` with HTTP or `wss://` with HTTPS and is the
-same data the dashboard renders.
+### Plugins
 
-> Cross-origin browser requests are rejected. If you serve DockScope behind a
-> proxy or a custom domain, see
-> [Access control](configuration.md#access-control).
+| Option                               | Default                | Description                                           |
+| ------------------------------------ | ---------------------- | ----------------------------------------------------- |
+| `--plugins <paths>`                  | -                      | Load external plugins from a path list                |
+| `--plugin-permissions <permissions>` | installed grants       | Add globally allowed external plugin permissions      |
+| `--plugin-registry <dir>`            | `~/.dockscope/plugins` | Local plugin registry directory                       |
+| `--no-external-plugins`              | -                      | Disable external plugin loading entirely              |
+| `--allow-unsigned-plugins`           | -                      | Allow unsigned catalog entries, for local development |
 
-## Authentication
+### Plugin state files
 
-With no access token configured there is none, and every endpoint below answers
-directly with operator access. Once a full-access token is set, everything
-under `/api` and the `/ws` handshake returns `401` without credentials.
+Each of these overrides one file. See [Plugin file locations](#plugin-file-locations).
 
-Scripts send the token as a bearer header:
+| Option                      | Description                      |
+| --------------------------- | -------------------------------- |
+| `--plugin-config <file>`    | Plugin configuration values      |
+| `--plugin-state <file>`     | Enabled and disabled state       |
+| `--plugin-secrets <file>`   | Plugin secrets                   |
+| `--plugin-secret-key <key>` | Encrypt secrets with a local key |
+| `--plugin-events <file>`    | Event history                    |
+| `--plugin-approvals <file>` | Approvals                        |
+
+### Plugin catalogs
+
+| Option                               | Description                                               |
+| ------------------------------------ | --------------------------------------------------------- |
+| `--plugin-catalog <sources>`         | Extra catalogs (files or URLs), added to the official one |
+| `--plugin-catalog-public-key <file>` | Verify the configured catalog signature                   |
+| `--plugin-catalog-trust <file>`      | Catalog signer rotation and revocation trust store        |
+| `--no-official-plugin-catalog`       | Disable the default signed DockScope catalog              |
+
+## Environment variables
+
+| Variable                      | Default                 | Purpose                                                      |
+| ----------------------------- | ----------------------- | ------------------------------------------------------------ |
+| `DOCKSCOPE_STATE_DIR`         | `~/.dockscope`          | Where all persistent state lives                             |
+| `DOCKSCOPE_TOKEN`             | -                       | Full-access token. Overrides the dashboard's and hides setup |
+| `DOCKSCOPE_READ_ONLY_TOKEN`   | -                       | Additional environment-only token for observational access   |
+| `DOCKSCOPE_AUTH_FILE`         | `<state dir>/auth.json` | Move only the token file, leaving the rest in place          |
+| `DOCKSCOPE_BIND`              | `127.0.0.1`             | Listen address                                               |
+| `DOCKSCOPE_TLS_CERT`          | -                       | Certificate or full-chain PEM path                            |
+| `DOCKSCOPE_TLS_KEY`           | -                       | Private-key PEM path                                         |
+| `DOCKSCOPE_ALLOWED_ORIGINS`   | -                       | Extra browser origins allowed to reach the API and WebSocket |
+| `DOCKSCOPE_AUTH_PROXY_HEADER` | -                       | Header carrying the user your identity proxy authenticated   |
+| `DOCKSCOPE_TRUSTED_PROXIES`   | -                       | Addresses or CIDRs that header is believed from              |
+| `DOCKSCOPE_WEBHOOK_URL`       | -                       | HTTP(S) destination for anomaly and crash alerts; unset disables delivery |
+| `DOCKSCOPE_WEBHOOK_FORMAT`    | `json`                  | Payload format: `json`, `slack`, or `discord`                 |
+| `DOCKSCOPE_NO_COMPOSE`        | -                       | Disable Compose project management. Set in the Docker image  |
+
+`DOCKER_HOST` is honoured too, as the fallback for `-H, --host`.
+
+Most plugin flags have an environment equivalent, for deployments that cannot
+pass arguments:
+
+| Variable                                    | Flag                           |
+| ------------------------------------------- | ------------------------------ |
+| `DOCKSCOPE_PLUGIN_PATHS`                    | `--plugins`                    |
+| `DOCKSCOPE_PLUGIN_PERMISSIONS`              | `--plugin-permissions`         |
+| `DOCKSCOPE_PLUGIN_SECRET_KEY`               | `--plugin-secret-key`          |
+| `DOCKSCOPE_PLUGIN_CATALOG`                  | `--plugin-catalog`             |
+| `DOCKSCOPE_PLUGIN_CATALOG_PUBLIC_KEY`       | `--plugin-catalog-public-key`  |
+| `DOCKSCOPE_PLUGIN_CATALOG_TRUST`            | `--plugin-catalog-trust`       |
+| `DOCKSCOPE_PLUGIN_ALLOW_UNSIGNED`           | `--allow-unsigned-plugins`     |
+| `DOCKSCOPE_DISABLE_EXTERNAL_PLUGINS`        | `--no-external-plugins`        |
+| `DOCKSCOPE_DISABLE_OFFICIAL_PLUGIN_CATALOG` | `--no-official-plugin-catalog` |
+
+## TLS
+
+DockScope serves plain HTTP by default. For direct TLS, configure both a
+certificate and its unencrypted private key:
 
 ```bash
-curl -s -H "Authorization: Bearer $DOCKSCOPE_TOKEN" localhost:4681/api/graph
+dockscope up \
+  --tls-cert /etc/dockscope/fullchain.pem \
+  --tls-key /etc/dockscope/private-key.pem
 ```
 
-An optional `DOCKSCOPE_READ_ONLY_TOKEN` authenticates as `reader`; the existing
-environment or dashboard token authenticates as `operator`. The reader token
-requires a full-access token and must be distinct unless operator access is
-intended.
+The dashboard and API then use `https://` and the WebSocket uses `wss://` on
+the same port. DockScope does not open a second HTTP listener or redirect HTTP
+requests.
 
-The dashboard instead exchanges the token for an HttpOnly session cookie, since
-a browser cannot set headers on a WebSocket handshake.
+`DOCKSCOPE_TLS_CERT` and `DOCKSCOPE_TLS_KEY` provide the same file paths for
+managed deployments. Each command option overrides its matching environment
+variable independently, so a command-line certificate can be paired with an
+environment-provided key. After resolution, both paths or neither must be
+present. A missing, unreadable, empty, malformed or mismatched file stops
+startup; DockScope never falls back to HTTP.
 
-`GET /api/auth` needs no credentials and doubles as a liveness probe. It
-reports whether a token is required, whether you currently hold one, whether it
-is pinned by `DOCKSCOPE_TOKEN`, whether a reverse proxy authenticated you, and
-whether first-run setup is still on offer. Its `role` field is `operator`,
-`reader`, or `null`; browser sessions preserve the role used at login.
+Mount certificate files read-only into the published image:
 
-Authenticated readers may use every `GET` and `HEAD` endpoint, WebSocket live
-updates and log subscriptions, plus these observational POST operations:
+```bash
+export DOCKSCOPE_TOKEN="$(openssl rand -hex 32)"
 
-- `/api/compare`
-- `/api/kubernetes/logs`
-- plugin UI actions declared as `open_url`
+docker run --name dockscope --restart unless-stopped -p 4681:4681 \
+  --env DOCKSCOPE_TOKEN \
+  --env DOCKSCOPE_TLS_CERT=/run/dockscope-tls/fullchain.pem \
+  --env DOCKSCOPE_TLS_KEY=/run/dockscope-tls/private-key.pem \
+  -v /srv/dockscope/tls:/run/dockscope-tls:ro \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v dockscope-data:/data \
+  ghcr.io/manuelr-t/dockscope
+```
 
-Catalog preview remains operator-only because it initiates an outbound request
-to a user-supplied location.
+Keep the private key readable only by the account that manages the deployment.
+The files are read at startup, so restart DockScope after certificate renewal.
+The certificate must cover the hostname people actually open; if it does not
+cover `localhost`, use `--no-open` and browse to its DNS name instead.
 
-Every other mutation, token-setting change, plugin command and WebSocket
-`exec_*` message requires an operator. A missing or invalid credential returns
-`401`; an authenticated reader attempting an operator operation receives
-`403 {"error":"Operator access required"}`.
+A self-signed or internal-CA certificate works once clients trust that issuer.
+Blindly clicking through certificate warnings does not establish that trust and
+leaves interception possible.
+Terminating TLS in a trusted reverse proxy remains fully supported instead:
+leave DockScope's TLS settings unset, keep its HTTP port private to the proxy,
+and expose only the proxy's HTTPS listener. See
+[SECURITY.md](../.github/SECURITY.md) for the network threat model.
 
-| Method | Path                 | Description                                                      |
-| ------ | -------------------- | ---------------------------------------------------------------- |
-| GET    | `/api/auth`          | Current auth status. Never requires credentials                  |
-| POST   | `/api/auth/setup`    | Claim an instance or change its full token. Operator after setup |
-| POST   | `/api/auth/session`  | Exchange a token for a session cookie                            |
-| DELETE | `/api/auth/session`  | Sign out                                                         |
-| DELETE | `/api/auth/token`    | Remove the full token, reopening the instance. Operator only     |
-| POST   | `/api/auth/reminder` | Turn the first-run setup prompt on or off. Operator only         |
+## Where state lives
 
-Claiming an unconfigured instance is only possible from the machine itself, or
-from the network within 15 minutes of startup. Failed attempts are rate limited
-per source: 10 failures, then a 5 minute lockout. See
-[SECURITY.md](../.github/SECURITY.md) for the full model.
+Everything persistent sits under one directory, `~/.dockscope` by default:
 
-## Endpoints
+```text
+~/.dockscope/
+  auth.json              dashboard-set full-access token hash and setup state
+  plugin-config.json     plugin configuration values
+  plugin-state.json      which plugins are enabled
+  plugin-secrets.json    plugin secrets
+  plugin-approvals.json  approved plugin fingerprints
+  plugin-events.json     plugin event history
+  catalogs.json          user-added catalogs and their pinned signing keys
+  plugins/               installed plugin packages
+```
 
-| Method | Path                                  | Description                                                        |
-| ------ | ------------------------------------- | ------------------------------------------------------------------ |
-| GET    | `/api/graph`                          | Full graph (nodes + links)                                         |
-| GET    | `/api/sources`                        | Registered data sources                                            |
-| GET    | `/api/features`                       | Which optional features this instance has (Compose)                |
-| GET    | `/api/entities/:id/operations`        | Matching plugin operation descriptors                              |
-| GET    | `/api/entities/:id/actions`           | Contextual plugin-owned actions                                    |
-| POST   | `/api/entities/:id/actions/:pluginId/:actionId` | Run an exact entity action                              |
-| GET    | `/api/entities/:id/{stats,logs,inspect,history,top,diff,diagnostic}` | Generic entity reads          |
-| GET    | `/api/projects`                       | Plugin-owned project inventory                                     |
-| POST   | `/api/projects/:name/{action}`        | Run a project action with owner query parameters                   |
-| GET    | `/api/systems`                        | Plugin-owned runtime/system inventory                              |
-| GET    | `/api/connections/providers`          | Typed connection provider forms                                    |
-| GET    | `/api/connections`                    | Configured source connections                                      |
-| POST   | `/api/connections/:pluginId/:providerId` | Add a provider connection                                       |
-| DELETE | `/api/connections/:pluginId/:providerId/:connectionId` | Remove a provider connection                   |
-| GET    | `/api/health`                         | Aggregate plugin source health                                     |
-| GET    | `/api/version`                        | Current + latest version                                           |
-| GET    | `/api/plugins`                        | Runtime plugin registry                                            |
-| GET    | `/api/plugins/errors`                 | External plugin load/register failures                             |
-| GET    | `/api/plugins/warnings`               | External plugin manifest deprecation warnings                      |
-| GET    | `/api/plugins/ui`                     | Frontend plugin extension descriptors                              |
-| GET    | `/api/plugins/:pluginId/frontend`     | Sandboxed frontend bundle source                                   |
-| POST   | `/api/plugins/:pluginId/ui/:id/action` | Run a declared plugin UI action                                  |
-| GET    | `/api/plugins/commands`               | Plugin command descriptors                                         |
-| POST   | `/api/plugins/:pluginId/commands/:id` | Run a plugin command                                               |
-| GET    | `/api/plugins/events`                 | Recent plugin event bus entries                                    |
-| GET    | `/api/plugins/review`                 | Plugin permission/capability review reports                        |
-| GET    | `/api/plugins/catalog`                | Configured plugin catalog entries                                  |
-| GET    | `/api/plugins/marketplace`            | Catalog entries merged with local install state                    |
-| POST   | `/api/plugins/marketplace/:pluginId/install` | Install from the configured catalog                         |
-| POST   | `/api/plugins/marketplace/:pluginId/update` | Update an installed catalog plugin                            |
-| DELETE | `/api/plugins/marketplace/:pluginId`  | Uninstall a local marketplace plugin                              |
-| GET    | `/api/plugins/catalogs`               | User-added catalogs with their pinned key fingerprints              |
-| POST   | `/api/plugins/catalogs/preview`       | Inspect a catalog and its signing key without trusting it           |
-| POST   | `/api/plugins/catalogs`               | Trust and add a catalog (pins its signing key)                      |
-| DELETE | `/api/plugins/catalogs?source=`       | Remove a user-added catalog                                         |
-| GET    | `/api/plugins/approvals`              | Persisted plugin approvals                                         |
-| GET    | `/api/plugins/compatibility`          | Plugin compatibility warnings and migration metadata               |
-| POST   | `/api/plugins/:pluginId/migrate`      | Run a declared plugin compatibility migration                      |
-| POST   | `/api/plugins/:pluginId/approve`      | Approve the current plugin fingerprint                             |
-| POST   | `/api/plugins/:pluginId/revoke-approval` | Revoke plugin approval                                          |
-| GET    | `/api/plugins/config`                 | Plugin config schemas and values                                   |
-| PUT    | `/api/plugins/:pluginId/config`       | Update plugin config                                               |
-| POST   | `/api/plugins/:pluginId/reload`       | Reload an external plugin from disk                                |
-| GET    | `/api/plugins/secrets`                | Declared plugin secret status                                      |
-| PUT    | `/api/plugins/:pluginId/secrets/:key` | Store a declared plugin secret                                     |
-| POST   | `/api/plugins/:pluginId/enable`       | Enable an external plugin                                          |
-| POST   | `/api/plugins/:pluginId/disable`      | Disable an external plugin                                         |
-| WS     | `/ws`                                 | Real-time graph, stats, events, logs, exec, anomalies, diagnostics |
+`DOCKSCOPE_STATE_DIR` moves all of it at once. This is the one that matters in a
+container: the published image sets it to `/data` and declares that a volume, so
 
-## Recent incident recording
+```bash
+-v dockscope-data:/data
+```
 
-`GET /api/recordings/recent` downloads the flight recorder's available history.
-It permits readers and operators under the same authentication rules as graph
-reads and returns `Cache-Control: no-store` and a JSON attachment filename.
-It does not clear the buffer or change a manual recording.
+is what keeps a dashboard-set full-access token and installed plugins across
+restarts. `DOCKSCOPE_READ_ONLY_TOKEN` is environment-only and is never written
+to this volume.
 
-The response uses the existing replay format: `version: 1`, `app: "dockscope"`,
-`appVersion`, `startedAt` (Unix milliseconds), `duration` (milliseconds),
-`initialGraph`, and `frames` containing `{ t, msg }`. Frame times are relative
-to `startedAt`. It includes graph, stats, event, anomaly and diagnostic messages.
+Without that volume the state sits in the container's writable layer, which goes
+away whenever the container is recreated rather than merely restarted: an image
+update, `docker compose down`, `docker rm`, or `docker run --rm`. The instance
+then comes back unclaimed and offers first-run setup again, so anyone who can
+reach it could claim it.
 
-History covers at most 15 minutes and may be shorter after startup or under
-size limits. A `503` JSON error means no retained graph baseline is available;
-retry after the next graph collection. See [Flight recorder](configuration.md#flight-recorder)
-for retention and data-handling details.
+## Access control
 
-## Webhook settings
+Two independent layers. [SECURITY.md](../.github/SECURITY.md) explains the
+threat model; this is the operational summary.
 
-Webhook setup is operator-only (including reads). All responses use
-`Cache-Control: no-store` and omit the secret URL.
+**Origin checks** are always on. Browsers cannot reach DockScope cross-origin,
+so a website you visit cannot drive your Docker daemon. Behind a reverse proxy
+or a custom domain, list the browser-facing origins:
 
-- `GET /api/webhook`: returns `enabled`, `managedByEnv`, `format`, and
-  `destination` (host and optional port only).
-- `PUT /api/webhook`: accepts `{ "url": "https://…", "format": "json" }`.
-  Formats are `json`, `slack`, or `discord`. A blank URL retains the currently
-  saved URL; an initial setup requires one. Persists settings and applies them
-  without restarting the server.
-- `DELETE /api/webhook`: disables alerts and removes the saved URL.
+```bash
+DOCKSCOPE_ALLOWED_ORIGINS=https://dock.example.com
+```
 
-Invalid input returns `400`; an environment-managed webhook rejects changes
-with `409`. Save failures return `500` without changing the active configuration.
+**Access tokens** stop everything that is not a browser: curl, a script, or
+another host on the network. Authentication is optional and off by default,
+since the default bind is loopback. Authenticated requests have one of two
+roles:
+
+| Role       | Access                                                                                                                        |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `operator` | Every observation workflow plus workload actions, exec, connection and plugin administration, configuration and secret writes |
+| `reader`   | Graph, stats, logs, inspect, history, diagnostics, systems, health and other observation workflows                            |
+
+Readers receive `403` from mutation and exec operations. Plugin commands are
+operator-only until the plugin contract can declare their effects. Catalog
+preview is also operator-only because it makes an outbound request to a
+user-supplied location.
+
+Set it from the dashboard, which offers on first load and keeps a **Security**
+button in the status bar to change or remove it later. Or pin it in the
+environment, which overrides the stored one and hides the setup screen:
+
+```bash
+-e DOCKSCOPE_TOKEN="$(openssl rand -hex 32)"
+```
+
+Add a distinct, environment-only reader token when you want to share a view:
+
+```bash
+-e DOCKSCOPE_TOKEN="$(openssl rand -hex 32)" \
+-e DOCKSCOPE_READ_ONLY_TOKEN="$(openssl rand -hex 32)"
+```
+
+For Compose, require both secrets from the deployment environment rather than
+committing them:
+
+```yaml
+environment:
+  DOCKSCOPE_TOKEN: '${DOCKSCOPE_TOKEN:?set a full-access token}'
+  DOCKSCOPE_READ_ONLY_TOKEN: '${DOCKSCOPE_READ_ONLY_TOKEN:?set a distinct read-only token}'
+```
+
+`DOCKSCOPE_READ_ONLY_TOKEN` is additive and requires either
+`DOCKSCOPE_TOKEN` or a dashboard-stored full-access token. DockScope refuses to
+start when the reader token is configured alone. `DOCKSCOPE_TOKEN` wins over a
+stored operator token. If both environment values are identical, that value is
+an operator token. Remove the reader variable before removing a dashboard-set
+operator token. Trusted reverse-proxy users are operators; mapping proxy groups
+to roles is not supported yet.
+
+Browsers get a session cookie once unlocked. Scripts send a header:
+
+```bash
+curl -H "Authorization: Bearer $DOCKSCOPE_TOKEN" localhost:4681/api/graph
+```
+
+Use `$DOCKSCOPE_READ_ONLY_TOKEN` for scripts that only observe. A mutation with
+that credential returns `403 {"error":"Operator access required"}`.
+
+**Reverse proxy authentication** hands the job to an identity provider you
+already run:
+
+```bash
+-e DOCKSCOPE_AUTH_PROXY_HEADER=Remote-User \
+-e DOCKSCOPE_TRUSTED_PROXIES=172.18.0.0/16
+```
+
+The header is only believed when the connection came from one of those
+addresses. Setting this makes authentication mandatory: requests that go around
+the proxy are refused even with no token configured. Keep the port unpublished
+so the proxy is the only way in.
+
+Two limits worth knowing. Failed attempts are rate limited per source: 10
+failures, then a 5 minute lockout. And an instance reachable over the network
+can only be claimed through the setup screen during the first 15 minutes after
+startup, so nobody can claim one you left running. From the machine itself there
+is no time limit. If the window closes, restart or set `DOCKSCOPE_TOKEN`.
+
+## Plugin file locations
+
+Each plugin store defaults to a file inside the state directory and can be
+redirected individually, by flag or by environment variable:
+
+| File                    | Flag                 | Variable                     |
+| ----------------------- | -------------------- | ---------------------------- |
+| `plugin-config.json`    | `--plugin-config`    | `DOCKSCOPE_PLUGIN_CONFIG`    |
+| `plugin-state.json`     | `--plugin-state`     | `DOCKSCOPE_PLUGIN_STATE`     |
+| `plugin-secrets.json`   | `--plugin-secrets`   | `DOCKSCOPE_PLUGIN_SECRETS`   |
+| `plugin-approvals.json` | `--plugin-approvals` | `DOCKSCOPE_PLUGIN_APPROVALS` |
+| `plugin-events.json`    | `--plugin-events`    | `DOCKSCOPE_PLUGIN_EVENTS`    |
+| `catalogs.json`         | -                    | `DOCKSCOPE_PLUGIN_CATALOGS`  |
+| `plugins/`              | `--plugin-registry`  | `DOCKSCOPE_PLUGIN_REGISTRY`  |
+
+Setting `DOCKSCOPE_STATE_DIR` is usually enough; these exist for deployments
+that need to split state across mounts.
+
+Two similar names worth keeping apart: `DOCKSCOPE_PLUGIN_CATALOGS` is the file
+above, holding catalogs you trusted from the UI. `DOCKSCOPE_PLUGIN_CATALOG`
+(singular) is the `--plugin-catalog` flag's variable, listing extra catalog
+sources to read at startup.
+
+## Flight recorder
+
+The server continuously captures graph snapshots, metrics, events, anomalies
+and crash diagnostics, even with no dashboard connected. **Save recent incident**
+in the event bar downloads the available history as a regular recording; open
+that file using the existing replay control. Manual `REC` sessions are independent.
+
+The window is at most 15 minutes, with limits of 32 MiB of serialized payloads
+and 50,000 captured messages. Older graph snapshots and their following messages
+are evicted together so every export begins with a complete graph. Large stacks
+can therefore have a shorter window. If a single segment exceeds the limits,
+capture resumes at the next graph snapshot. The download reports the actual
+duration rather than promising a full 15 minutes.
+
+History is instance-wide, held only in memory, and cleared when the server
+restarts. No volume or additional configuration is needed, including in Docker.
+Both readers and operators can export it through the authenticated
+`GET /api/recordings/recent` endpoint. Exports do not clear the buffer.
+
+Subscription logs and shell output are excluded, but crash diagnostics can
+include log excerpts and graphs can include plugin metadata. Recordings remain
+sensitive operational data. Configured access-token values are redacted at
+capture time; this is not general-purpose secret scrubbing.
+
+## Webhook alerts
+
+Open **Webhook alerts** (the bell in the dashboard toolbar) to save a receiver
+URL and choose Generic JSON, Slack, or Discord. Saving applies immediately;
+**Disable webhook** stops delivery and removes the saved URL. Only operators
+can read or change these settings. Saved URLs are hidden; leave the URL field
+blank to keep it when changing the format.
+
+Settings persist in `<state dir>/webhook.json` with owner-only permissions.
+The existing Docker state volume preserves them across container recreation.
+The URL is stored in plaintext because delivery needs it; protect this state
+file as a credential. Changing or disabling a webhook cancels the old delivery
+queue so pending alerts are not sent to the replacement destination.
+
+Alternatively, set `DOCKSCOPE_WEBHOOK_URL` to configure alerts on the server.
+Environment configuration overrides saved settings and makes the dashboard
+panel read-only. `DOCKSCOPE_WEBHOOK_FORMAT` selects `json` (default), `slack`,
+or `discord`. Restart DockScope after changing environment values. Invalid configured
+URLs or formats fail startup before providers are started. Use an HTTP(S) URL
+without embedded basic-auth credentials or a fragment.
+
+For a generic receiver:
+
+```bash
+DOCKSCOPE_WEBHOOK_URL=https://alerts.example.com/dockscope dockscope up
+```
+
+For Docker, pass the variables through to the container:
+
+```yaml
+environment:
+  DOCKSCOPE_WEBHOOK_URL: '${DOCKSCOPE_WEBHOOK_URL:?set a webhook URL}'
+  DOCKSCOPE_WEBHOOK_FORMAT: slack
+```
+
+Use a [Slack incoming webhook](https://docs.slack.dev/messaging/sending-messages-using-incoming-webhooks/)
+or a [Discord webhook](https://docs.discord.com/developers/resources/webhook#execute-webhook)
+with the corresponding format. Chat messages contain a bounded summary with
+workload name, scoped ID, metric values or crash cause and exit status. They do
+not include diagnostic log excerpts. Mentions are disabled or rendered as plain
+text. Store webhook URLs as secrets; they commonly authorize posting to a channel.
+
+JSON receivers receive an envelope with `version: 1`, `app: "dockscope"`, a unique
+`id`, `type` (`anomaly` or `diagnostic`), and `data`, the corresponding WebSocket
+payload. Anomalies include metric, value, average, threshold and timestamp;
+diagnostics include cause, exit code, OOM status, details and log excerpts.
+Requests also carry `X-DockScope-Event-Id`, preserved across retries so receivers
+can deduplicate delivery. The `data.time` value is Unix milliseconds.
+
+Delivery runs independently of monitoring and browser connections. The monitor
+emits an anomaly only when it becomes active, allowing another alert after it
+clears and recurs. Crash diagnostics are sent whenever the monitor produces one;
+ordinary graph, stats and log messages are not forwarded.
+
+Delivery is best effort: one request at a time, a 5-second timeout per attempt,
+and at most three attempts for network errors, HTTP 429 or HTTP 5xx. Retry delays
+start at 1 and 2 seconds; a longer `Retry-After` is honored up to 30 seconds.
+Longer delays, other HTTP failures, or exhausted retries drop the alert and log
+a warning without the destination URL or response body. Redirects are not followed.
+A receiver can see duplicates if it accepts a request but the response is lost.
+
+The in-memory queue holds at most 100 waiting alerts, each at most 256 KiB;
+new alerts are dropped with a warning when these limits are exceeded. Shutdown
+cancels delivery and discards the queue; pending alerts do not survive restarts.
+Configured DockScope access-token values are redacted before delivery. Generic
+JSON diagnostics can still contain other sensitive operational data, so choose
+a trusted receiver and use HTTPS across untrusted networks.
+
+## Metric history
+
+The Info tab's **Resource history** selector offers 5-minute, 1-hour and 24-hour
+CPU and memory charts. The 5-minute view retains up to 100 raw samples; longer
+views use one-minute averages. Memory history is shown in bytes rather than
+recalculating old samples against the workload's current memory limit. The
+maximum shown on a longer-range chart is the maximum minute average, not an
+instantaneous peak. Gaps indicate missing samples; they are not interpolated.
+
+History lives in `<state dir>/metric-history.jsonl`. No additional dependency
+or configuration is needed, and the existing Docker state volume preserves it
+across container recreation. The server writes atomic snapshots every 30 seconds
+and flushes on graceful shutdown. An abrupt termination can lose samples since
+the last successful write. A persistence failure logs a warning while live
+monitoring continues and retries at the next flush.
+
+Retention is 24 hours for minute averages and 5 minutes for raw samples. The
+store retains at most 512 source/workload pairs, evicting the least recently
+sampled when that limit is exceeded. Removed or temporarily unreachable
+workloads retain history until these retention limits apply. IDs are scoped by
+source: recreating a Docker container with a different ID starts a new history,
+while restarting DockScope or temporarily losing a source does not erase it.
+
+History remains available for stopped workloads in the Info tab. Recording
+replay does not query live persistent history.
+
+## Metric history ranges
+
+Both `GET /api/entities/:id/history` and the legacy
+`GET /api/containers/:id/history` accept `range=5m|1h|24h` (default `5m`).
+They return the existing array shape: `{ cpu, memory, time }`, with CPU in percent,
+memory in bytes, and time in Unix milliseconds. Long ranges return minute
+averages timestamped at the start of their minute; the latest minute may still
+be incomplete. Missing intervals have no entries.
+
+Use `sourceId` (or legacy `host`) to select the source; it defaults to `local`.
+History lookup never falls back to another source. Docker short IDs are accepted
+when they uniquely match within that source. A valid query with no retained
+samples returns `[]`; an invalid range returns `400`. Both operators and readers
+can use these endpoints, including when a source is unavailable.
