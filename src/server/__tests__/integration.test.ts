@@ -359,6 +359,39 @@ describe('server integration', () => {
     server = null;
   });
 
+  it('captures an incident without a WebSocket client and exports it without consuming it', async () => {
+    let pushEvent: ((event: SourceEvent) => void) | null = null;
+    mocks.watchEvents.mockImplementation((callback) => {
+      pushEvent = callback;
+      return vi.fn();
+    });
+    server = await startTestServer();
+    const source = mocks.listDockerGraphSources()[0].describe();
+    requiredSourceEventCallback(pushEvent)({
+      source,
+      event: {
+        id: '123456789abc',
+        type: 'container',
+        action: 'health_status',
+        actor: 'web',
+        time: 1,
+        message: 'health changed',
+      },
+      receivedAt: 1,
+    });
+    const url = `http://127.0.0.1:${server.port}/api/recordings/recent`;
+    const response = await fetch(url);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(response.headers.get('content-disposition')).toContain('attachment');
+    const recording = await response.json();
+    expect(recording.initialGraph).toEqual(mockGraph);
+    expect(recording.frames).toEqual([
+      expect.objectContaining({ msg: expect.objectContaining({ type: 'event' }) }),
+    ]);
+    expect((await (await fetch(url)).json()).frames).toEqual(recording.frames);
+  });
+
   it('serves the API over HTTPS when TLS credentials are configured', async () => {
     const [certificate, privateKey] = await Promise.all([
       readFile(new URL('./fixtures/localhost-cert.pem', import.meta.url), 'utf8'),
@@ -923,6 +956,38 @@ describe('access token', () => {
     delete process.env.DOCKSCOPE_AUTH_FILE;
     await server?.close();
     server = null;
+  });
+
+  it('authenticates incident exports and strips captured access tokens for both roles', async () => {
+    let pushEvent: ((event: SourceEvent) => void) | null = null;
+    mocks.watchEvents.mockImplementation((callback) => {
+      pushEvent = callback;
+      return vi.fn();
+    });
+    server = await startTestServer();
+    requiredSourceEventCallback(pushEvent)({
+      source: mocks.listDockerGraphSources()[0].describe(),
+      event: {
+        id: '123456789abc',
+        type: 'container',
+        action: 'health_status',
+        actor: 'web',
+        time: 1,
+        message: `credentials ${TOKEN} ${READ_ONLY_TOKEN}`,
+      },
+      receivedAt: 1,
+    });
+    const url = `http://127.0.0.1:${server.port}/api/recordings/recent`;
+    expect((await fetch(url)).status).toBe(401);
+    for (const token of [TOKEN, READ_ONLY_TOKEN]) {
+      const response = await fetch(url, { headers: { authorization: `Bearer ${token}` } });
+      expect(response.status).toBe(200);
+      const body = await response.text();
+      expect(body).not.toContain(TOKEN);
+      expect(body).not.toContain(READ_ONLY_TOKEN);
+      expect(body).toContain('[REDACTED]');
+      expect(JSON.parse(body).frames).toHaveLength(1);
+    }
   });
 
   const base = () => `http://127.0.0.1:${server!.port}`;

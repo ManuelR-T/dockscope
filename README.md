@@ -142,10 +142,16 @@ project manager.
 
 ### Something broke last night and you missed it
 
-Hit `REC` and DockScope records the graph, events and metrics into a JSON file.
+Click **Save recent incident** to download up to the last 15 minutes of graph,
+events, metrics, anomalies and crash diagnostics. The server captures these
+continuously, even while the dashboard is closed. The buffer lives in memory
+and resets on restart; size limits can shorten the available window.
+
+For a manual recording, hit `REC` to record into a JSON file.
 Load that file on any other DockScope instance and replay it with a scrubber,
 event markers and 1-8x speed. Live updates and actions are disabled during
-replay, so a recording is safe to hand to someone else.
+replay. Recordings can contain sensitive operational data, including diagnostic
+log excerpts; review them before sharing.
 
 For a written postmortem, export the current view as PNG or SVG.
 

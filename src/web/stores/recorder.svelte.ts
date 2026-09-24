@@ -1,5 +1,6 @@
 import type { GraphData, WSMessage } from '../../types';
 import { downloadText } from '../lib/download';
+import { getJson, apiErrorMessage } from '../lib/api';
 import {
   MAX_RECORDING_FRAMES,
   RECORDABLE_TYPES,
@@ -30,6 +31,23 @@ let recStartedAt = 0;
 let recFrames: RecordingFrame[] = [];
 let recInitialGraph: GraphData | null = null;
 let recTimer: ReturnType<typeof setInterval> | null = null;
+let savingIncident = $state(false);
+
+export async function saveRecentIncident() {
+  if (savingIncident) {
+    return;
+  }
+  savingIncident = true;
+  try {
+    const recent = await getJson<Recording>('/api/recordings/recent');
+    downloadRecording(recent);
+    addToast(`Incident saved — ${formatClock(recent.duration)} captured`, 'success');
+  } catch (error) {
+    addToast(apiErrorMessage(error) || 'Could not save recent incident', 'error');
+  } finally {
+    savingIncident = false;
+  }
+}
 
 // --- Replay state ---
 // $state.raw: frames must stay plain objects — deep $state proxies cannot be
@@ -222,6 +240,9 @@ export function exitReplay() {
 
 export function getRecorderState() {
   return {
+    get savingIncident() {
+      return savingIncident;
+    },
     get isRecording() {
       return isRecording;
     },

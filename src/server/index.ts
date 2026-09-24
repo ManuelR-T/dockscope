@@ -17,6 +17,9 @@ import type { AccessRole } from '../core/access.js';
 import { createAuthRuntime, setupAuth } from './authRoutes.js';
 import { AuthStore, authStorePath, resolveAuthConfig } from './authStore.js';
 import { createServerMonitor } from './monitor.js';
+import { FlightRecorder } from './flightRecorder.js';
+import { setupRecordingRoutes } from './routes/recordings.js';
+import { PKG_VERSION } from '../version.js';
 import { createPluginRegistry } from '../plugins/internal.js';
 import {
   createPluginMarketplaceService,
@@ -217,8 +220,12 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
 
   // Metric history storage (shared with routes)
   const metricHistory = new Map<string, { cpu: number; memory: number; time: number }[]>();
+  const flightRecorder = new FlightRecorder(PKG_VERSION);
 
   const broadcast = (msg: WSMessage) => {
+    // Capture before fan-out: recording must work with no browser connected.
+    // Remove access credentials at capture time, including ones later rotated.
+    flightRecorder.capture(redactAccessSecrets(msg, auth.current()) as WSMessage);
     let operatorData: string | undefined;
     let readerData: string | undefined;
     wss.clients.forEach((client) => {
@@ -236,6 +243,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
 
   const monitor = createServerMonitor({ metricHistory, broadcast, plugins });
   setupRoutes(app, opts, metricHistory, monitor.getGraph, plugins, marketplace);
+  setupRecordingRoutes(app, flightRecorder);
 
   // Frontend: Vite dev server (HMR) or static files (production)
   let closeDevelopmentServer: (() => Promise<void>) | undefined;

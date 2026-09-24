@@ -10,6 +10,7 @@
     startRecording,
     startReplay,
     stopRecording,
+    saveRecentIncident,
   } from '../stores/recorder.svelte';
   import type { DockerEvent, GraphData } from '../../types';
   import type { PluginSystemSnapshot } from '../../core/plugin-contract/system';
@@ -116,6 +117,16 @@
     </div>
     <div class="event-header-right">
       {#if !recorder.replaying}
+        <Button
+          variant="ghost"
+          size="sm"
+          pill
+          disabled={recorder.savingIncident}
+          onclick={saveRecentIncident}
+          title="Save up to the last 15 minutes, captured even while the dashboard was closed"
+        >
+          {recorder.savingIncident ? 'Saving…' : 'Save recent incident'}
+        </Button>
         <Button
           variant="ghost"
           size="sm"
