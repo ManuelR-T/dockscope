@@ -153,3 +153,19 @@ History covers at most 15 minutes and may be shorter after startup or under
 size limits. A `503` JSON error means no retained graph baseline is available;
 retry after the next graph collection. See [Flight recorder](configuration.md#flight-recorder)
 for retention and data-handling details.
+
+## Webhook settings
+
+Webhook setup is operator-only (including reads). All responses use
+`Cache-Control: no-store` and omit the secret URL.
+
+- `GET /api/webhook`: returns `enabled`, `managedByEnv`, `format`, and
+  `destination` (host and optional port only).
+- `PUT /api/webhook`: accepts `{ "url": "https://…", "format": "json" }`.
+  Formats are `json`, `slack`, or `discord`. A blank URL retains the currently
+  saved URL; an initial setup requires one. Persists settings and applies them
+  without restarting the server.
+- `DELETE /api/webhook`: disables alerts and removes the saved URL.
+
+Invalid input returns `400`; an environment-managed webhook rejects changes
+with `409`. Save failures return `500` without changing the active configuration.
