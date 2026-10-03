@@ -54,6 +54,7 @@ export interface GraphData {
 }
 
 export interface RuntimeEvent {
+  project?: string;
   id: string;
   entityId?: string;
   containerId?: string;

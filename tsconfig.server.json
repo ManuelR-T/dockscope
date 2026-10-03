@@ -23,5 +23,5 @@
     "src/types.ts",
     "src/utils.ts"
   ],
-  "exclude": ["node_modules", "dist", "src/web", "src/**/__tests__"]
+  "exclude": ["node_modules", "dist", "src/web", "src/**/__tests__", "src/plugins/official"]
 }

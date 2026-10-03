@@ -340,6 +340,7 @@ Current slots are:
 - `nodePanel`
 - `nodeAction`
 - `graphOverlay`
+- `graphView` (alternative renderer beside the built-in 3D view)
 - `settings`
 
 Each slot requires its matching UI capability, such as `ui.toolbarAction` for `toolbar` and `ui.nodePanel` for `nodePanel`. Entries can contain `text`, `markdown`, `metrics`, or `keyValue` data. Markdown is displayed as text rather than injected HTML. The optional `context` filter limits an entry by node runtime, kind, or status.
@@ -413,6 +414,56 @@ export default function mount(api) {
 DockScope loads the source into an iframe with an opaque origin and only `allow-scripts`. Its content security policy blocks network connections, forms, fonts, and parent DOM access. The bundle receives only a root element, view id, frozen sanitized context, bounded resize request, and the declared action bridge. Frontend source is limited to 256 KiB and is never imported into the main server process or application page.
 
 `GET /api/plugins/:pluginId/frontend` serves an active plugin bundle. `POST /api/plugins/:pluginId/ui/:extensionId/action` invokes the server-validated action for that exact extension. Disabling, reloading, updating, or uninstalling a plugin invalidates its browser bundle cache.
+
+### Alternative graph views
+
+Declare `ui.graphView` and `ui.frontend` to add a tab beside the built-in 3D view.
+The host discovers enabled views automatically; no changes to the application
+selector are needed. The official `official.graph-view-2d` plugin ships with
+DockScope and can be disabled in the plugin manager. 3D remains the default and
+is restored if the active renderer is disabled, removed, or fails to load.
+
+```json
+{
+  "capabilities": ["ui.graphView", "ui.frontend"],
+  "frontend": { "entry": "./frontend.mjs", "slots": ["graphView"] },
+  "ui": [{ "id": "map", "slot": "graphView", "title": "Map", "frontendView": "map" }]
+}
+```
+
+Graph views fill the graph area and receive `api.graph`. They cannot declare an
+action, query, declarative content, or node-context filter. The sidebar and
+container actions stay in the host, with the existing access and replay rules.
+
+```js
+/** @type {import('dockscope/plugin-sdk/v1').PluginFrontendMount} */
+export default function mount(api) {
+  api.graph.subscribe((state) => {
+    api.root.replaceChildren();
+    for (const node of state.graph.nodes) {
+      const button = document.createElement('button');
+      button.textContent = node.name;
+      button.onclick = () => api.graph.selectNode(node.id);
+      api.root.append(button);
+    }
+  });
+  api.graph.onControl((control) => {
+    // Update the renderer camera for fit, reset, focus, or impact.
+  });
+}
+```
+
+`subscribe` immediately delivers the current immutable display snapshot, then
+live and replay updates: graph nodes and links, selected node ID, shared search,
+status and scope filters, network-color preference, replay flag, and anomaly
+entity IDs. Credentials, inspect payloads, and 3D runtime objects are excluded.
+Apply the shared filters in your renderer; the host does not prefilter the graph.
+`selectNode(id)` resolves only IDs present in the current host graph, and
+`selectNode(null)` clears selection. `onControl` receives camera commands from
+the host shortcuts. Keyboard events inside the iframe can be forwarded through
+`requestShortcut` for `f`, `r`, `c`, `i`, `/`, `Escape`, space, or `?`.
+Subscriptions return cleanup functions. This bridge is available only in
+`graphView` and retains the existing opaque-origin iframe and 256 KiB bundle limit.
 
 ## Commands and Events
 

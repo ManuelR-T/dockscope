@@ -49,6 +49,7 @@ export function watchEvents(
         callback({
           id: shortId(containerId),
           containerId,
+          project: raw.Actor?.Attributes?.['com.docker.compose.project'],
           host,
           type: raw.Type || 'unknown',
           action: raw.Action || raw.status || 'unknown',

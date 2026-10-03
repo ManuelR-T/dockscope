@@ -22,6 +22,9 @@
   let confirmation = $state('');
 
   let fields = $derived(action.input?.fields ?? []);
+  const pendingLabel = $derived(
+    action.id === 'stop' ? 'Stopping…' : `${action.title} in progress…`,
+  );
   let requiredMissing = $derived(
     fields.some(
       (field) => field.required && (values[field.key] === '' || values[field.key] === undefined),
@@ -139,6 +142,15 @@
       </label>
     {/if}
 
+    {#if pending}
+      <div class="action-progress" role="status">
+        <span class="action-spinner" aria-hidden="true"></span>
+        <span
+          >{action.id === 'stop' ? `Stopping ${entityName}…` : `${action.title} in progress…`}</span
+        >
+      </div>
+    {/if}
+
     <div class="dialog-actions">
       <Button variant="ghost" disabled={pending} onclick={onCancel}>Cancel</Button>
       <Button
@@ -147,7 +159,7 @@
         tone={action.tone === 'danger' ? 'danger' : 'accent'}
         disabled={invalid}
       >
-        {pending ? 'Running' : (action.confirm?.confirmLabel ?? action.title)}
+        {pending ? pendingLabel : (action.confirm?.confirmLabel ?? action.title)}
       </Button>
     </div>
   </form>
@@ -237,6 +249,36 @@
     color: var(--text-primary);
     font-family: var(--font-mono);
     text-transform: none;
+  }
+
+  .action-progress {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--accent-cyan);
+    font-size: var(--text-md);
+  }
+
+  .action-spinner {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: action-spin 0.8s linear infinite;
+  }
+
+  @keyframes action-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .action-spinner {
+      animation: none;
+    }
   }
 
   .dialog-actions {

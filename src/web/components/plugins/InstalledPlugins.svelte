@@ -105,15 +105,17 @@
             <div class="item-desc">{model.detailSummary(id)}</div>
           {/if}
         </div>
-        {#if model.canOperate && !plugin.manifest.builtin}
+        {#if model.canOperate && (!plugin.manifest.builtin || plugin.manifest.optional)}
           <div class="action-stack">
-            <Button
-              variant="secondary"
-              disabled={model.reloading !== null}
-              onclick={() => model.reloadPlugin(plugin)}
-            >
-              {model.reloading === id ? 'Reloading...' : 'Reload'}
-            </Button>
+            {#if !plugin.manifest.builtin}
+              <Button
+                variant="secondary"
+                disabled={model.reloading !== null}
+                onclick={() => model.reloadPlugin(plugin)}
+              >
+                {model.reloading === id ? 'Reloading...' : 'Reload'}
+              </Button>
+            {/if}
             <Button
               variant="secondary"
               disabled={model.toggling !== null}

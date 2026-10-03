@@ -1,3 +1,4 @@
+import { WebhookTransitions, workloadIdentity, type WebhookAlert } from './webhookEvents.js';
 import type { MetricHistory } from './metricHistory.js';
 import { collectSourceGraphs } from '../core/sources/collect.js';
 import type { PluginRegistry } from '../core/plugin-contract/registry.js';
@@ -9,6 +10,7 @@ interface MonitorOptions {
   metricHistory: MetricHistory;
   plugins: PluginRegistry;
   broadcast(msg: WSMessage): void;
+  alert?(alert: WebhookAlert): void;
 }
 
 export interface ServerMonitor {
@@ -17,7 +19,16 @@ export interface ServerMonitor {
   stop(): void;
 }
 
-const GRAPH_REFRESH_ACTIONS = ['start', 'stop', 'die', 'destroy', 'create', 'pause', 'unpause'];
+const GRAPH_REFRESH_ACTIONS = [
+  'start',
+  'stop',
+  'die',
+  'destroy',
+  'create',
+  'pause',
+  'unpause',
+  'restart',
+];
 const STATS_CONCURRENCY = 8;
 const STATS_TIMEOUT_MS = 2500;
 
@@ -52,23 +63,45 @@ export function createServerMonitor(opts: MonitorOptions): ServerMonitor {
   let connectionStatusInterval: ReturnType<typeof setInterval> | null = null;
   const eventWatchers = new Map<string, () => void>();
   let statsRefreshInFlight = false;
+  let graphRefreshInFlight = false;
+  const emitAlert = (alert: WebhookAlert) => {
+    if (!stopped) {
+      opts.alert?.(alert);
+    }
+  };
+  const transitions = new WebhookTransitions(emitAlert);
   const activeAnomalies = new Map<string, Set<string>>();
+  const terminations = new Map<string, number>();
+  let stopped = false;
+  const anomalySources = new Map<string, string>();
 
   const refreshGraph = async () => {
+    if (graphRefreshInFlight || stopped) {
+      return;
+    }
+    graphRefreshInFlight = true;
     try {
       const collection = await collectSourceGraphs(opts.plugins.getGraphSources(), {
         timeoutMs: 5000,
       });
+      if (stopped) {
+        return;
+      }
+      transitions.observe(collection);
       cachedGraph = collection.graph;
       opts.broadcast({ type: 'graph', data: cachedGraph });
       const activeIds = new Set(cachedGraph.nodes.map((n) => n.id));
+      const failedSources = new Set(collection.errors.map((e) => e.source.id));
       for (const id of activeAnomalies.keys()) {
-        if (!activeIds.has(id)) {
+        if (!activeIds.has(id) && !failedSources.has(anomalySources.get(id) ?? 'local')) {
           activeAnomalies.delete(id);
+          anomalySources.delete(id);
         }
       }
     } catch {
       /* Docker may be temporarily unavailable */
+    } finally {
+      graphRefreshInFlight = false;
     }
   };
 
@@ -100,11 +133,25 @@ export function createServerMonitor(opts: MonitorOptions): ServerMonitor {
     if (!activeAnomalies.has(node.id)) {
       activeAnomalies.set(node.id, new Set());
     }
+    anomalySources.set(node.id, node.sourceId || node.host || 'local');
     const active = activeAnomalies.get(node.id)!;
     const findingKeys = new Set(findings.map((finding) => `${finding.pluginId}:${metric}`));
     for (const key of [...active]) {
       if (key.endsWith(`:${metric}`) && !findingKeys.has(key)) {
         active.delete(key);
+        emitAlert({
+          ...workloadIdentity(node),
+          family: 'recovery',
+          eventType: `anomaly.${metric}.recovered`,
+          type: 'transition',
+          time: Date.now(),
+          data: {
+            message: `${node.name}: ${metric.toUpperCase()} anomaly cleared`,
+            metric,
+            value,
+            analyzerId: key.slice(0, -(metric.length + 1)),
+          },
+        });
       }
     }
     for (const finding of findings) {
@@ -113,8 +160,8 @@ export function createServerMonitor(opts: MonitorOptions): ServerMonitor {
         continue;
       }
       active.add(key);
-      opts.broadcast({
-        type: 'anomaly',
+      const message = {
+        type: 'anomaly' as const,
         data: {
           analyzerId: finding.pluginId,
           containerId: node.id,
@@ -125,6 +172,14 @@ export function createServerMonitor(opts: MonitorOptions): ServerMonitor {
           threshold: finding.threshold,
           time: Date.now(),
         },
+      };
+      opts.broadcast(message);
+      emitAlert({
+        ...message,
+        ...workloadIdentity(node),
+        family: metric,
+        eventType: `anomaly.${metric}`,
+        time: message.data.time,
       });
     }
   }
@@ -200,13 +255,15 @@ export function createServerMonitor(opts: MonitorOptions): ServerMonitor {
     const rawId = event.entityId || event.containerId || event.id;
     const sourceId = event.sourceId || event.host;
     const sid = shortId(rawId.includes(':') ? rawId.split(':').at(-1) || rawId : rawId);
-    const direct = cachedGraph.nodes.find((node) => node.id === event.id);
+    const direct = cachedGraph.nodes.find(
+      (node) => node.id === event.id && (!sourceId || (node.sourceId || node.host) === sourceId),
+    );
     if (direct) {
       return direct;
     }
     const candidates = cachedGraph.nodes.filter(
       (node) =>
-        (!sourceId || node.host === sourceId) &&
+        (!sourceId || (node.sourceId || node.host) === sourceId) &&
         (node.containerId === rawId || shortId(node.containerId) === sid),
     );
     return candidates.find((node) => node.host === 'local') || candidates[0];
@@ -288,22 +345,86 @@ export function createServerMonitor(opts: MonitorOptions): ServerMonitor {
     if (GRAPH_REFRESH_ACTIONS.includes(event.action)) {
       debouncedRefreshGraph();
     }
-    if (event.action === 'die') {
-      opts.plugins
-        .diagnose({
+    const identity = node
+      ? workloadIdentity(node)
+      : {
+          sourceId: event.sourceId || sourceEvent.source.id,
+          workload: {
+            entityId: event.entityId || event.containerId || event.id,
+            name: event.actor,
+            project: event.project || '',
+          },
+        };
+    const lifecycle: Record<string, string> = {
+      create: 'created',
+      start: 'started',
+      stop: 'stopped',
+      restart: 'restarted',
+      pause: 'paused',
+      unpause: 'resumed',
+      destroy: 'removed',
+    };
+    const emitLifecycle = (action: string, crash = false) => {
+      emitAlert({
+        ...identity,
+        family: 'lifecycle',
+        type: 'transition',
+        eventType: `lifecycle.${action}`,
+        time: event.time * 1000,
+        data: {
+          message: `${identity.workload?.name || event.actor} ${action}`,
+          current: action,
+          crash,
+        },
+      });
+    };
+    const terminalKey = JSON.stringify([identity.sourceId, identity.workload?.entityId]);
+    if (event.action === 'start' || event.action === 'create') {
+      terminations.delete(terminalKey);
+    }
+    if (event.type === 'container' && ['die', 'stop'].includes(event.action)) {
+      // Docker commonly emits both die and stop for one exit. Resolve diagnostics once,
+      // then emit a correlated lifecycle result even if diagnosis is slow or unavailable.
+      const now = Date.now();
+      for (const [key, time] of terminations) {
+        if (now - time > 60_000 || terminations.size >= 512) {
+          terminations.delete(key);
+        }
+      }
+      if (terminations.has(terminalKey)) {
+        return;
+      }
+      terminations.set(terminalKey, now);
+      withTimeout(
+        opts.plugins.diagnose({
           entityId: event.entityId || event.containerId || event.id,
-          sourceId: event.sourceId || event.host || node?.host || sourceEvent.source.id,
+          sourceId: identity.sourceId,
           nodeId: node?.id,
-        })
+        }),
+        30_000,
+      )
         .then((diag) => {
           if (diag) {
-            opts.broadcast({
-              type: 'diagnostic',
+            const message = {
+              type: 'diagnostic' as const,
               data: { ...diag, containerId: node?.id || diag.containerId },
+            };
+            if (!stopped) {
+              opts.broadcast(message);
+            }
+            emitAlert({
+              ...message,
+              ...identity,
+              family: 'crash',
+              eventType: 'crash',
+              time: diag.time,
             });
           }
+          emitLifecycle('stopped', Boolean(diag));
         })
-        .catch(() => {});
+        .catch(() => emitLifecycle('stopped'));
+    } else if (['container', 'pod', 'workload'].includes(event.type) && lifecycle[event.action]) {
+      emitLifecycle(lifecycle[event.action]);
     }
   };
 
@@ -330,6 +451,7 @@ export function createServerMonitor(opts: MonitorOptions): ServerMonitor {
         .catch(() => {});
     },
     stop() {
+      stopped = true;
       if (refreshTimer) {
         clearTimeout(refreshTimer);
         refreshTimer = null;

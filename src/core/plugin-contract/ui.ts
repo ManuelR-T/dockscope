@@ -2,7 +2,7 @@ import { DockscopeError } from '../errors.js';
 import type { PluginCapability } from './capabilities.js';
 import type { PluginCommandResult } from './commands.js';
 import type { PluginConfigValue } from './config.js';
-import type { ServiceNode } from '../../types.js';
+import type { GraphData, ServiceNode } from '../../types.js';
 
 export const PLUGIN_UI_SLOTS = [
   'toolbar',
@@ -11,6 +11,7 @@ export const PLUGIN_UI_SLOTS = [
   'nodePanel',
   'nodeAction',
   'graphOverlay',
+  'graphView',
   'settings',
 ] as const;
 
@@ -142,8 +143,38 @@ export interface PluginFrontendRoot {
   replaceChildren(...nodes: unknown[]): void;
 }
 
+export const GRAPH_VIEW_CONTROLS = ['fit', 'reset', 'focus', 'impact'] as const;
+export type PluginGraphViewControl = (typeof GRAPH_VIEW_CONTROLS)[number];
+export const GRAPH_VIEW_SHORTCUTS = ['f', 'r', 'c', 'i', '/', 'Escape', ' ', '?'] as const;
+export type PluginGraphViewShortcut = (typeof GRAPH_VIEW_SHORTCUTS)[number];
+
+/** Display-only snapshot supplied by the host. No credentials, inspect data or live API access. */
+export interface PluginGraphViewState {
+  graph: GraphData;
+  selectedNodeId: string | null;
+  filters: {
+    searchQuery: string;
+    statusFilter: ('running' | 'stopped' | 'unhealthy')[];
+    scopeFilter: string;
+  };
+  colorNetworks: boolean;
+  replayMode: boolean;
+  anomalyEntityIds: string[];
+}
+
+export interface PluginGraphViewApi {
+  /** Immediately delivers the latest immutable snapshot, then live/replay updates. */
+  subscribe(listener: (state: Readonly<PluginGraphViewState>) => void): () => void;
+  /** The host resolves this ID against its current graph before opening the inspector. */
+  selectNode(nodeId: string | null): void;
+  requestShortcut(key: PluginGraphViewShortcut): void;
+  onControl(listener: (control: PluginGraphViewControl) => void): () => void;
+}
+
 export interface PluginFrontendApi {
   readonly root: PluginFrontendRoot;
+  /** Available only to a graphView extension. */
+  readonly graph?: PluginGraphViewApi;
   readonly view: string;
   readonly context: Readonly<PluginUiContext>;
   requestAction(input?: unknown): void;
@@ -168,6 +199,7 @@ const UI_CAPABILITY_BY_SLOT: Record<PluginUiSlot, PluginCapability> = {
   nodePanel: 'ui.nodePanel',
   nodeAction: 'ui.nodeAction',
   graphOverlay: 'ui.graphOverlay',
+  graphView: 'ui.graphView',
   settings: 'ui.settings',
 };
 
@@ -364,6 +396,21 @@ function validatePluginUiExtension(raw: unknown): PluginUiExtensionDeclaration {
   }
   if (!isNonEmptyString(raw.title)) {
     throw new PluginUiError(`Plugin UI extension "${raw.id}" requires a title`);
+  }
+  if (raw.slot === 'graphView') {
+    if (!isNonEmptyString(raw.frontendView)) {
+      throw new PluginUiError('A graphView requires a frontendView');
+    }
+    if (
+      raw.action !== undefined ||
+      raw.query === true ||
+      raw.content !== undefined ||
+      raw.context !== undefined
+    ) {
+      throw new PluginUiError(
+        'A graphView is a display-only renderer; actions, queries, content and node-context filters are unsupported',
+      );
+    }
   }
   const order = raw.order;
   if (order !== undefined && (typeof order !== 'number' || !Number.isFinite(order))) {

@@ -232,7 +232,6 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
     // Remove access credentials at capture time, including ones later rotated.
     const captured = redactAccessSecrets(msg, auth.current()) as WSMessage;
     flightRecorder.capture(captured);
-    webhooks.notify(captured);
     let operatorData: string | undefined;
     let readerData: string | undefined;
     wss.clients.forEach((client) => {
@@ -248,7 +247,13 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
     });
   };
 
-  const monitor = createServerMonitor({ metricHistory, broadcast, plugins });
+  const monitor = createServerMonitor({
+    metricHistory,
+    broadcast,
+    plugins,
+    alert: (alert) =>
+      webhooks.notifyAlert(redactAccessSecrets(alert, auth.current()) as typeof alert),
+  });
   setupRoutes(app, opts, metricHistory, monitor.getGraph, plugins, marketplace);
   setupRecordingRoutes(app, flightRecorder);
   setupWebhookRoutes(app, webhooks);

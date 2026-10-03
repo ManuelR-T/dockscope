@@ -18,15 +18,15 @@ break**. Everything below follows from that.
 The flight recorder now retains recent graph, event and metric history even
 while the dashboard is closed. Webhook alerts forward anomalies and crashes;
 persistent metric history provides 1-hour and 24-hour views across restarts.
-Configurable alert selection is next.
+Webhook event selection and scope filters control which transitions reach your receiver.
 
 - [#37 Webhook alerts for anomalies and crashes][37] [help wanted][hw]
   Implemented: configurable JSON, Slack and Discord delivery with bounded
   retries and an in-memory queue.
 - [#53 Webhook event selection and additional alerts][53]
-  Choose which events and workloads trigger notifications, with filters for
-  sources, projects and individual workloads. Add health, lifecycle,
-  connectivity and recovery alerts with duplicate suppression.
+  Implemented: event selection and filters for sources, projects and individual
+  workloads, with health, lifecycle, connectivity and anomaly recovery alerts,
+  duplicate suppression and coalescing for flapping states.
 - [#36 Flight recorder][36] [help wanted][hw]
   Implemented: an instance-wide, bounded in-memory buffer with
   a **Save recent incident** export compatible with recording replay.
@@ -59,7 +59,10 @@ the only one.
   Light and cyberpunk alongside the current dark. The token layer in
   `App.css` is already there to build on.
 - [#24 Layout modes][24]
-  A 2D flat view and a tree view, for when hierarchy reads better than physics.
+  The complementary 2D service map ships as an optional official plugin,
+  with automatic graph-view tabs, shared selection and
+  filters, explicit network membership and dependency highlighting. 3D remains
+  the default. A dedicated tree view remains a possible follow-up.
 - [#25 Custom dashboards][25]
   Pin containers, save layouts, build focused views.
 
@@ -96,15 +99,15 @@ something it does not yet, that is a plugin, not a core change. See
 
 ## Recently shipped
 
-| Version   | What landed                                                            |
-| --------- | ---------------------------------------------------------------------- |
-| **0.10**  | Access tokens, first-run setup, reverse proxy auth, Kubernetes workloads, pod exec and metrics |
-| **0.9**   | Kubernetes moved onto the cluster API, no `kubectl` required            |
-| **0.8**   | Signed plugin catalogs, marketplace, approval review                    |
-| **0.7**   | Session recording and replay, PNG and SVG export, plugin system          |
-| **0.6**   | Kubernetes resources, graph reconciliation                              |
-| **0.5**   | Multiple Docker hosts on one graph                                      |
-| **0.4**   | Anomaly detection, crash diagnostics, impact view                       |
+| Version  | What landed                                                                                    |
+| -------- | ---------------------------------------------------------------------------------------------- |
+| **0.10** | Access tokens, first-run setup, reverse proxy auth, Kubernetes workloads, pod exec and metrics |
+| **0.9**  | Kubernetes moved onto the cluster API, no `kubectl` required                                   |
+| **0.8**  | Signed plugin catalogs, marketplace, approval review                                           |
+| **0.7**  | Session recording and replay, PNG and SVG export, plugin system                                |
+| **0.6**  | Kubernetes resources, graph reconciliation                                                     |
+| **0.5**  | Multiple Docker hosts on one graph                                                             |
+| **0.4**  | Anomaly detection, crash diagnostics, impact view                                              |
 
 ## Proposing something else
 

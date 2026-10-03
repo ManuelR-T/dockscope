@@ -1,8 +1,10 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { initDocker, getDockerState, setHandshakeRefusedHandler } from './stores/docker.svelte';
   import { setUnauthorizedHandler } from './lib/api';
   import GraphView from './components/GraphView.svelte';
+  import PluginGraphView from './components/PluginGraphView.svelte';
+  import { graphViewKey } from './lib/pluginGraphView';
   import Sidebar from './components/Sidebar.svelte';
   import StatusBar from './components/StatusBar.svelte';
   import KeyboardHelp from './components/KeyboardHelp.svelte';
@@ -54,11 +56,19 @@
   let showPlugins = $state(false);
   let colorNetworks = $state(DEFAULT_COLOR_NETWORKS);
   let pluginUiExtensions = $state<PluginUiExtension[]>([]);
-  let showFilters = $state(false);
-  let filterBtn = $state<HTMLElement | null>(null);
-  let hudBar = $state<HTMLElement | null>(null);
+  let showSearch = $state(false);
+  let showTools = $state(false);
+  let searchButton = $state<HTMLButtonElement | null>(null);
+  let toolsButton = $state<HTMLButtonElement | null>(null);
+  const activeFilterCount = $derived(
+    Number(Boolean(searchQuery)) +
+      Number(Boolean(scopeFilter)) +
+      statusFilter.size +
+      Number(colorNetworks !== DEFAULT_COLOR_NETWORKS),
+  );
   let searchInput = $state<HTMLInputElement | null>(null);
-  let graphView: GraphView;
+  let viewMode = $state('3d');
+  let graphView = $state<GraphView | PluginGraphView>();
 
   // Resizable panel sizes
   let sidebarWidth: number = $state(UI.sidebar.default);
@@ -99,18 +109,24 @@
 
   let cleanupDocker: (() => void) | undefined;
 
-  // An open instance is the state worth noticing, so the padlock is closed and
-  // quiet when secured and filled amber when anyone can reach the API.
-  let securedInstance = $derived(auth.required || auth.viaProxy);
-  let securityTitle = $derived(
-    auth.role === 'reader'
-      ? 'Security: read-only session; operator access is required for changes'
-      : auth.viaProxy
-        ? 'Security: authentication handled by your reverse proxy'
-        : auth.required
-          ? 'Security: an access token is required'
-          : 'Security: no access token, anyone who can reach this port has full control',
+  const graphViews = $derived(
+    pluginUiExtensions.filter(
+      (extension) =>
+        extension.slot === 'graphView' &&
+        extension.frontendView &&
+        pluginUiExtensionAllowed(auth.role, extension.action),
+    ),
   );
+  const activeGraphView = $derived(
+    graphViews.find((extension) => graphViewKey(extension) === viewMode),
+  );
+  $effect(() => {
+    if (viewMode !== '3d' && !activeGraphView) {
+      viewMode = '3d';
+    }
+  });
+
+  const securedInstance = $derived(auth.required || auth.viaProxy);
 
   /**
    * Nothing is fetched or connected until the token check answers: starting the
@@ -130,7 +146,12 @@
       })
       .catch(() => {});
     loadPluginUiExtensions();
-    cleanupDocker = initDocker();
+    const stopDocker = initDocker();
+    const refreshViews = window.setInterval(loadPluginUiExtensions, 5000);
+    cleanupDocker = () => {
+      stopDocker();
+      window.clearInterval(refreshViews);
+    };
   }
 
   /**
@@ -179,7 +200,7 @@
         pluginUiExtensions = Array.isArray(data) ? data : [];
       })
       .catch(() => {
-        pluginUiExtensions = [];
+        // Preserve available views during a temporary transport failure.
       });
   }
 
@@ -214,10 +235,19 @@
     if (showWebhook) {
       return;
     }
-    const tag = (e.target as HTMLElement)?.tagName;
-    const isInput = tag === 'INPUT' || tag === 'TEXTAREA';
+    const isInput = (e.target as Element)?.closest?.(
+      'input, textarea, select, [contenteditable="true"]',
+    );
 
     if (e.key === 'Escape') {
+      if (showSearch || showTools) {
+        e.preventDefault();
+        const button = showSearch ? searchButton : toolsButton;
+        showSearch = false;
+        showTools = false;
+        button?.focus();
+        return;
+      }
       if (showHelp) {
         showHelp = false;
         return;
@@ -242,7 +272,7 @@
       togglePlay();
     } else if (e.key === '/' || (e.key === 'k' && (e.metaKey || e.ctrlKey))) {
       e.preventDefault();
-      searchInput?.focus();
+      void openSearch();
     } else if (e.key === 'f' || e.key === 'F') {
       graphView?.zoomToFit();
     } else if (e.key === 'r' || e.key === 'R') {
@@ -254,6 +284,32 @@
     } else if (e.key === '?') {
       showHelp = !showHelp;
     }
+  }
+
+  async function openSearch() {
+    showTools = false;
+    showSearch = true;
+    await tick();
+    searchInput?.focus();
+  }
+
+  function closeToolbar() {
+    const button = showSearch ? searchButton : toolsButton;
+    showSearch = false;
+    showTools = false;
+    button?.focus();
+  }
+
+  function openTool(action: () => void) {
+    showTools = false;
+    action();
+  }
+
+  function resetFilters() {
+    searchQuery = '';
+    scopeFilter = '';
+    statusFilter = new Set();
+    colorNetworks = DEFAULT_COLOR_NETWORKS;
   }
 
   function toggleStatusFilter(status: StatusFilter) {
@@ -299,263 +355,251 @@
   class:is-dragging={dragging !== null}
   style="--sidebar-w: {sidebarWidth}px; --statusbar-h: {statusbarHeight}px;"
 >
-  <!-- Full-screen 3D graph layer -->
+  <!-- Both renderers share the live/replayed graph, filters and selection. -->
   <div class="graph-layer">
-    <GraphView
-      bind:this={graphView}
-      data={docker.graph}
-      onNodeClick={(node) => (selectedNode = node)}
-      selectedNode={activeSelectedNode}
-      {searchQuery}
-      {statusFilter}
-      {scopeFilter}
-      {colorNetworks}
-      onHelpClick={() => (showHelp = !showHelp)}
-    />
-    <div class="graph-vignette"></div>
-    <div class="graph-scanlines"></div>
+    {#if viewMode === '3d'}
+      <GraphView
+        bind:this={graphView}
+        data={docker.graph}
+        onNodeClick={(node) => (selectedNode = node)}
+        selectedNode={activeSelectedNode}
+        {searchQuery}
+        {statusFilter}
+        {scopeFilter}
+        {colorNetworks}
+        onHelpClick={() => (showHelp = !showHelp)}
+      />
+      <div class="graph-vignette"></div>
+      <div class="graph-scanlines"></div>
+    {:else if activeGraphView}
+      {#key graphViewKey(activeGraphView)}
+        <PluginGraphView
+          bind:this={graphView}
+          extension={activeGraphView}
+          data={docker.graph}
+          onNodeClick={(node) => (selectedNode = node)}
+          selectedNode={activeSelectedNode}
+          {searchQuery}
+          {statusFilter}
+          {scopeFilter}
+          {colorNetworks}
+          onShortcut={(key) => handleKeydown(new KeyboardEvent('keydown', { key }))}
+          onError={(message) => {
+            addToast(`Graph view unavailable: ${message}`, 'error');
+            viewMode = '3d';
+          }}
+        />
+      {/key}
+    {/if}
   </div>
 
   <!-- HUD header overlay -->
-  <div class="hud-bar" bind:this={hudBar}>
-    <!-- Brand + status -->
-    <div class="hud-group brand-group">
-      <span class="hud-logo">DockScope</span>
-      <span class="hud-version">v{__APP_VERSION__}</span>
-      {#if latestVersion}
-        <a
-          class="hud-update"
-          href="https://www.npmjs.com/package/dockscope"
-          target="_blank"
-          title="Update available: v{latestVersion}"
-        >
-          <span class="update-dot"></span>
-        </a>
-      {/if}
-      <span
-        class="hud-connection {docker.connected ? 'active' : 'disconnected'}"
-        title={docker.connected
-          ? 'DockScope is connected to the live Docker event stream'
-          : 'DockScope is disconnected from the live Docker event stream'}
-      >
-        <span class="pulse-dot"></span>
-      </span>
-    </div>
-
-    <!-- Search -->
-    <div class="hud-group search-group">
-      <div class="search-container">
-        <svg
-          class="search-icon"
-          width="12"
-          height="12"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.5"
-        >
-          <circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" />
-        </svg>
-        <input
-          bind:this={searchInput}
-          type="text"
-          class="search-input"
-          placeholder="Search  /"
-          bind:value={searchQuery}
-        />
-        {#if searchQuery}
-          <span class="search-clear-slot">
-            <IconButton
-              variant="bare"
-              size={18}
-              glyphSize={13}
-              title="Clear search"
-              onclick={() => {
-                searchQuery = '';
-                searchInput?.blur();
-              }}
-            >
-              &times;
-            </IconButton>
-          </span>
+  <div class="hud-bar">
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex (The scroll region is focusable for keyboard scrolling.) -->
+    <div class="hud-scroll" role="region" aria-label="Main navigation" tabindex="0">
+      <!-- Brand + status -->
+      <div class="hud-group brand-group">
+        <span class="hud-logo">DockScope</span>
+        <span class="hud-version">v{__APP_VERSION__}</span>
+        {#if latestVersion}
+          <a
+            class="hud-update"
+            href="https://www.npmjs.com/package/dockscope"
+            target="_blank"
+            title="Update available: v{latestVersion}"
+          >
+            <span class="update-dot"></span>
+          </a>
         {/if}
+        <span
+          class="hud-connection {docker.connected ? 'active' : 'disconnected'}"
+          title={docker.connected
+            ? 'DockScope is connected to the live Docker event stream'
+            : 'DockScope is disconnected from the live Docker event stream'}
+        >
+          <span class="pulse-dot"></span>
+        </span>
+      </div>
+
+      <div class="view-switch" role="group" aria-label="Graph view">
+        <button
+          class:active={viewMode === '3d'}
+          aria-pressed={viewMode === '3d'}
+          onclick={() => (viewMode = '3d')}>3D</button
+        >
+        {#each graphViews as extension (graphViewKey(extension))}
+          <button
+            class:active={viewMode === graphViewKey(extension)}
+            aria-pressed={viewMode === graphViewKey(extension)}
+            title={extension.description ?? extension.title}
+            onclick={() => (viewMode = graphViewKey(extension))}>{extension.title}</button
+          >
+        {/each}
+      </div>
+
+      <div class="hud-group actions-group">
+        {#if auth.role === 'reader'}
+          <span class="read-only-badge">Read-only</span>
+        {/if}
+        <button
+          bind:this={searchButton}
+          class="hud-tool-button"
+          class:active={showSearch || activeFilterCount > 0}
+          aria-label="Search and filters"
+          aria-expanded={showSearch}
+          aria-controls="graph-search-panel"
+          title={activeFilterCount
+            ? `Search and filters · ${activeFilterCount} active`
+            : 'Search and filters /'}
+          onclick={() => (showSearch ? closeToolbar() : openSearch())}
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.2"
+          >
+            <circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" />
+          </svg>
+          {#if activeFilterCount > 0}<span class="filter-count">{activeFilterCount}</span>{/if}
+        </button>
+        <button
+          bind:this={toolsButton}
+          class="hud-tool-button"
+          class:active={showTools}
+          aria-label="More tools"
+          aria-expanded={showTools}
+          aria-controls="graph-tools-panel"
+          title="More tools"
+          onclick={() => {
+            showSearch = false;
+            showTools = !showTools;
+          }}><Icon name="dots" size={16} /></button
+        >
       </div>
     </div>
 
-    {#if scopeOptions.length > 1}
-      <div class="hud-group scope-group">
-        <Select
-          variant="hud"
-          bind:value={scopeFilter}
-          ariaLabel="Graph scope"
-          options={[{ value: '', label: 'All scopes' }, ...scopeOptions]}
-        />
-      </div>
+    {#if showSearch}
+      <section
+        class="hud-popover search-panel"
+        id="graph-search-panel"
+        aria-label="Search and filters"
+      >
+        <div class="search-panel-header">
+          <span class="filter-heading">Search and filters</span>
+          <IconButton title="Close search and filters" size={22} onclick={closeToolbar}
+            >&times;</IconButton
+          >
+        </div>
+        <div class="search-container">
+          <input
+            bind:this={searchInput}
+            type="search"
+            class="search-input"
+            placeholder="Service, image, namespace…"
+            aria-label="Search services"
+            bind:value={searchQuery}
+          />
+        </div>
+        {#if scopeOptions.length > 1}
+          <div class="filter-section">
+            <span class="filter-heading">Scope</span>
+            <Select
+              variant="hud"
+              bind:value={scopeFilter}
+              ariaLabel="Graph scope"
+              options={[{ value: '', label: 'All scopes' }, ...scopeOptions]}
+            />
+          </div>
+        {/if}
+        <div class="filter-section">
+          <span class="filter-heading">Status</span>
+          <div class="filter-row">
+            <Button
+              variant="ghost"
+              size="sm"
+              active={statusFilter.has('running')}
+              onclick={() => toggleStatusFilter('running')}
+              ><span class="dot green"></span> Running</Button
+            >
+            <Button
+              variant="ghost"
+              size="sm"
+              active={statusFilter.has('stopped')}
+              onclick={() => toggleStatusFilter('stopped')}
+              ><span class="dot gray"></span> Stopped</Button
+            >
+            <Button
+              variant="ghost"
+              size="sm"
+              active={statusFilter.has('unhealthy')}
+              onclick={() => toggleStatusFilter('unhealthy')}
+              ><span class="dot red"></span> Unhealthy</Button
+            >
+          </div>
+        </div>
+        <div class="filter-row">
+          <Button
+            variant="ghost"
+            size="sm"
+            active={colorNetworks}
+            onclick={() => (colorNetworks = !colorNetworks)}>Color networks</Button
+          >
+          {#if activeFilterCount > 0}<Button variant="ghost" size="sm" onclick={resetFilters}
+              >Reset filters</Button
+            >{/if}
+        </div>
+      </section>
     {/if}
 
-    <!-- Actions: projects + filters (compact) -->
-    <div class="hud-group actions-group">
-      {#if auth.role === 'reader'}
-        <span class="read-only-badge" title="This session can observe but cannot make changes">
-          Read-only
-        </span>
-      {/if}
-      {#each toolbarExtensions as extension}
-        <IconButton
-          variant="outline"
-          onclick={() => handlePluginAction(extension)}
-          title={extension.description ?? extension.title}
-        >
-          <Icon name="plug" size={12} />
-        </IconButton>
-      {/each}
-      <IconButton
-        variant={securedInstance ? 'outline' : 'filled'}
-        tone="warn"
-        title={securityTitle}
-        ariaLabel="Security"
-        onclick={openSecurityPanel}
-      >
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          {#if securedInstance}
-            <rect x="4" y="10" width="16" height="11" rx="2" />
-            <path d="M8 10V7a4 4 0 0 1 8 0v3" />
-          {:else}
-            <rect x="4" y="10" width="16" height="11" rx="2" />
-            <path d="M8 10V7a4 4 0 0 1 7.5-2" />
-          {/if}
-        </svg>
-      </IconButton>
-      {#if auth.role === 'operator'}
-        <IconButton
-          variant="outline"
-          title="Webhook alerts"
-          ariaLabel="Webhook alerts"
-          onclick={() => (showWebhook = true)}
-        >
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
+    {#if showTools}
+      <section class="hud-popover tools-panel" id="graph-tools-panel" aria-label="More tools">
+        <button class="hud-menu-item" onclick={() => openTool(openSecurityPanel)}>
+          <span>Security</span><span class="tool-note" class:unsecured={!securedInstance}
+            >{securedInstance ? 'Secured' : 'No token'}</span
           >
-            <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" />
-            <path d="M10 21h4" />
-          </svg>
-        </IconButton>
-      {/if}
-      <IconButton variant="outline" title="Plugins" onclick={() => (showPlugins = true)}>
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <path d="M8 3v4M16 3v4M7 7h10v5a5 5 0 0 1-10 0V7Z" />
-          <path d="M12 17v4M8 21h8" />
-        </svg>
-      </IconButton>
-      <IconButton variant="outline" title="Connections" onclick={() => (showHosts = true)}>
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <rect x="2" y="2" width="20" height="8" rx="2" /><rect
-            x="2"
-            y="14"
-            width="20"
-            height="8"
-            rx="2"
-          />
-          <circle cx="6" cy="6" r="1" fill="currentColor" /><circle
-            cx="6"
-            cy="18"
-            r="1"
-            fill="currentColor"
-          />
-        </svg>
-      </IconButton>
-      {#if docker.composeEnabled}
-        <IconButton
-          variant="outline"
-          title="Compose projects"
-          onclick={() => (showProjects = true)}
-        >
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2.2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
+        </button>
+        {#if auth.role === 'operator'}
+          <button class="hud-menu-item" onclick={() => openTool(() => (showWebhook = true))}
+            >Webhook alerts</button
           >
-            <rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect
-              x="3"
-              y="14"
-              width="7"
-              height="7"
-            /><rect x="14" y="14" width="7" height="7" />
-          </svg>
-        </IconButton>
-      {/if}
-      {#if docker.graph.nodes.length > 0}
-        <IconButton
-          variant="outline"
-          active={statusFilter.size > 0 ||
-            Boolean(scopeFilter) ||
-            colorNetworks !== DEFAULT_COLOR_NETWORKS}
-          title="Filters"
-          onclick={(e) => {
-            filterBtn = e.currentTarget as HTMLElement;
-            showFilters = !showFilters;
-          }}
+        {/if}
+        <button class="hud-menu-item" onclick={() => openTool(() => (showPlugins = true))}
+          >Plugins</button
         >
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2.2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
+        <button class="hud-menu-item" onclick={() => openTool(() => (showHosts = true))}
+          >Connections</button
+        >
+        {#if docker.composeEnabled}
+          <button class="hud-menu-item" onclick={() => openTool(() => (showProjects = true))}
+            >Compose projects</button
           >
-            <line x1="4" y1="6" x2="20" y2="6" /><line x1="7" y1="12" x2="17" y2="12" /><line
-              x1="10"
-              y1="18"
-              x2="14"
-              y2="18"
-            />
-          </svg>
-        </IconButton>
-      {/if}
-    </div>
+        {/if}
+        <button class="hud-menu-item" onclick={() => openTool(() => (showHelp = true))}
+          >Keyboard shortcuts <span class="tool-note">?</span></button
+        >
+        {#each toolbarExtensions as extension}
+          <button
+            class="hud-menu-item"
+            title={extension.description}
+            onclick={() =>
+              openTool(() => {
+                void handlePluginAction(extension);
+              })}
+          >
+            <Icon name="plug" size={12} />
+            {extension.title}
+          </button>
+        {/each}
+      </section>
+    {/if}
   </div>
+
+  {#if showSearch || showTools}
+    <button class="hud-backdrop" aria-label="Close toolbar popup" onclick={closeToolbar}></button>
+  {/if}
 
   {#if navigationExtensions.length > 0}
     <nav class="plugin-nav-rail" aria-label="Plugin navigation">
@@ -583,68 +627,6 @@
           onAction={handlePluginAction}
         />
       {/each}
-    </div>
-  {/if}
-
-  <!-- Filter dropdown (anchored to button) -->
-  {#if showFilters && filterBtn}
-    <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
-    <div class="filter-backdrop" onclick={() => (showFilters = false)} onkeydown={() => {}}></div>
-    <div
-      class="filter-dropdown"
-      style="top: {(hudBar?.getBoundingClientRect().bottom ?? 0) + 8}px; right: {window.innerWidth -
-        (hudBar?.getBoundingClientRect().right ?? 0)}px;"
-    >
-      <div class="filter-section">
-        <span class="filter-heading">Status</span>
-        <div class="filter-row">
-          <Button
-            variant="ghost"
-            size="sm"
-            active={statusFilter.has('running')}
-            onclick={() => toggleStatusFilter('running')}
-          >
-            <span class="dot green"></span> Running
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            active={statusFilter.has('stopped')}
-            onclick={() => toggleStatusFilter('stopped')}
-          >
-            <span class="dot gray"></span> Stopped
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            active={statusFilter.has('unhealthy')}
-            onclick={() => toggleStatusFilter('unhealthy')}
-          >
-            <span class="dot red"></span> Unhealthy
-          </Button>
-        </div>
-      </div>
-      <div class="filter-section">
-        <span class="filter-heading">Display</span>
-        <div class="filter-row">
-          <Button
-            variant="ghost"
-            size="sm"
-            active={colorNetworks}
-            onclick={() => (colorNetworks = !colorNetworks)}
-          >
-            <svg
-              width="10"
-              height="10"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2.5"><path d="M12 2v20M2 12h20" /></svg
-            >
-            Color networks
-          </Button>
-        </div>
-      </div>
     </div>
   {/if}
 

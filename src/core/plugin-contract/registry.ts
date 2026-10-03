@@ -566,7 +566,7 @@ export class PluginRegistry {
     if (!plugin || !runtime) {
       throw new PluginOperationError(404, `Plugin not found: ${pluginId}`);
     }
-    if (plugin.manifest.builtin) {
+    if (plugin.manifest.builtin && !plugin.manifest.optional) {
       throw new PluginOperationError(400, `Built-in plugin cannot be toggled: ${pluginId}`);
     }
     this.crashHistory.delete(pluginId);
@@ -600,7 +600,7 @@ export class PluginRegistry {
     if (!plugin || !runtime) {
       throw new PluginOperationError(404, `Plugin not found: ${pluginId}`);
     }
-    if (plugin.manifest.builtin) {
+    if (plugin.manifest.builtin && !plugin.manifest.optional) {
       throw new PluginOperationError(400, `Built-in plugin cannot be toggled: ${pluginId}`);
     }
     await this.stop(pluginId);

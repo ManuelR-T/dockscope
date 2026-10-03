@@ -79,6 +79,8 @@ export interface PluginManifest {
   description?: string;
   entry?: string;
   builtin?: boolean;
+  /** Bundled optional features may be disabled; essential built-ins remain protected. */
+  optional?: boolean;
   author?: string;
   homepage?: string;
   capabilities: readonly PluginCapability[];
@@ -533,6 +535,9 @@ export function validatePluginManifest(raw: unknown): PluginManifest {
   }
   const compatibility = validatePluginCompatibility(manifest.compatibility);
 
+  if (manifest.optional !== undefined && typeof manifest.optional !== 'boolean') {
+    throw new PluginManifestError('Plugin manifest optional must be a boolean');
+  }
   return {
     id: manifest.id,
     name: manifest.name,
@@ -543,6 +548,7 @@ export function validatePluginManifest(raw: unknown): PluginManifest {
     description: optionalString(manifest.description, 'description'),
     entry: optionalString(manifest.entry, 'entry'),
     builtin: manifest.builtin === true,
+    ...(manifest.optional === undefined ? {} : { optional: manifest.optional }),
     author: optionalString(manifest.author, 'author'),
     homepage: optionalString(manifest.homepage, 'homepage'),
     capabilities,

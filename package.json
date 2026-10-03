@@ -26,7 +26,7 @@
   "scripts": {
     "dev": "DOCKSCOPE_DEV=1 tsx watch --exclude \"$HOME/.dockscope/plugins/**\" --exclude \"../../../.dockscope/plugins/**\" --exclude \"/tmp/dockscope-*/**\" --exclude \"../../../../../tmp/dockscope-*/**\" src/cli.ts up --no-port-check",
     "clean": "node scripts/clean.mjs",
-    "build": "npm run clean && tsc -p tsconfig.server.json && vite build",
+    "build": "npm run clean && tsc -p tsconfig.server.json && vite build && npm run build:graph-views",
     "start": "node dist/cli.js up",
     "typecheck": "tsc --noEmit && svelte-check --tsconfig ./tsconfig.json",
     "typecheck:plugin-compat": "tsc -p tsconfig.plugin-compat.json",
@@ -37,7 +37,8 @@
     "plugins:catalog": "node scripts/build-plugin-catalog.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "build:graph-views": "node scripts/build-graph-view-plugins.mjs"
   },
   "keywords": [
     "docker",

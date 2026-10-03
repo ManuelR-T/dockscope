@@ -203,7 +203,11 @@ export class InstalledPluginsModel {
   }
 
   async togglePlugin(plugin: PluginRuntimeInfo) {
-    if (!this.canOperate || plugin.manifest.builtin || this.toggling) {
+    if (
+      !this.canOperate ||
+      (plugin.manifest.builtin && !plugin.manifest.optional) ||
+      this.toggling
+    ) {
       return;
     }
     this.toggling = plugin.manifest.id;

@@ -138,9 +138,15 @@ export type {
   PluginFrontendApi,
   PluginFrontendMount,
   PluginFrontendRoot,
+  PluginGraphViewApi,
+  PluginGraphViewState,
+  PluginGraphViewControl,
+  PluginGraphViewShortcut,
 } from './core/plugin-contract/ui.js';
 export {
   PLUGIN_UI_SLOTS,
+  GRAPH_VIEW_CONTROLS,
+  GRAPH_VIEW_SHORTCUTS,
   PluginUiError,
   pluginUiContextMatches,
   validatePluginUiContext,

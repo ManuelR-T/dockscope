@@ -350,11 +350,11 @@ capture time; this is not general-purpose secret scrubbing.
 
 ## Webhook alerts
 
-Open **Webhook alerts** (the bell in the dashboard toolbar) to save a receiver
+Open **… → Webhook alerts** in the dashboard toolbar to save a receiver
 URL and choose Generic JSON, Slack, or Discord. Saving applies immediately;
 **Disable webhook** stops delivery and removes the saved URL. Only operators
 can read or change these settings. Saved URLs are hidden; leave the URL field
-blank to keep it when changing the format.
+blank to keep it when changing the format, event selection, or scope.
 
 Settings persist in `<state dir>/webhook.json` with owner-only permissions.
 The existing Docker state volume preserves them across container recreation.
@@ -366,7 +366,7 @@ Alternatively, set `DOCKSCOPE_WEBHOOK_URL` to configure alerts on the server.
 Environment configuration overrides saved settings and makes the dashboard
 panel read-only. `DOCKSCOPE_WEBHOOK_FORMAT` selects `json` (default), `slack`,
 or `discord`. Restart DockScope after changing environment values. Invalid configured
-URLs or formats fail startup before providers are started. Use an HTTP(S) URL
+URLs, formats, or selections fail startup before providers are started. Use an HTTP(S) URL
 without embedded basic-auth credentials or a fragment.
 
 For a generic receiver:
@@ -397,10 +397,96 @@ diagnostics include cause, exit code, OOM status, details and log excerpts.
 Requests also carry `X-DockScope-Event-Id`, preserved across retries so receivers
 can deduplicate delivery. The `data.time` value is Unix milliseconds.
 
-Delivery runs independently of monitoring and browser connections. The monitor
-emits an anomaly only when it becomes active, allowing another alert after it
-clears and recurs. Crash diagnostics are sent whenever the monitor produces one;
-ordinary graph, stats and log messages are not forwarded.
+### Event selection and scope
+
+The panel offers `cpu`, `memory`, `crash`, `health`, `lifecycle`, `connectivity`,
+and `recovery` switches. Existing files and environment configurations default
+to **cpu, memory, crash**; additional events are opt-in. An empty event list
+pauses notifications without deleting the URL.
+
+Select sources/hosts, projects/namespaces, and individual workloads in the
+panel. An empty group matches everything. Entries within a group are ORed;
+nonempty groups are ANDed. Projects and workloads include an exact `sourceId`,
+so names on different hosts cannot collide. Workloads use the source's entity
+ID (the full Docker container ID), not a display name. Recreated containers
+have new IDs and must be selected again; use project filters to include replacements.
+Saved selections remain visible even when their workloads are unavailable.
+Connectivity alerts are source-wide and use only the source filter.
+Events without known project metadata cannot match a project filter.
+
+For environment-managed settings, set `DOCKSCOPE_WEBHOOK_EVENTS` to a
+comma-separated list (an explicitly empty value disables all events), and
+`DOCKSCOPE_WEBHOOK_SCOPE` to a JSON object:
+
+```json
+{
+  "sources": ["production"],
+  "projects": [{ "sourceId": "production", "project": "payments" }],
+  "workloads": []
+}
+```
+
+Omitted scope groups default to empty. Each group accepts at most 512 entries;
+identifiers must be nonempty strings of at most 512 characters. When
+`DOCKSCOPE_WEBHOOK_URL` is set, all settings come from the environment, and
+all dashboard controls are read-only. Selection variables alone do not
+modify a saved dashboard configuration.
+
+Operators can `GET /api/webhook`, `PUT /api/webhook` with
+`{ "url": "", "format": "json", "events": ["health"], "scope": { "sources": ["production"] } }`,
+and `DELETE /api/webhook`. Omitted `events`/`scope` preserve saved selections
+on updates. GET and PUT responses include `events` and normalized `scope`,
+plus `enabled`, `managedByEnv`, `format`, and the destination host; never the
+secret URL. Readers cannot access these settings endpoints.
+
+### Transition payloads and notification policy
+
+Existing anomaly and diagnostic payloads retain `version: 1`, `type`, and
+`data`. All alerts now additionally include `eventType`, Unix-millisecond
+`time`, `sourceId`, and an applicable `workload` object with `entityId`, `name`,
+and `project` (namespace for Kubernetes).
+
+New events use `version: 2`, `type: "transition"`, and structured `data` with
+`message` and applicable `previous`, `current`, `metric`, `value`, and
+`analyzerId` fields. Event types are:
+
+- `anomaly.cpu`, `anomaly.memory`, and `crash` for the existing alerts.
+- `health.unhealthy` and `health.healthy` from observed health transitions.
+- `lifecycle.created`, `.started`, `.stopped`, `.restarted`, `.paused`,
+  `.resumed`, and `.removed` from explicit supported workload events.
+- `source.disconnected` and `source.reconnected` when graph collection fails
+  and subsequently succeeds.
+- `anomaly.cpu.recovered` and `anomaly.memory.recovered` when an active
+  analyzer finding clears on a successful metric analysis.
+
+Initial snapshots establish a baseline without alerts. A source outage retains
+previous health/anomaly state and never implies workloads were removed or
+anomalies recovered. Restart alerts require explicit events, not differences
+between snapshots. Source capabilities determine available signals: a plugin
+without workload events can still supply health/connectivity transitions but
+cannot produce lifecycle alerts. Health polling observes only reported
+`healthy`/`unhealthy` transitions; short changes between polls can be missed.
+
+Health and connectivity send the first transition immediately, then coalesce
+changes for 30 seconds per source/workload and event family. At the end of
+that window, only the latest state is sent, if it differs from the last sent
+state. Intermediate flaps are intentionally omitted. These cooldowns track at
+most 512 subjects; the oldest is evicted when full. Identical event payloads
+are deduplicated for up to 60 seconds with a 2,048-entry bound.
+
+Docker `die` and `stop` events are correlated per workload for 60 seconds or
+until the next explicit start/create, with a 512-workload bound. DockScope waits
+up to 30 seconds for crash analysis before reporting the stop; a timeout
+produces an ordinary stop and late results are ignored. When both crash and lifecycle
+are selected, a diagnosed crash produces the diagnostic only. With lifecycle
+alone it produces a stopped alert (`data.crash: true`). Clean exits and failed
+or unavailable diagnostics produce an ordinary stopped alert. This avoids
+racing a slow diagnostic against a stop notification. Other explicit lifecycle
+events remain independent.
+
+Delivery and filtering run without a connected browser. Settings changes or
+shutdown discard queued/coalesced alerts. Transition baselines and duplicate
+tracking are in memory and reset on restart.
 
 Delivery is best effort: one request at a time, a 5-second timeout per attempt,
 and at most three attempts for network errors, HTTP 429 or HTTP 5xx. Retry delays

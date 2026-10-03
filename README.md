@@ -94,6 +94,20 @@ including `-H` to point at a remote Docker daemon, is in
 
 ### Read the whole stack at a glance
 
+The bundled **2D service map** plugin adds a **2D** tab above the graph.
+Use the **3D / 2D** switch to read the same stack as a flat service map. 3D remains the default; selection, filters, live metrics and the
+inspector are shared. Disable the 2D plugin from the plugin manager if you only
+want 3D. Other graph-view plugins automatically add their own tabs.
+In 2D, click a network to focus its members, drag the background to pan,
+and scroll to zoom. The network strip shows shared membership,
+not observed traffic, without drawing every network connection. Only networks
+attached to known containers are shown.
+
+Open the magnifying glass for search, scope, status filters and network colors
+(`/` or `Ctrl/Cmd+K` also works). Active filters remain visible as a count when
+the panel is closed. The **…** menu contains connections, Compose projects,
+plugins, webhook alerts and security settings.
+
 <img src="assets/screenshots/graph.png" alt="Compose stack rendered as a 3D graph, with cache sized largest because everything depends on it" width="620">
 
 Containers are spheres, coloured by health and wired together by `depends_on`
@@ -175,16 +189,16 @@ Install it from the Plugins panel, or write your own.
 
 ## Keyboard shortcuts
 
-| Key             | Action                     |
-| --------------- | -------------------------- |
-| `/` or `Ctrl+K` | Focus search               |
-| `Escape`        | Close panel, clear search  |
-| `F`             | Zoom to fit                |
-| `R`             | Reset camera               |
-| `C`             | Center on selected node    |
-| `I`             | Toggle impact view         |
-| `Space`         | Play or pause replay       |
-| `?`             | Show this list             |
+| Key             | Action                    |
+| --------------- | ------------------------- |
+| `/` or `Ctrl+K` | Focus search              |
+| `Escape`        | Close panel, clear search |
+| `F`             | Zoom to fit               |
+| `R`             | Reset camera              |
+| `C`             | Center on selected node   |
+| `I`             | Toggle impact view        |
+| `Space`         | Play or pause replay      |
+| `?`             | Show this list            |
 
 ## Is it safe to run?
 
@@ -209,16 +223,16 @@ A few things to know before you expose it anywhere:
 
 ## Documentation
 
-| Guide                                            | What is in it                                       |
-| ------------------------------------------------ | --------------------------------------------------- |
-| [Configuration](docs/configuration.md)           | Every CLI flag, environment variable and state file |
-| [Security](.github/SECURITY.md)                  | Access tokens, reverse proxy auth, the threat model |
-| [HTTP API](docs/api.md)                          | Every endpoint, and the WebSocket messages          |
-| [Writing plugins](docs/plugins.md)               | Build your own data source, panel or action         |
-| [Publishing plugins](docs/plugin-publishing.md)  | Package, sign and distribute one through a catalog  |
-| [Operating plugins](docs/plugin-operations.md)   | Loading, permissions, health and quarantine         |
-| [Contributing](CONTRIBUTING.md)                  | Development setup and how to send a PR              |
-| [Roadmap](ROADMAP.md)                            | Where this is going, and what needs doing           |
+| Guide                                           | What is in it                                       |
+| ----------------------------------------------- | --------------------------------------------------- |
+| [Configuration](docs/configuration.md)          | Every CLI flag, environment variable and state file |
+| [Security](.github/SECURITY.md)                 | Access tokens, reverse proxy auth, the threat model |
+| [HTTP API](docs/api.md)                         | Every endpoint, and the WebSocket messages          |
+| [Writing plugins](docs/plugins.md)              | Build your own data source, panel or action         |
+| [Publishing plugins](docs/plugin-publishing.md) | Package, sign and distribute one through a catalog  |
+| [Operating plugins](docs/plugin-operations.md)  | Loading, permissions, health and quarantine         |
+| [Contributing](CONTRIBUTING.md)                 | Development setup and how to send a PR              |
+| [Roadmap](ROADMAP.md)                           | Where this is going, and what needs doing           |
 
 ## Contributing
 

@@ -26,6 +26,10 @@
     "description": { "type": "string", "minLength": 1 },
     "entry": { "type": "string", "minLength": 1 },
     "builtin": { "type": "boolean" },
+    "optional": {
+      "type": "boolean",
+      "description": "Allow disabling an optional bundled plugin. Essential built-in plugins cannot be disabled."
+    },
     "author": { "type": "string", "minLength": 1 },
     "homepage": { "type": "string", "format": "uri" },
     "capabilities": {
@@ -59,6 +63,7 @@
           "ui.sidebarPanel",
           "ui.navigation",
           "ui.graphOverlay",
+          "ui.graphView",
           "ui.toolbarAction",
           "ui.settings",
           "ui.command",
@@ -148,6 +153,7 @@
               "nodePanel",
               "nodeAction",
               "graphOverlay",
+              "graphView",
               "settings"
             ]
           },
@@ -190,6 +196,7 @@
               "nodePanel",
               "nodeAction",
               "graphOverlay",
+              "graphView",
               "settings"
             ]
           }

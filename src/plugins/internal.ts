@@ -2,6 +2,7 @@ import path from 'path';
 import { PluginRegistry } from '../core/plugin-contract/registry.js';
 import { createComposePlugin } from '../docker/composePlugin.js';
 import { createDockerPlugin } from '../docker/plugin.js';
+import { createGraphView2dPlugin } from './graphView2d.js';
 import { createAnomalyPlugin } from '../server/anomalyPlugin.js';
 import { createPluginApprovalStoreFromEnv } from './approvalStore.js';
 import { createPluginConfigStoreFromEnv } from './configStore.js';
@@ -43,6 +44,7 @@ export function createInternalPluginRegistry(registry = new PluginRegistry()): P
   registry.register(createDockerPlugin());
   registry.register(createComposePlugin());
   registry.register(createAnomalyPlugin());
+  registry.register(createGraphView2dPlugin());
   return registry;
 }
 
@@ -65,6 +67,14 @@ export async function createPluginRegistry(
       await approvalStore.load(),
     ),
   );
+  for (const plugin of registry
+    .listPlugins()
+    .filter((item) => item.manifest.builtin && item.manifest.optional)) {
+    const saved = await stateStore.loadRuntimeState(plugin.manifest.id);
+    if (saved.enabled === false) {
+      await registry.disablePlugin(plugin.manifest.id);
+    }
+  }
   const external = await loadExternalPluginsFromEnv(env, {
     getConfig: (manifest) => configStore.load(manifest.id, manifest.config),
     grantedPermissions: await installedPermissionGrants(env),

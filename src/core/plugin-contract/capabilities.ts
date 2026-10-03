@@ -25,6 +25,7 @@ export const PLUGIN_CAPABILITIES = [
   'ui.sidebarPanel',
   'ui.navigation',
   'ui.graphOverlay',
+  'ui.graphView',
   'ui.toolbarAction',
   'ui.settings',
   'ui.command',

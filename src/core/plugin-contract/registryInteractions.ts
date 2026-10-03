@@ -56,6 +56,15 @@ export class RegistryInteractions {
               `declares UI extension "${extension.id}"`,
             );
           }
+          if (extensions.some((item) => item.slot === 'graphView')) {
+            requireManifestCapabilities(plugin.manifest, ['ui.frontend'], 'provides a graph view');
+            if (
+              !plugin.manifest.frontend?.slots.includes('graphView') ||
+              !plugin.getFrontendBundle
+            ) {
+              throw new PluginOperationError(400, 'Graph views require a declared frontend bundle');
+            }
+          }
           return extensions.map((extension) =>
             hydratePluginUiExtension(plugin.manifest.id, extension),
           );

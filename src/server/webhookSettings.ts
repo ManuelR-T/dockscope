@@ -4,7 +4,13 @@ import { randomUUID } from 'node:crypto';
 import type { Express } from 'express';
 import { statePath } from '../paths.js';
 import type { WSMessage } from '../types.js';
-import { readWebhookConfig, WebhookNotifier, type WebhookConfig } from './webhooks.js';
+import type { WebhookAlert } from './webhookEvents.js';
+import {
+  readWebhookConfig,
+  parseWebhookSelection,
+  WebhookNotifier,
+  type WebhookConfig,
+} from './webhooks.js';
 import { asyncRoute } from './errors.js';
 
 /** Owns persisted configuration and swaps delivery workers when settings change. */
@@ -38,6 +44,9 @@ export class WebhookSettings {
           DOCKSCOPE_WEBHOOK_URL: stored.url,
           DOCKSCOPE_WEBHOOK_FORMAT: stored.format,
         });
+        if (config) {
+          Object.assign(config, parseWebhookSelection(stored));
+        }
       }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
@@ -55,7 +64,12 @@ export class WebhookSettings {
       managedByEnv: this.managedByEnv,
       format: this.config?.format ?? 'json',
       destination: this.config ? new URL(this.config.url).host : null,
+      ...parseWebhookSelection(this.config ?? {}),
     };
+  }
+
+  notifyAlert(alert: WebhookAlert): void {
+    this.notifier.notifyAlert(alert);
   }
 
   notify(message: WSMessage): void {
@@ -90,6 +104,15 @@ export class WebhookSettings {
           DOCKSCOPE_WEBHOOK_URL: url,
           DOCKSCOPE_WEBHOOK_FORMAT: input.format,
         });
+        if (next) {
+          Object.assign(
+            next,
+            parseWebhookSelection({
+              events: 'events' in input ? input.events : this.config?.events,
+              scope: 'scope' in input ? input.scope : this.config?.scope,
+            }),
+          );
+        }
       }
       await mkdir(path.dirname(this.file), { recursive: true });
       const temporary = `${this.file}.${randomUUID()}.tmp`;

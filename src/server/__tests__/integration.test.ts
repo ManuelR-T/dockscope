@@ -814,7 +814,13 @@ describe('server integration', () => {
 
     const pluginUiResponse = await fetch(`http://127.0.0.1:${server.port}/api/plugins/ui`);
     expect(pluginUiResponse.status).toBe(200);
-    expect(await pluginUiResponse.json()).toEqual([]);
+    expect(await pluginUiResponse.json()).toEqual([
+      expect.objectContaining({
+        pluginId: 'official.graph-view-2d',
+        slot: 'graphView',
+        title: '2D',
+      }),
+    ]);
 
     const pluginConfigResponse = await fetch(`http://127.0.0.1:${server.port}/api/plugins/config`);
     expect(pluginConfigResponse.status).toBe(200);

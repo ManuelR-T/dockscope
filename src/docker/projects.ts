@@ -111,7 +111,7 @@ export async function composeAction(
             : ['down'];
       const { stdout, stderr } = await execFileAsync(
         'docker',
-        ['compose', ...compose.args, ...subArgs],
+        ['compose', '--project-name', project, ...compose.args, ...subArgs],
         { cwd: compose.cwd },
       );
       if (action === 'destroy') {
