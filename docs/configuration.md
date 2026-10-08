@@ -12,6 +12,7 @@ variables, and where it keeps state. Nothing here is required to run it.
 - [Metric history](#metric-history)
 - [Webhook alerts](#webhook-alerts)
 - [Access control](#access-control)
+- [Docker socket proxy](#docker-socket-proxy)
 - [Plugin file locations](#plugin-file-locations)
 
 ## Commands
@@ -300,6 +301,71 @@ failures, then a 5 minute lockout. And an instance reachable over the network
 can only be claimed through the setup screen during the first 15 minutes after
 startup, so nobody can claim one you left running. From the machine itself there
 is no time limit. If the window closes, restart or set `DOCKSCOPE_TOKEN`.
+
+## Docker socket proxy
+
+Mounting `/var/run/docker.sock` gives DockScope the same access as root on
+the host: every container, image, and network, with no way to narrow it. A
+socket proxy such as
+[Tecnativa/docker-socket-proxy](https://github.com/Tecnativa/docker-socket-proxy)
+sits between DockScope and the daemon and forwards only the API calls you
+enable, which lets the deployment hold a read-only, scoped credential instead
+of the real socket.
+
+DockScope's actual daemon usage is narrower than the full API: `/info` and
+`/_ping` for host identity, `/containers/json` plus per-container inspect,
+stats, logs, top and diff for the graph and detail views, `/events` for live
+updates, and container exec for the in-browser terminal. It never calls the
+images, networks, volumes, swarm or services endpoints, so those proxy
+sections can stay off.
+
+Read-only browsing, with no lifecycle actions and no terminal:
+
+```yaml
+services:
+  dockerproxy:
+    image: tecnativa/docker-socket-proxy
+    environment:
+      CONTAINERS: 1
+      EVENTS: 1
+      INFO: 1
+      PING: 1
+      POST: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+
+  dockscope:
+    image: ghcr.io/manuelr-t/dockscope
+    environment:
+      DOCKER_HOST: tcp://dockerproxy:2375
+    depends_on:
+      - dockerproxy
+```
+
+Adding lifecycle actions (start, stop, restart, kill, pause, unpause) and the
+exec terminal needs `POST` enabled plus the specific actions:
+
+```yaml
+    environment:
+      CONTAINERS: 1
+      EVENTS: 1
+      INFO: 1
+      PING: 1
+      POST: 1
+      EXEC: 1
+      ALLOW_START: 1
+      ALLOW_STOP: 1
+      ALLOW_RESTARTS: 1
+      ALLOW_PAUSE: 1
+      ALLOW_UNPAUSE: 1
+```
+
+Container removal is a `DELETE` request, and the proxy only ever forwards
+`GET` and, when `POST` is enabled, `POST`. No variable combination allows it,
+so **removing a container through DockScope always fails behind this proxy**.
+Everything else works at the full set above; dropping `POST` back to `0`
+falls back to the read-only tier without touching the other variables.
 
 ## Plugin file locations
 
