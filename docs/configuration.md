@@ -361,11 +361,14 @@ exec terminal needs `POST` enabled plus the specific actions:
       ALLOW_UNPAUSE: 1
 ```
 
-Container removal is a `DELETE` request, and the proxy only ever forwards
-`GET` and, when `POST` is enabled, `POST`. No variable combination allows it,
-so **removing a container through DockScope always fails behind this proxy**.
-Everything else works at the full set above; dropping `POST` back to `0`
-falls back to the read-only tier without touching the other variables.
+Container removal is a `DELETE` request. The proxy's method gate only checks
+for `GET` or, when `POST` is enabled, any non-`GET` method, and the generic
+`CONTAINERS` rule allows the whole `/containers` path regardless of method.
+So with `POST` and `CONTAINERS` both enabled, as in the set above, **removal
+through DockScope works**. There is no separate `ALLOW_REMOVE` variable, so
+you cannot expose removal without also exposing every other `POST` request
+the proxy allows under `/containers`. Dropping `POST` back to `0` falls back
+to the read-only tier without touching the other variables.
 
 ## Plugin file locations
 
