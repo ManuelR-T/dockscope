@@ -12,6 +12,8 @@ If you discover a security vulnerability in DockScope, please report it responsi
 
 DockScope connects to your Docker daemon and, through plugins, to Kubernetes clusters. It can exec into containers and pods, run lifecycle actions, and read environment variables, so treat access to it as equivalent to access to those systems.
 
+Mounting `/var/run/docker.sock` directly gives it the daemon's full API. [Docker socket proxy](../docs/configuration.md#docker-socket-proxy) covers running DockScope against a scoped proxy instead, including which features need which proxy permissions.
+
 ## Access control
 
 Two independent layers, both worth understanding because they protect against different things:
